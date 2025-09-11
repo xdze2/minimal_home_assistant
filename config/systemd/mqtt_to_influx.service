@@ -1,0 +1,16 @@
+[Unit]
+Description=MQTT to InfluxDB bridge
+After=network.target
+
+[Service]
+ExecStart=/home/bird/mqtt_to_influx/venv/bin/python /home/bird/mqtt_to_influx/mqtt_to_influx.py
+WorkingDirectory=/home/bird/mqtt_to_influx
+StandardOutput=journal
+StandardError=journal
+Restart=always
+User=bird
+Group=bird
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

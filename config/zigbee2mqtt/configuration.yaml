@@ -1,0 +1,58 @@
+version: 4
+mqtt:
+  base_topic: zigbee2mqtt
+  server: mqtt://localhost:1883
+  include_device_information: true
+serial:
+  port: /dev/ttyACM0
+  adapter: ember
+  baudrate: 115200
+  rtscts: false
+advanced:
+  last_seen: ISO_8601
+  elapsed: true
+  log_level: info
+  log_output:
+    - console
+  channel: 11
+  network_key:
+    - 137
+    - 195
+    - 251
+    - 103
+    - 98
+    - 177
+    - 161
+    - 212
+    - 124
+    - 149
+    - 74
+    - 167
+    - 157
+    - 82
+    - 12
+    - 203
+  pan_id: 6980
+  ext_pan_id:
+    - 11
+    - 239
+    - 155
+    - 219
+    - 6
+    - 7
+    - 119
+    - 165
+frontend:
+  enabled: true
+  port: 8081
+homeassistant:
+  enabled: false
+devices:
+  '0x00124b00291976e0':
+    friendly_name: sensors/thB
+  '0x00124b00291976e9':
+    friendly_name: sensors/thA
+  '0x00124b0029193cea':
+    friendly_name: sensors/thC
+  '0x00158d0005d29e40':
+    friendly_name: linky
