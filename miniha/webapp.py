@@ -119,6 +119,87 @@ def get_events() -> object:
     return jsonify(events)
 
 
+@app.route("/linky_daily")
+def linky_daily() -> object:
+    day = request.args.get("day", "2024-06-01")
+    # Query linky data for the day
+    query_res = influx_client.query_df(
+        measurement="linky",
+        field_list=[
+            "active_power",
+            "current_summ_delivered",
+        ],
+        start=day,
+        end=pd.to_datetime(day) + pd.Timedelta(days=1),
+    )
+    df = query_res.get("linky")
+    result = {
+        "total_kwh": None,
+        "status": "missing",
+        "cost_eur": None,
+        "top_events": [],
+    }
+
+    if df is None or df.empty:
+        return jsonify(result)
+
+    # Compute total kWh consumed (from current_summ_delivered, in kWh)
+    df = df.rename_axis("time").reset_index()
+    df = df.sort_values("time")
+    if "current_summ_delivered" in df.columns:
+        delivered = df["current_summ_delivered"].dropna()
+        if not delivered.empty:
+            total_kwh = delivered.iloc[-1] - delivered.iloc[0]
+            result["total_kwh"] = round(float(total_kwh), 3)
+        else:
+            result["total_kwh"] = None
+    else:
+        result["total_kwh"] = None
+
+    # Data status
+    expected_points = 24 * 60 * 4  # assuming 15s interval
+    actual_points = len(df)
+    if actual_points == 0:
+        result["status"] = "missing"
+    elif actual_points > 0.95 * expected_points:
+        result["status"] = "ok"
+    elif actual_points > 0.5 * expected_points:
+        result["status"] = "ongoing"
+    else:
+        result["status"] = "nok"
+
+    # Cost estimation (simple: 0.22 €/kWh)
+    if result["total_kwh"] is not None:
+        result["cost_eur"] = round(result["total_kwh"] * 0.22, 2)
+    else:
+        result["cost_eur"] = None
+
+    # Top 5 main consumption events (longest periods of high active_power)
+    top_events = []
+    if "active_power" in df.columns:
+        threshold = df["active_power"].quantile(0.90)  # top 10% as "high"
+        df["high"] = df["active_power"] > threshold
+        df["grp"] = (df["high"] != df["high"].shift()).cumsum()
+        high_groups = df[df["high"]].groupby("grp")
+        events = []
+        for _, group in high_groups:
+            start = group["time"].iloc[0]
+            end = group["time"].iloc[-1]
+            duration = (end - start).total_seconds() / 60  # minutes
+            max_power = group["active_power"].max()
+            events.append({
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "duration_min": round(duration, 1),
+                "max_power": round(float(max_power), 1),
+            })
+        # Sort by duration, take top 5
+        top_events = sorted(events, key=lambda e: e["duration_min"], reverse=True)[:5]
+    result["top_events"] = top_events
+
+    return jsonify(result)
+
+
 # # Serve other static files (JS, CSS)
 # @app.route("/<path:path>")
 # def static_proxy(path):

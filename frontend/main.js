@@ -10,7 +10,69 @@ let eventRanges = [];
 let selectedDate = new Date();
 selectedDate.setHours(0, 0, 0, 0);
 
+function fetchAndShowDailySummary(day) {
+  fetch(`/linky_daily?day=${day}`)
+    .then((res) => res.json())
+    .then((summary) => {
+      const el = document.getElementById("daily-summary");
+      if (!summary || summary.total_kwh === null) {
+        el.innerHTML = "<b>No daily summary available.</b>";
+        return;
+      }
+      let statusColor = "#aaa";
+      if (summary.status === "ok") statusColor = "#22c55e";
+      else if (summary.status === "ongoing") statusColor = "#f59e42";
+      else if (summary.status === "nok") statusColor = "#e41a1c";
+      el.innerHTML = `
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:2em;">
+          <div>
+            <div style="font-size:1.1em;font-weight:600;">Total kWh</div>
+            <div style="font-size:2em;">${summary.total_kwh ?? "-"}</div>
+          </div>
+          <div>
+            <div style="font-size:1.1em;font-weight:600;">Status</div>
+            <div style="font-size:1.2em;font-weight:600;color:${statusColor};">${
+        summary.status
+      }</div>
+          </div>
+          <div>
+            <div style="font-size:1.1em;font-weight:600;">Cost (€)</div>
+            <div style="font-size:1.5em;">${summary.cost_eur ?? "-"}</div>
+          </div>
+        </div>
+        <div style="margin-top:1em;">
+          <div style="font-size:1.1em;font-weight:600;">Top 5 Consumption Events</div>
+          <ol style="margin:0.5em 0 0 1.5em;">
+            ${
+              summary.top_events && summary.top_events.length
+                ? summary.top_events
+                    .map(
+                      (ev) =>
+                        `<li>
+                      <span style="font-weight:500;">${ev.start.slice(
+                        11,
+                        16
+                      )}–${ev.end.slice(11, 16)}</span>
+                      (${ev.duration_min} min, max ${ev.max_power} W)
+                    </li>`
+                    )
+                    .join("")
+                : "<li>No events</li>"
+            }
+          </ol>
+        </div>
+      `;
+    })
+    .catch((err) => {
+      document.getElementById("daily-summary").innerHTML =
+        "<b>Failed to load daily summary.</b>";
+      console.error(err);
+    });
+}
+
 function fetchAndDraw(day) {
+  fetchAndShowDailySummary(day);
+
   // Linky chart
   fetch(`/linky?day=${day}`)
     .then((res) => res.json())
