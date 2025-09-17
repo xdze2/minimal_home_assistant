@@ -11,69 +11,104 @@
         height: 300px;
         margin: 2em auto;
       }
+      .controls {
+        display: flex;
+        justify-content: center;
+        margin-top: 2rem;
+        margin-bottom: 1rem;
+      }
+      .controls label {
+        font-weight: 500;
+        margin-right: 0.5em;
+      }
+      .controls input[type="date"] {
+        padding: 0.3em 0.6em;
+        border-radius: 4px;
+        border: 1px solid #bbb;
+        font-size: 1em;
+      }
     </style>
   </head>
   <body>
-    <h1>MiniHA</h1>
+    <h1>Temperature Graph</h1>
+    <div class="controls">
+      <label for="day">Day:</label>
+      <input type="date" id="day" name="day" />
+    </div>
     <div id="chart"></div>
     <script src="uPlot.iife.min.js"></script>
     <script>
-      // Fetch data from backend
-      fetch("/data")
-        .then((res) => res.json())
-        .then((data) => {
-          // Assume data is an array of objects: [{time: "HH:MM", temp: value}, ...]
-          const times = data.map((d) => d.time);
-          const temps = data.map((d) => d.temp);
+      function getTodayISO() {
+        const d = new Date();
+        return d.toISOString().slice(0, 10);
+      }
 
-          // Convert times to x axis (e.g., minutes since midnight)
-          const xVals = times.map((t) => {
-            const [h, m] = t.split(":").map(Number);
-            return h * 60 + m;
-          });
+      const dayInput = document.getElementById("day");
+      dayInput.value = getTodayISO();
 
-          const opts = {
-            title: "Temperature over Time",
-            width: 600,
-            height: 300,
-            scales: { x: { time: false } },
-            series: [
-              {
-                label: "Time",
-                value: (u, v) => {
-                  // Convert minutes back to HH:MM for tooltip
-                  const h = Math.floor(v / 60)
-                    .toString()
-                    .padStart(2, "0");
-                  const m = (v % 60).toString().padStart(2, "0");
-                  return `${h}:${m}`;
-                },
-              },
-              { label: "Temp (°C)" },
-            ],
-            axes: [
-              {
-                label: "Time (HH:MM)",
-                values: (u, ticks) =>
-                  ticks.map((v) => {
+      function fetchAndDraw(day) {
+        fetch(`/linky?day=${day}`)
+          .then((res) => res.json())
+          .then((data) => {
+            const times = data.map((d) => d.time);
+            const temps = data.map((d) => d.temp);
+            const xVals = times.map((t) => {
+              const [h, m] = t.split(":").map(Number);
+              return h * 60 + m;
+            });
+
+            const opts = {
+              title: "Temperature over Time",
+              width: 600,
+              height: 300,
+              scales: { x: { time: false } },
+              series: [
+                {
+                  label: "Time",
+                  value: (u, v) => {
                     const h = Math.floor(v / 60)
                       .toString()
                       .padStart(2, "0");
                     const m = (v % 60).toString().padStart(2, "0");
                     return `${h}:${m}`;
-                  }),
-              },
-              { label: "Temp (°C)" },
-            ],
-          };
+                  },
+                },
+                { label: "Temp (°C)" },
+              ],
+              axes: [
+                {
+                  label: "Time (HH:MM)",
+                  values: (u, ticks) =>
+                    ticks.map((v) => {
+                      const h = Math.floor(v / 60)
+                        .toString()
+                        .padStart(2, "0");
+                      const m = (v % 60).toString().padStart(2, "0");
+                      return `${h}:${m}`;
+                    }),
+                },
+                { label: "Temp (°C)" },
+              ],
+            };
 
-          const dataArr = [xVals, temps];
-          new uPlot(opts, dataArr, document.getElementById("chart"));
-        })
-        .catch((err) => {
-          document.getElementById("chart").innerText = "Failed to load data";
-          console.error(err);
-        });
+            // Remove previous chart if exists
+            const chartDiv = document.getElementById("chart");
+            chartDiv.innerHTML = "";
+            const dataArr = [xVals, temps];
+            new uPlot(opts, dataArr, chartDiv);
+          })
+          .catch((err) => {
+            document.getElementById("chart").innerText = "Failed to load data";
+            console.error(err);
+          });
+      }
+
+      dayInput.addEventListener("change", (e) => {
+        fetchAndDraw(e.target.value);
+      });
+
+      // Initial load
+      fetchAndDraw(dayInput.value);
     </script>
   </body>
 </html>
