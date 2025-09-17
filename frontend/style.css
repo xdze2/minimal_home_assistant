@@ -34,9 +34,3 @@ a:hover {
   text-decoration: underline;
 }
 
-.chart_box {
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 2px 16px rgba(17, 21, 27, 0.08);
-  padding: 1.2em;
-}

@@ -7,7 +7,6 @@ ExecStart=/home/bird/mqtt_to_influx/venv/bin/miniha_webapp
 WorkingDirectory=/home/bird/mqtt_to_influx
 StandardOutput=inherit
 StandardError=inherit
-WatchdogSec=10s
 Restart=always
 RestartSec=30s
 User=bird
