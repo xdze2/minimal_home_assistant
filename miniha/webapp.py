@@ -91,6 +91,34 @@ def get_temperatures_data() -> object:
     return jsonify(results)
 
 
+@app.route("/events")
+def get_events() -> object:
+    day = request.args.get("day", "2024-06-01")
+    # Mock data: events for the given day
+    # Times are in ISO format, UTC
+    events = [
+        {
+            "start": f"{day}T07:30:00Z",
+            "end": f"{day}T08:00:00Z",
+            "title": "Breakfast",
+            "message": "Family breakfast time.",
+        },
+        {
+            "start": f"{day}T12:00:00Z",
+            "end": f"{day}T12:30:00Z",
+            "title": "Lunch",
+            "message": "Lunch break.",
+        },
+        {
+            "start": f"{day}T18:30:00Z",
+            "end": f"{day}T19:00:00Z",
+            "title": "Dinner",
+            "message": "Dinner with friends.",
+        },
+    ]
+    return jsonify(events)
+
+
 # # Serve other static files (JS, CSS)
 # @app.route("/<path:path>")
 # def static_proxy(path):

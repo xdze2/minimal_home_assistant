@@ -6,13 +6,68 @@
     <link rel="stylesheet" href="style.css" />
     <link rel="stylesheet" href="uPlot.min.css" />
     <style>
-      #chart {
+      body {
+        display: flex;
+        flex-direction: row;
+        min-height: 100vh;
+      }
+      .main-content {
+        flex: 1 1 auto;
+        padding-right: 320px;
+      }
+      #sidebar {
+        width: 300px;
+        background: #f9f9fa;
+        border-left: 1px solid #eee;
+        padding: 1em;
+        margin-right: 1em;
+        position: fixed;
+        right: 0;
+        top: 0;
+        height: 100vh;
+        overflow-y: auto;
+      }
+      #sidebar h2 {
+        font-size: 1.2em;
+        margin-top: 0;
+      }
+      .event-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      .event-list li {
+        margin-bottom: 1em;
+        padding: 0.5em;
+        border-radius: 6px;
+        cursor: pointer;
+        border-left: 4px solid #377eb8;
+        background: #f0f6ff;
+        transition: background 0.2s;
+      }
+      .event-list li.selected {
+        background: #dbeafe;
+        border-left: 4px solid #e41a1c;
+      }
+      .event-title {
+        font-weight: bold;
+      }
+      .event-message {
+        font-size: 0.95em;
+        color: #444;
+      }
+      .chart {
         width: 90%;
         max-width: 800px;
         margin: auto;
         text-align: center;
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 2px 16px rgba(17, 21, 27, 0.08);
+        padding: 1em;
+        margin-bottom: 1em;
       }
-      #chart canvas {
+      .chart canvas {
         display: block;
       }
       .controls {
@@ -34,14 +89,19 @@
     </style>
   </head>
   <body>
-    <h1>Linky Power Graph</h1>
-    <div class="controls">
-      <label for="day">Day:</label>
-      <input type="date" id="day" name="day" />
+    <div class="main-content">
+      <h1>Mini HA</h1>
+      <div class="controls">
+        <label for="day">Day:</label>
+        <input type="date" id="day" name="day" />
+      </div>
+      <div id="chart" class="chart"></div>
+      <div id="temp-chart" class="chart"></div>
     </div>
-    <div id="chart"></div>
-    <h1>Temperatures</h1>
-    <div id="temp-chart"></div>
+    <div id="sidebar">
+      <h2>Events</h2>
+      <ul class="event-list" id="event-list"></ul>
+    </div>
     <script src="uPlot.iife.min.js"></script>
     <script src="main.js"></script>
   </body>
