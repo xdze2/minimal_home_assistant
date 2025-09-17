@@ -28,17 +28,23 @@ class InfluxInterface:
         field_list,
         start: str,
         end: str,
+        group_by: str = None,
     ) -> pd.DataFrame:
         """Query InfluxDB and return a DataFrame."""
 
-        fields_str = ",".join(field_list)
+        fields_str = ",".join((f'"{u}"' for u in field_list))
         start = normalize_to_datetime(start).isoformat() + "Z"
         end = normalize_to_datetime(end).isoformat() + "Z"
-        query = f"""
-        SELECT {fields_str} FROM "{measurement}"
-        WHERE time >= '{start}' AND time < '{end}'
-        ORDER BY time ASC
-        """
+        query_parts = [
+            f'Select {fields_str} FROM "{measurement}"',
+            f"WHERE time >= '{start}' AND time < '{end}'",
+        ]
+        if group_by is not None:
+            query_parts.append(f"GROUP BY {group_by}")
+        query_parts.append("ORDER BY time ASC")
+
+        query = "\n".join(query_parts)
+        print(f"InfluxDB query: {query}")
         raw_result = self.df_client.query(query)
         if not raw_result:
             return
