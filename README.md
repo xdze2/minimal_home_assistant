@@ -27,6 +27,19 @@ and
 sudo apt install influxdb-client
 ```
 
+## Install
+
+```
+python3 -m venv venv
+source venv/bin/activate
+python3 -m pip install --upgrade pip
+pip install -e .
+```
+
+```
+...
+sudo cp config/systemd/miniha_webapp.service /etc/systemd/system/
+```
 
 ## Images
 Temperatures and power usage daily graphs
