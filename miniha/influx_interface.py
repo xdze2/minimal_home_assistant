@@ -36,16 +36,16 @@ class InfluxInterface:
         start = normalize_to_datetime(start).isoformat() + "Z"
         end = normalize_to_datetime(end).isoformat() + "Z"
         query_parts = [
-            f'Select {fields_str} FROM "{measurement}"',
+            f'SELECT {fields_str} FROM "{measurement}"',
             f"WHERE time >= '{start}' AND time < '{end}'",
         ]
         if group_by is not None:
-            query_parts.append(f"GROUP BY {group_by}")
-        query_parts.append("ORDER BY time ASC")
+            query_parts.append(f'GROUP BY "{group_by}"')
+        query_parts.append('ORDER BY "time" ASC')
 
         query = "\n".join(query_parts)
         print(f"InfluxDB query: {query}")
         raw_result = self.df_client.query(query)
         if not raw_result:
             return
-        return raw_result[measurement]
+        return raw_result

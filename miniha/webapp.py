@@ -34,7 +34,7 @@ def index() -> object:
 @app.route("/linky")
 def get_linky_data() -> object:
     day = request.args.get("day", "2024-06-01")
-    df = influx_client.query_df(
+    query_res = influx_client.query_df(
         measurement="linky",
         field_list=[
             "apparent_power",
@@ -46,7 +46,7 @@ def get_linky_data() -> object:
         start=day,
         end=pd.to_datetime(day) + pd.Timedelta(days=1),
     )
-
+    df = query_res.get("linky")
     if df is None or df.empty:
         print(f"no linky records for day {day}")
         return jsonify({"data": []})
@@ -60,7 +60,7 @@ def get_linky_data() -> object:
 @app.route("/temperatures")
 def get_temperatures_data() -> object:
     day = request.args.get("day", "2024-06-01")
-    df = influx_client.query_df(
+    df_dicts = influx_client.query_df(
         measurement="sonoff_thermometer",
         field_list=[
             "name",
@@ -68,16 +68,28 @@ def get_temperatures_data() -> object:
         ],
         start=day,
         end=pd.to_datetime(day) + pd.Timedelta(days=1),
+        group_by="name",
     )
-
-    if df is None or df.empty:
+    print(df_dicts)
+    if df_dicts is None or len(df_dicts) == 0:
         print(f"no records for day {day}")
         return jsonify({"data": []})
 
-    print(f"get {len(df)} records for day {day}")
-    df = df.rename_axis("time").reset_index()
-    json_obj = json.loads(df.to_json(orient="table", index=False))
-    return jsonify(json_obj)
+    results = dict()
+    for meas_name, df in df_dicts.items():
+        if df is None or df.empty:
+            continue
+        print(f"get {len(df)} records for day {day} and sensor {meas_name}")
+        try:
+            sensor_name = meas_name[1][0][1]
+            sensor_name = sensor_name.split("/")[-1]
+        except IndexError as err:
+            print(f"[ERROR] cannot extract sensor name from {meas_name}: {err}")
+            continue
+        df = df.rename_axis("time").reset_index()
+        results[sensor_name] = json.loads(df.to_json(orient="table", index=False))
+
+    return jsonify(results)
 
 
 # # Serve other static files (JS, CSS)
