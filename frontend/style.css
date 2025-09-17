@@ -1,0 +1,36 @@
+html {
+  box-sizing: border-box;
+  font-size: 16px;
+  background: #f6f8fa;
+}
+
+*, *:before, *:after {
+  box-sizing: inherit;
+}
+
+body {
+  margin: 0;
+  font-family: 'monospace', 'Roboto', 'Arial', sans-serif;
+  color: #222;
+  background: #fafafa;
+  min-height: 100vh;
+  padding: 10px;
+}
+
+h1 {
+  font-weight: 600;
+  margin-top: 2rem;
+  color: #2d3a4a;
+  letter-spacing: 1px;
+}
+
+
+a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+

@@ -12,10 +12,15 @@ dependencies = [
     "numpy==2.0.2",
     "paho-mqtt==2.1.0",
     "pandas==2.3.2",
-    "rich"
+    "rich",
+    "flask"
 ]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["miniha"]
 namespaces = false
+
+
+[project.scripts]
+miniha_webapp = "miniha.webapp:main" 
