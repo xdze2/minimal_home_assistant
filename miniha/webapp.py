@@ -70,7 +70,6 @@ def get_temperatures_data() -> object:
         end=pd.to_datetime(day) + pd.Timedelta(days=1),
         group_by="name",
     )
-    print(df_dicts)
     if df_dicts is None or len(df_dicts) == 0:
         print(f"no records for day {day}")
         return jsonify({"data": []})
