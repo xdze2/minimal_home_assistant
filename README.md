@@ -1,4 +1,4 @@
-# Minimal Home Assistant
+# Minimal Home Assistant
 
 - Read ZigBee sensors using https://www.zigbee2mqtt.io/
 - Store data to InfluxDB v1 
