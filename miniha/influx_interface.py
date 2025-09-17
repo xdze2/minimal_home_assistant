@@ -39,9 +39,7 @@ class InfluxInterface:
         WHERE time >= '{start}' AND time < '{end}'
         ORDER BY time ASC
         """
-        print("InfluxDB Query:", query)
         raw_result = self.df_client.query(query)
         if not raw_result:
             return
-        print(raw_result)
         return raw_result[measurement]

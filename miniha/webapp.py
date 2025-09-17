@@ -47,6 +47,11 @@ def get_linky_data() -> object:
         end=pd.to_datetime(day) + pd.Timedelta(days=1),
     )
 
+    if df is None or df.empty:
+        print(f"no linky records for day {day}")
+        return jsonify({"data": []})
+
+    print(f"get {len(df)} linky records for day {day}")
     df = df.rename_axis("time").reset_index()
     json_obj = json.loads(df.to_json(orient="table", index=False))
     return jsonify(json_obj)

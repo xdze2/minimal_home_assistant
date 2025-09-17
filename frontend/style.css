@@ -24,12 +24,6 @@ h1 {
   letter-spacing: 1px;
 }
 
-#chart {
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 2px 16px rgba(60,72,88,0.08);
-  padding: 1.5rem;
-}
 
 a {
   color: #2563eb;
@@ -40,23 +34,9 @@ a:hover {
   text-decoration: underline;
 }
 
-#chart {
-    width: 600px;
-    height: 300px;
-    margin: 2em;
-    text-align: left;
-}
-.controls {
-    margin-top: 2rem;
-    margin-bottom: 1rem;
-}
-.controls label {
-    font-weight: 500;
-    margin-right: 0.5em;
-}
-.controls input[type="date"] {
-    padding: 0.3em 0.6em;
-    border-radius: 4px;
-    border: 1px solid #bbb;
-    font-size: 1em;
+.chart_box {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 16px rgba(17, 21, 27, 0.08);
+  padding: 1.2em;
 }
