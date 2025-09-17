@@ -147,6 +147,7 @@ function fetchAndDrawTemperatures(day) {
         ...sensorNames.map((name, idx) => ({
           label: name,
           stroke: palette[idx % palette.length],
+          spanGaps: true,
         })),
       ];
 
