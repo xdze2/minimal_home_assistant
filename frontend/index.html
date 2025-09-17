@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>MiniHA Temperature Graph</title>
+    <link rel="stylesheet" href="modern.css" />
+    <link rel="stylesheet" href="uPlot.min.css" />
+    <style>
+      #chart {
+        width: 600px;
+        height: 300px;
+        margin: 2em auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>MiniHA</h1>
+    <div id="chart"></div>
+    <script src="uPlot.iife.min.js"></script>
+    <script>
+      // Fetch data from backend
+      fetch("/data")
+        .then((res) => res.json())
+        .then((data) => {
+          // Assume data is an array of objects: [{time: "HH:MM", temp: value}, ...]
+          const times = data.map((d) => d.time);
+          const temps = data.map((d) => d.temp);
+
+          // Convert times to x axis (e.g., minutes since midnight)
+          const xVals = times.map((t) => {
+            const [h, m] = t.split(":").map(Number);
+            return h * 60 + m;
+          });
+
+          const opts = {
+            title: "Temperature over Time",
+            width: 600,
+            height: 300,
+            scales: { x: { time: false } },
+            series: [
+              {
+                label: "Time",
+                value: (u, v) => {
+                  // Convert minutes back to HH:MM for tooltip
+                  const h = Math.floor(v / 60)
+                    .toString()
+                    .padStart(2, "0");
+                  const m = (v % 60).toString().padStart(2, "0");
+                  return `${h}:${m}`;
+                },
+              },
+              { label: "Temp (°C)" },
+            ],
+            axes: [
+              {
+                label: "Time (HH:MM)",
+                values: (u, ticks) =>
+                  ticks.map((v) => {
+                    const h = Math.floor(v / 60)
+                      .toString()
+                      .padStart(2, "0");
+                    const m = (v % 60).toString().padStart(2, "0");
+                    return `${h}:${m}`;
+                  }),
+              },
+              { label: "Temp (°C)" },
+            ],
+          };
+
+          const dataArr = [xVals, temps];
+          new uPlot(opts, dataArr, document.getElementById("chart"));
+        })
+        .catch((err) => {
+          document.getElementById("chart").innerText = "Failed to load data";
+          console.error(err);
+        });
+    </script>
+  </body>
+</html>
