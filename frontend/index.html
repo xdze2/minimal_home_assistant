@@ -5,38 +5,22 @@
     <title>MiniHA Temperature Graph</title>
     <link rel="stylesheet" href="modern.css" />
     <link rel="stylesheet" href="uPlot.min.css" />
-    <style>
-      #chart {
-        width: 600px;
-        height: 300px;
-        margin: 2em auto;
-      }
-      .controls {
-        display: flex;
-        justify-content: center;
-        margin-top: 2rem;
-        margin-bottom: 1rem;
-      }
-      .controls label {
-        font-weight: 500;
-        margin-right: 0.5em;
-      }
-      .controls input[type="date"] {
-        padding: 0.3em 0.6em;
-        border-radius: 4px;
-        border: 1px solid #bbb;
-        font-size: 1em;
-      }
-    </style>
+    <style></style>
   </head>
   <body>
-    <h1>Temperature Graph</h1>
+    <script src="uPlot.iife.min.js"></script>
+
+    <h1>Mini HA</h1>
+
     <div class="controls">
       <label for="day">Day:</label>
       <input type="date" id="day" name="day" />
     </div>
+
+    <h2>Linky</h2>
+
     <div id="chart"></div>
-    <script src="uPlot.iife.min.js"></script>
+
     <script>
       function getTodayISO() {
         const d = new Date();
@@ -49,52 +33,52 @@
       function fetchAndDraw(day) {
         fetch(`/linky?day=${day}`)
           .then((res) => res.json())
-          .then((data) => {
-            const times = data.map((d) => d.time);
-            const temps = data.map((d) => d.temp);
-            const xVals = times.map((t) => {
-              const [h, m] = t.split(":").map(Number);
-              return h * 60 + m;
+          .then((jsonObj) => {
+            const data = jsonObj.data;
+            if (!data || data.length === 0) {
+              document.getElementById("chart").innerText = "No data";
+              return;
+            }
+
+            // Parse ISO time string to minutes since midnight
+            const hours = data.map((row) => {
+              // row.time is ISO string, e.g. "2024-06-01T12:34:56.000Z"
+              const dt = new Date(row.time);
+              return dt ? dt.getHours() + dt.getMinutes() / 60 : null;
             });
 
+            const apparentPower = data.map((row) => row.apparent_power);
+
+            console.log(hours);
+            console.log(apparentPower);
+
             const opts = {
-              title: "Temperature over Time",
+              title: "Apparent Power over Time",
               width: 600,
               height: 300,
               scales: { x: { time: false } },
               series: [
                 {
                   label: "Time",
-                  value: (u, v) => {
-                    const h = Math.floor(v / 60)
-                      .toString()
-                      .padStart(2, "0");
-                    const m = (v % 60).toString().padStart(2, "0");
-                    return `${h}:${m}`;
-                  },
                 },
-                { label: "Temp (°C)" },
+                {
+                  label: "Apparent Power",
+                  stroke: "rgba(5, 141, 199, 1)",
+                  fill: "rgba(5, 141, 199, 0.1)",
+                },
               ],
               axes: [
                 {
                   label: "Time (HH:MM)",
-                  values: (u, ticks) =>
-                    ticks.map((v) => {
-                      const h = Math.floor(v / 60)
-                        .toString()
-                        .padStart(2, "0");
-                      const m = (v % 60).toString().padStart(2, "0");
-                      return `${h}:${m}`;
-                    }),
                 },
-                { label: "Temp (°C)" },
+                { label: "Apparent Power" },
               ],
             };
 
             // Remove previous chart if exists
             const chartDiv = document.getElementById("chart");
             chartDiv.innerHTML = "";
-            const dataArr = [xVals, temps];
+            const dataArr = [hours, apparentPower];
             new uPlot(opts, dataArr, chartDiv);
           })
           .catch((err) => {

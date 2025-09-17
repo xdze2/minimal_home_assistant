@@ -46,9 +46,10 @@ def get_linky_data() -> object:
         start=day,
         end=pd.to_datetime(day) + pd.Timedelta(days=1),
     )
-    temps = df.to_dict(orient="records")
 
-    return jsonify(temps)
+    df = df.rename_axis("time").reset_index()
+    json_obj = json.loads(df.to_json(orient="table", index=False))
+    return jsonify(json_obj)
 
 
 # # Serve other static files (JS, CSS)
