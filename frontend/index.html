@@ -70,30 +70,77 @@
       .chart canvas {
         display: block;
       }
-      .controls {
+      .calendar-container {
         display: flex;
         justify-content: center;
         margin-top: 2rem;
         margin-bottom: 1rem;
       }
-      .controls label {
-        font-weight: 500;
-        margin-right: 0.5em;
-      }
-      .controls input[type="date"] {
-        padding: 0.3em 0.6em;
-        border-radius: 4px;
-        border: 1px solid #bbb;
+      .calendar {
+        border-collapse: collapse;
+        background: #fff;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(60, 72, 88, 0.08);
         font-size: 1em;
+      }
+      .calendar th,
+      .calendar td {
+        width: 2.5em;
+        height: 2.5em;
+        text-align: center;
+        cursor: pointer;
+        border: 1px solid #eee;
+        border-radius: 4px;
+        transition: background 0.2s;
+      }
+      .calendar th {
+        background: #f0f6ff;
+        font-weight: 600;
+        cursor: default;
+      }
+      .calendar td.selected {
+        background: #377eb8;
+        color: #fff;
+        font-weight: bold;
+      }
+      .calendar td.today {
+        border: 2px solid #e41a1c;
+      }
+      .calendar td:hover:not(.selected):not(.empty) {
+        background: #dbeafe;
+      }
+      .calendar td.empty {
+        background: transparent;
+        cursor: default;
+        border: none;
+      }
+      .calendar-nav {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0.5em;
+      }
+      .calendar-nav button {
+        background: #377eb8;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        padding: 0.2em 0.7em;
+        font-size: 1em;
+        cursor: pointer;
+        margin: 0 0.5em;
+      }
+      .calendar-nav span {
+        font-weight: 600;
+        font-size: 1.1em;
       }
     </style>
   </head>
   <body>
     <div class="main-content">
       <h1>Mini HA</h1>
-      <div class="controls">
-        <label for="day">Day:</label>
-        <input type="date" id="day" name="day" />
+      <div class="calendar-container">
+        <div id="calendar"></div>
       </div>
       <div id="chart" class="chart"></div>
       <div id="temp-chart" class="chart"></div>

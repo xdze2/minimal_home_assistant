@@ -7,6 +7,8 @@ let currentEvent = null;
 let linkyPlot = null;
 let tempPlot = null;
 let eventRanges = [];
+let selectedDate = new Date();
+selectedDate.setHours(0, 0, 0, 0);
 
 function fetchAndDraw(day) {
   // Linky chart
@@ -244,16 +246,108 @@ function formatMinutes(mins) {
   return `${h}:${m}`;
 }
 
-const dayInput = document.getElementById("day");
-dayInput.value = getTodayISO();
+function renderCalendar(date) {
+  const calendarDiv = document.getElementById("calendar");
+  calendarDiv.innerHTML = "";
 
-dayInput.addEventListener("change", (e) => {
-  currentEvent = null;
-  fetchAndDraw(e.target.value);
+  const year = date.getFullYear();
+  const month = date.getMonth();
+
+  // First day of month
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const firstWeekDay = firstDay.getDay() || 7; // Monday=1, Sunday=7
+  const daysInMonth = lastDay.getDate();
+
+  // Calendar navigation
+  const nav = document.createElement("div");
+  nav.className = "calendar-nav";
+  const prevBtn = document.createElement("button");
+  prevBtn.textContent = "<";
+  prevBtn.onclick = () => {
+    renderCalendar(new Date(year, month - 1, 1));
+  };
+  const nextBtn = document.createElement("button");
+  nextBtn.textContent = ">";
+  nextBtn.onclick = () => {
+    renderCalendar(new Date(year, month + 1, 1));
+  };
+  const label = document.createElement("span");
+  label.textContent = date.toLocaleString(undefined, {
+    month: "long",
+    year: "numeric",
+  });
+  nav.appendChild(prevBtn);
+  nav.appendChild(label);
+  nav.appendChild(nextBtn);
+  calendarDiv.appendChild(nav);
+
+  // Table
+  const table = document.createElement("table");
+  table.className = "calendar";
+  const thead = document.createElement("thead");
+  const tr = document.createElement("tr");
+  ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].forEach((d) => {
+    const th = document.createElement("th");
+    th.textContent = d;
+    tr.appendChild(th);
+  });
+  thead.appendChild(tr);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  let row = document.createElement("tr");
+  // Fill empty cells before first day
+  for (let i = 1; i < firstWeekDay; i++) {
+    const td = document.createElement("td");
+    td.className = "empty";
+    row.appendChild(td);
+  }
+  for (let day = 1; day <= daysInMonth; day++) {
+    if (row.children.length === 7) {
+      tbody.appendChild(row);
+      row = document.createElement("tr");
+    }
+    const td = document.createElement("td");
+    td.textContent = day;
+    td.className = "";
+    const cellDate = new Date(year, month, day);
+    cellDate.setHours(0, 0, 0, 0);
+
+    // Highlight today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (cellDate.getTime() === today.getTime()) {
+      td.classList.add("today");
+    }
+    // Highlight selected
+    if (cellDate.getTime() === selectedDate.getTime()) {
+      td.classList.add("selected");
+    }
+    td.onclick = () => {
+      selectedDate = cellDate;
+      renderCalendar(selectedDate);
+      currentEvent = null;
+      fetchAndDraw(selectedDate.toISOString().slice(0, 10));
+    };
+    row.appendChild(td);
+  }
+  // Fill empty cells after last day
+  while (row.children.length < 7) {
+    const td = document.createElement("td");
+    td.className = "empty";
+    row.appendChild(td);
+  }
+  tbody.appendChild(row);
+  table.appendChild(tbody);
+  calendarDiv.appendChild(table);
+}
+
+// Replace dayInput logic with calendar
+document.addEventListener("DOMContentLoaded", () => {
+  renderCalendar(selectedDate);
+  fetchAndDraw(selectedDate.toISOString().slice(0, 10));
 });
 
 // Initial load
-fetchAndDraw(dayInput.value);
-
-// Initial load
-fetchAndDraw(dayInput.value);
+fetchAndDraw(selectedDate.toISOString().slice(0, 10));
