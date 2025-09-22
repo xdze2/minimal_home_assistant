@@ -31,6 +31,7 @@ function fetchAndDraw(day) {
         .filter((v) => v !== null);
 
       const apparentPower = data.map((row) => row.apparent_power);
+      const activePower = data.map((row) => row.active_power);
 
       const opts = {
         title: "Apparent Power over Time",
@@ -49,6 +50,7 @@ function fetchAndDraw(day) {
             },
           },
           { label: "Apparent Power", stroke: "#377eb8" },
+          { label: "Active Power", stroke: "#97441eff" },
         ],
         axes: [
           {
@@ -62,13 +64,17 @@ function fetchAndDraw(day) {
                 return `${h}:${m}`;
               }),
           },
-          { label: "Apparent Power" },
+          { label: "Power" },
         ],
       };
 
       const chartDiv = document.getElementById("chart");
       chartDiv.innerHTML = "";
-      linkyPlot = new uPlot(opts, [times, apparentPower], chartDiv);
+      linkyPlot = new uPlot(
+        opts,
+        [times, apparentPower, activePower],
+        chartDiv
+      );
     })
     .catch((err) => {
       document.getElementById("chart").innerText = "Failed to load data";
