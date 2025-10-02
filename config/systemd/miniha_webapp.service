@@ -1,7 +1,7 @@
 [Unit]
 Description=miniha_webapp
 After=network.target influxdb.service
-Requires=influxdb.service
+Wants=influxdb.service
 
 [Service]
 ExecStart=/home/bird/minimal_home_assistant/venv/bin/miniha_webapp

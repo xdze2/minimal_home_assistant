@@ -44,6 +44,7 @@ mkdir /media/data/influxdb
 sudo chown influxdb:influxdb /media/data/influxdb
 sudo cp /etc/influxdb/influxdb.conf /etc/influxdb/influxdb.conf.bck
 sudo cp config/influxdb/influxdb.conf /etc/influxdb/influxdb.conf
+sudo mkdir /etc/systemd/system/influxdb.service.d
 sudo cp config/systemd/override.conf /etc/systemd/system/influxdb.service.d/
 sudo service influxdb restart
 ```
@@ -62,6 +63,8 @@ pip install -e .
 ```
 sudo cp config/systemd/miniha_webapp.service /etc/systemd/system/
 sudo cp config/systemd/mqtt_to_influx.service /etc/systemd/system/
+sudo systemctl enable miniha_webapp.service 
+sudo systemctl enable mqtt_to_influx.service 
 ```
 
 - Visit: http://192.168.1.87:5000/
