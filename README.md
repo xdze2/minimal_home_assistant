@@ -10,17 +10,23 @@
 - Flash SD Card with RPI OS Lite
 - 
 
-## Configuration for Zigbee2mqtt
+## Install Zigbee2mqtt
 
 
 ```
+chmod +x config/install_zigbee2mqtt.sh
+./config/install_zigbee2mqtt.sh
+
+sudo cp ./config/mosquitto/mosquitto.conf /etc/mosquitto/conf.d/
 sudo cp config/zigbee2mqtt/configuration.yaml /opt/zigbee2mqtt/data/
+sudo cp config/systemd/zigbee2mqtt.service  /etc/systemd/system
+sudo systemctl enable zigbee2mqtt.service 
 sudo systemctl restart zigbee2mqtt.service 
 sudo systemctl status zigbee2mqtt.service 
 ```
 
-
-note: To look at messages use mqttui  `mqttui -b mqtt://192.168.1.87`
+- Visit web app at http://$IP:8081/
+- Look at messages use mqttui `mqttui -b mqtt://192.168.1.87`
 
 
 ## InfluxDB v1
