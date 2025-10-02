@@ -56,7 +56,7 @@ else
     echo "Backing up $FSTAB -> ${FSTAB}.bak"
     sudo cp "$FSTAB" "${FSTAB}.bak"
 
-    echo "$DEVICE   $MOUNT_POINT   ext4   defaults   0   2" | sudo tee -a "$FSTAB"
+    echo "$DEVICE   $MOUNT_POINT   ext4   defaults,nofail   0   2" | sudo tee -a "$FSTAB"
 fi
 
 # 5. Mount immediately without reboot
