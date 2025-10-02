@@ -5,6 +5,11 @@
 - Without HomeAssistant
 - Run on a Raspberry
 
+
+## Install
+- Flash SD Card with RPI OS Lite
+- 
+
 ## Configuration for Zigbee2mqtt
 
 
