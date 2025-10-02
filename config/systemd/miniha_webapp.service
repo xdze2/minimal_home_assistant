@@ -1,10 +1,11 @@
 [Unit]
 Description=miniha_webapp
-After=network.target
+After=network.target influxdb.service
+Requires=influxdb.service
 
 [Service]
-ExecStart=/home/bird/mqtt_to_influx/venv/bin/miniha_webapp
-WorkingDirectory=/home/bird/mqtt_to_influx
+ExecStart=/home/bird/minimal_home_assistant/venv/bin/miniha_webapp
+WorkingDirectory=/home/bird/minimal_home_assistant/
 StandardOutput=inherit
 StandardError=inherit
 Restart=always

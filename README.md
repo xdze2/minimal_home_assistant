@@ -35,12 +35,24 @@ see https://docs.influxdata.com/influxdb/v1/introduction/install/
 
 and
 ```
+# add repo...
 sudo apt install influxdb-client
 ```
 
-## Install
+```
+mkdir /media/data/influxdb
+sudo chown influxdb:influxdb /media/data/influxdb
+sudo cp /etc/influxdb/influxdb.conf /etc/influxdb/influxdb.conf.bck
+sudo cp config/influxdb/influxdb.conf /etc/influxdb/influxdb.conf
+sudo cp config/systemd/override.conf /etc/systemd/system/influxdb.service.d/
+sudo service influxdb restart
+```
+
+
+## MiniHa services
 
 ```
+sudo apt-get install python3-dev
 python3 -m venv venv
 source venv/bin/activate
 python3 -m pip install --upgrade pip
@@ -48,9 +60,12 @@ pip install -e .
 ```
 
 ```
-...
 sudo cp config/systemd/miniha_webapp.service /etc/systemd/system/
+sudo cp config/systemd/mqtt_to_influx.service /etc/systemd/system/
 ```
+
+- Visit: http://192.168.1.87:5000/
+
 
 ## Images
 Temperatures and power usage daily graphs

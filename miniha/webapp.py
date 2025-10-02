@@ -46,6 +46,10 @@ def get_linky_data() -> object:
         start=day,
         end=pd.to_datetime(day) + pd.Timedelta(days=1),
     )
+    if query_res is None:
+        print(f"no linky records///")
+        return jsonify({"data": []})
+
     df = query_res.get("linky")
     if df is None or df.empty:
         print(f"no linky records for day {day}")
@@ -132,6 +136,8 @@ def linky_daily() -> object:
         start=day,
         end=pd.to_datetime(day) + pd.Timedelta(days=1),
     )
+    if query_res is None:
+        return jsonify({"data": []})
     df = query_res.get("linky")
     result = {
         "total_kwh": None,

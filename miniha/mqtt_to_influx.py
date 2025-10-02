@@ -146,6 +146,6 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
-
-print(f"Listening for MQTT messages on topics {TOPIC}...")
-client.loop_forever()
+def main() -> None:
+    print(f"Listening for MQTT messages on topics {TOPIC}...")
+    client.loop_forever()

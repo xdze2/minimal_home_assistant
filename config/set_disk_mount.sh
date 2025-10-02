@@ -4,7 +4,7 @@ set -e
 MOUNT_POINT="/media/data"
 DEVICE="/dev/sda"
 FSTAB="/etc/fstab"
-
+LOCALUSER=$USER
 
 # Create mount point if it doesn't exist
 if [ ! -d "$MOUNT_POINT" ]; then
@@ -15,7 +15,7 @@ fi
 # Set permissions (adjust as needed)
 echo "Setting permissions on $MOUNT_POINT"
 sudo chmod 755 "$MOUNT_POINT"
-sudo chown $USER:$USER "$MOUNT_POINT"
+sudo chown $LOCALUSER:$LOCALUSER "$MOUNT_POINT"
 
 # --- Check device exists ---
 if [ ! -b "$DEVICE" ]; then

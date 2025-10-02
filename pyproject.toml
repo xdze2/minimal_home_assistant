@@ -24,3 +24,4 @@ namespaces = false
 
 [project.scripts]
 miniha_webapp = "miniha.webapp:main" 
+mqtt_to_influx = "miniha.mqtt_to_influx:main"
