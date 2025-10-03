@@ -7,7 +7,12 @@ from .utils import normalize_to_datetime
 
 class InfluxInterface:
     def __init__(
-        self, host: str, port: int, username: str, password: str, database: str
+        self,
+        host: str = "localhost",
+        port: int = 8086,
+        username: str = "",
+        password: str = "",
+        database: str = "db",
     ) -> None:
         self.df_client = DataFrameClient(
             host=host,
@@ -44,3 +49,26 @@ class InfluxInterface:
         if not raw_result:
             return
         return raw_result
+
+    def list_measurements(self) -> List[str]:
+        """List all measurements in the database."""
+        result = self.df_client.query("SHOW MEASUREMENTS")
+        if not result:
+            return []
+        print(result)
+        for pts in result.get_points():
+            return [
+                pts["name"],
+            ]
+        return []
+
+    def get_last_record_for_measurement(self, measurement: str) -> pd.DataFrame:
+        """Get the last record for a given measurement."""
+        query = f'SELECT * FROM "{measurement}" ORDER BY time DESC LIMIT 1'
+        result = self.df_client.query(query)
+        if not result:
+            return pd.DataFrame()
+        # Return the first DataFrame in the result dict
+        for df in result.values():
+            return df
+        return pd.DataFrame()
