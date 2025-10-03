@@ -13,7 +13,8 @@ dependencies = [
     "paho-mqtt==2.1.0",
     "pandas==2.3.2",
     "rich",
-    "flask"
+    "flask",
+    "pyyaml"
 ]
 
 [tool.setuptools.packages.find]

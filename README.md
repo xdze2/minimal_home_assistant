@@ -18,7 +18,9 @@ chmod +x config/install_zigbee2mqtt.sh
 ./config/install_zigbee2mqtt.sh
 
 sudo cp ./config/mosquitto/mosquitto.conf /etc/mosquitto/conf.d/
-sudo cp config/zigbee2mqtt/configuration.yaml /opt/zigbee2mqtt/data/
+# ~sudo cp config/zigbee2mqtt/configuration.yaml /opt/zigbee2mqtt/data/~
+# Do config by hand (web assistant)
+python3 config/set_zigbee2mqtt_config.py
 sudo cp config/systemd/zigbee2mqtt.service  /etc/systemd/system
 sudo systemctl enable zigbee2mqtt.service 
 sudo systemctl restart zigbee2mqtt.service 
