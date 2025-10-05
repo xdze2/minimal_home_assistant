@@ -31,6 +31,12 @@ sudo systemctl status zigbee2mqtt.service
 - Look at messages use mqttui `mqttui -b mqtt://192.168.1.87`
 
 
+
+to fix systemd notify:
+- https://github.com/Koenkk/zigbee2mqtt/issues/26946#issuecomment-3185029961
+- plus `sudo apt install linux-libc-dev-arm64-cross`
+
+
 ## InfluxDB v1
 
 see https://docs.influxdata.com/influxdb/v1/introduction/install/
