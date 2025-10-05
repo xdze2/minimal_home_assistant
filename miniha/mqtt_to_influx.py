@@ -22,6 +22,7 @@ influx.switch_database(INFLUX_DB)
 
 # Casting data to Influx Measurement
 
+
 class SensorMeasurement:
     __measurement_name__: str = None
 
@@ -35,10 +36,10 @@ class SensorMeasurement:
                 "measurement": clc.__measurement_name__,
                 "tags": {
                     "name": device_info.get("friendlyName"),
-                    "ieee_addr": device_info.get("ieeeAddr")
+                    "ieee_addr": device_info.get("ieeeAddr"),
                 },
-                "time": datetime.now().isoformat(),#raw_fields["last_seen"],
-                "fields": normalized_values(raw_fields, clc.__field_types__)
+                "time": datetime.now().isoformat(),  # raw_fields["last_seen"],
+                "fields": normalized_values(raw_fields, clc.__field_types__),
             }
         ]
         return measurement_data
@@ -61,8 +62,9 @@ def normalized_values(raw_fields: dict, target_types: dict) -> dict:
 
     return fields
 
+
 class SonoffThermometerMeasurement(SensorMeasurement):
-    __measurement_name__= "sonoff_thermometer"
+    __measurement_name__ = "sonoff_thermometer"
     __field_types__ = {
         "linkquality": float,
         "last_seen": str,
@@ -71,6 +73,7 @@ class SonoffThermometerMeasurement(SensorMeasurement):
         "temperature": float,
         "humidity": float,
         "battery": float,
+        "voltage": float,
     }
     __tag_types__ = {
         "sensor_id": str,
@@ -78,7 +81,7 @@ class SonoffThermometerMeasurement(SensorMeasurement):
 
 
 class LinkyMeasurement(SensorMeasurement):
-    __measurement_name__= "linky"
+    __measurement_name__ = "linky"
     __field_types__ = {
         "linkquality": float,
         "last_seen": str,
@@ -96,10 +99,12 @@ class LinkyMeasurement(SensorMeasurement):
         "sensor_id": str,
     }
 
+
 TOPIC_MEASUREMENT = {
     "sensors": SonoffThermometerMeasurement,
     "linky": LinkyMeasurement,
 }
+
 
 def mqtt_payload_to_measurement(topic: str, raw_fields: dict) -> dict:
 
@@ -110,7 +115,7 @@ def mqtt_payload_to_measurement(topic: str, raw_fields: dict) -> dict:
     else:
         # print(f"no matching measurement (topic={topic}). Ignored")
         return None
-    
+
 
 def on_message(client, userdata, message):
     try:
@@ -120,7 +125,7 @@ def on_message(client, userdata, message):
         json_body = mqtt_payload_to_measurement(message.topic, raw_fields)
         if json_body is not None:
             influx.write_points(json_body)
-            #print(f"Saved to InfluxDB: {json_body}")
+            # print(f"Saved to InfluxDB: {json_body}")
     except Exception as e:
         print("Error processing message:", e)
 
@@ -142,9 +147,11 @@ def signal_handler(sig, frame):
         print("Error during cleanup:", e)
     sys.exit(0)
 
+
 # Attach signal handler for Ctrl+C
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
+
 
 def main() -> None:
     print(f"Listening for MQTT messages on topics {TOPIC}...")
