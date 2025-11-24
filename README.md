@@ -7,10 +7,23 @@
 
 
 ## Install
-- Flash SD Card with RPI OS Lite
-- 
+- Flash SD Card with RPI OS Lite 64-bit (with Pi Imager)
+
+
+## Allow UART console
+https://raspberrypi.stackexchange.com/a/108781
+- add `enable_uart=1` to `bootfs/config.txt`
+- add `console=tty1` to `bootfs/cmdline.txt`  (already done)
+
+use `sudo minicom -D /dev/ttyUSB0`
+
+
+
 
 ## Install Zigbee2mqtt
+
+install: https://www.zigbee2mqtt.io/guide/installation/01_linux.html
+
 
 
 ```
@@ -61,7 +74,12 @@ sudo service influxdb restart
 ## MiniHa services
 
 ```
-sudo apt-get install python3-dev
+sudo apt install git
+sudo apt install python3-dev
+```
+
+
+```
 python3 -m venv venv
 source venv/bin/activate
 python3 -m pip install --upgrade pip
