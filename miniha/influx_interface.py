@@ -53,14 +53,10 @@ class InfluxInterface:
     def list_measurements(self) -> List[str]:
         """List all measurements in the database."""
         result = self.df_client.query("SHOW MEASUREMENTS")
-        if not result:
+        if result is None:
             return []
-        print(result)
-        for pts in result.get_points():
-            return [
-                pts["name"],
-            ]
-        return []
+        else:
+            return [pts["name"] for pts in result.get_points()]
 
     def get_last_record_for_measurement(self, measurement: str) -> pd.DataFrame:
         """Get the last record for a given measurement."""
