@@ -31,7 +31,12 @@ chmod +x config/install_zigbee2mqtt.sh
 ./config/install_zigbee2mqtt.sh
 
 sudo cp ./config/mosquitto/mosquitto.conf /etc/mosquitto/conf.d/
+
+
 # ~sudo cp config/zigbee2mqtt/configuration.yaml /opt/zigbee2mqtt/data/~
+
+sudo chown bird:bird /opt/zigbee2mqtt/data/configuration.yaml
+
 # Do config by hand (web assistant)
 python3 config/set_zigbee2mqtt_config.py
 sudo cp config/systemd/zigbee2mqtt.service  /etc/systemd/system
@@ -60,6 +65,7 @@ and
 sudo apt install influxdb-client
 ```
 
+Set data dir to external drive:
 ```
 mkdir /media/data/influxdb
 sudo chown influxdb:influxdb /media/data/influxdb
@@ -76,6 +82,7 @@ sudo service influxdb restart
 ```
 sudo apt install git
 sudo apt install python3-dev
+sudo apt install mosquitto
 ```
 
 
@@ -96,8 +103,16 @@ sudo systemctl enable mqtt_to_influx.service
 - Visit: http://192.168.1.87:5000/
 
 
+
+## Influx1 client
+
+
+
 ## Images
 Temperatures and power usage daily graphs
 ![temps](images/temperature_2025-09-10.png)
 
 ![power](images/power_2025-09-10.png)
+
+
+
