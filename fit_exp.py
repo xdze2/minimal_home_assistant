@@ -30,14 +30,15 @@ def expfit(x, y):
     print(res)
     # Calculate R^2
     y_pred = exponential_func(t_hat, *popt)
-    ss_res = np.sum((y - y_pred) ** 2)
-    ss_tot = np.sum((y - np.mean(y)) ** 2)
-    r2_score = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
+    ss_res = np.std(y - y_pred)
+    # ss_tot = np.sum((y - np.mean(y)) ** 2)
+    # r2_score = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
 
-    return popt, r2_score, y_pred
+    return popt, ss_res, y_pred
 
 
-csv_path = "out/sonoff_thermometer_sonoff_thermometer_sensorssthA.csv"
+csv_path = "out/sonoff_thermometer_sonoff_thermometer_sensors_thA.csv"
+# out/sonoff_thermometer_sonoff_thermometer_sensorssthF.csv
 
 csv_path = Path(csv_path)
 
@@ -48,11 +49,13 @@ df["ts"] = df["time"].values.astype(np.int64) // 10**9
 time = df["ts"].to_numpy()
 temp = df["temperature"].to_numpy()
 
-idx_start = 450
-idx_end = 611
+idx_start = 20
+idx_end = 323
 
 x, y = time[idx_start:idx_end], temp[idx_start:idx_end]
-popt, r2_score, y_pred = expfit(x, y)
+popt, std_err, y_pred = expfit(x, y)
+
+print(f"popt: {popt}, std_err: {std_err}")
 
 plt.plot(time, temp)
 plt.plot(x, y_pred, color="red")

@@ -39,7 +39,7 @@ def main(measurement: str = None, day: str = None) -> None:
         for key, df in df_dicts.items():
             click.echo(f"\nGroup: {key}")
             click.echo(key)
-            name = key[1][0][1].replace("/", "s")
+            name = key[1][0][1].replace("/", "_")
             print(f"Exporting data for {name} to CSV...")
             df.to_csv(
                 Path(output_dir, f"{measurement}_{key[0]}_{name}.csv"),
