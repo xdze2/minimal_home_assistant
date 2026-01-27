@@ -8,9 +8,9 @@ import numpy as np
 from scipy.optimize import curve_fit
 
 
-def exponential_func(t, a, tau, b):
+def exponential_func(t, a, tau, b, t0=0):
     """Target function: y = a * exp(b * x) + c"""
-    return a * np.exp(-t / tau) + b
+    return a * np.exp(-(t - t0) / tau) + b
 
 
 def expfit(x, y):
@@ -18,10 +18,10 @@ def expfit(x, y):
     # Initial guess for parameters
     a0 = np.max(y) - np.min(y)
     b0 = y[-1]
-    tau0 = 1
+    tau0 = x[-1] - x[0]
     initial_guess = (a0, tau0, b0)
 
-    t_hat = (x - x[0]) / (x[-1] - x[0])
+    t_hat = x - x[0]
     # Fit the curve
     res = curve_fit(
         exponential_func, t_hat, y, p0=initial_guess, maxfev=10000, full_output=False
@@ -47,18 +47,25 @@ df = pd.read_csv(csv_path, parse_dates=["time"])
 df["ts"] = df["time"].values.astype(np.int64) // 10**9
 
 time = df["ts"].to_numpy()
+time = (time - time[0]) / 60 / 60  # to hour, Normalize time to start at 0
 temp = df["temperature"].to_numpy()
 
-idx_start = 20
-idx_end = 323
+idx_start = 60
+idx_end = 153
 
 x, y = time[idx_start:idx_end], temp[idx_start:idx_end]
 popt, std_err, y_pred = expfit(x, y)
 
 print(f"popt: {popt}, std_err: {std_err}")
 
+
+y_pred_full = exponential_func(time, *popt, t0=x[0])
+# y_err = temp - y_pred_full
+
+
 plt.plot(time, temp)
 plt.plot(x, y_pred, color="red")
+# plt.plot(time, y_pred_full, color="green")
 
 
 def calculate_iou_1d(seg1, seg2):
