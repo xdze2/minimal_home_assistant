@@ -13,3 +13,5 @@ except requests.exceptions.ConnectionError as e:
 
 
 print(API.target_temperature)
+
+print(API.ATTRIBUTES)
