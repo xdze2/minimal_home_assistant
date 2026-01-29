@@ -26,23 +26,31 @@ def main(measurement: str = None, day: str = None) -> None:
         df_dicts = influx_client.query_df(
             measurement=measurement,
             field_list=[
-                "temperature",
                 "name",
+                "outside_temperature",
+                "inside_temperature",
+                # "name",
             ],
             start=day,
             end=pd.to_datetime(day) + pd.Timedelta(days=1),
             group_by="name",
         )
 
+        if df_dicts is None or len(df_dicts) == 0:
+            click.echo(
+                f"No records found for measurement '{measurement}' on day {day}."
+            )
+            return
         output_dir = "out"
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         for key, df in df_dicts.items():
             click.echo(f"\nGroup: {key}")
             click.echo(key)
-            name = key[1][0][1].replace("/", "_")
-            print(f"Exporting data for {name} to CSV...")
+            name = key[1][0][1].replace("/", "_").strip()
+            output_filename = Path(output_dir, f"{measurement}_{key[0]}_{name}.csv")
+            print(f'Exporting data to "{output_filename}"')
             df.to_csv(
-                Path(output_dir, f"{measurement}_{key[0]}_{name}.csv"),
+                output_filename,
                 index=True,
                 index_label="time",
             )

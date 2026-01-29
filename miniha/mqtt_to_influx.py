@@ -1,9 +1,11 @@
-import paho.mqtt.client as mqtt
-from influxdb import InfluxDBClient
-from datetime import datetime
 import json
 import signal
 import sys
+
+import paho.mqtt.client as mqtt
+from influxdb import InfluxDBClient
+
+from .influx_interface import SensorMeasurement
 
 # MQTT settings
 BROKER = "localhost"
@@ -19,48 +21,6 @@ print(f"Connecting to InfluxDB {INFLUX_HOST}:{INFLUX_PORT} on db={INFLUX_DB}..."
 influx = InfluxDBClient(host=INFLUX_HOST, port=INFLUX_PORT)
 influx.create_database(INFLUX_DB)
 influx.switch_database(INFLUX_DB)
-
-# Casting data to Influx Measurement
-
-
-class SensorMeasurement:
-    __measurement_name__: str = None
-
-    @classmethod
-    def from_mqtt_dict(clc, sensor_name: str, raw_fields: dict):
-        assert clc.__measurement_name__ is not None
-        # print(f"get {sensor_name}")
-        device_info = raw_fields.get("device", dict())
-        measurement_data = [
-            {
-                "measurement": clc.__measurement_name__,
-                "tags": {
-                    "name": device_info.get("friendlyName"),
-                    "ieee_addr": device_info.get("ieeeAddr"),
-                },
-                "time": datetime.now().isoformat(),  # raw_fields["last_seen"],
-                "fields": normalized_values(raw_fields, clc.__field_types__),
-            }
-        ]
-        return measurement_data
-
-
-def normalized_values(raw_fields: dict, target_types: dict) -> dict:
-    """Cast value to type."""
-    fields = dict()
-    for key, value in raw_fields.items():
-        if key not in target_types:
-            # print(f"field={key} is ignored...")
-            continue
-        else:
-            try:
-                casting_fct = target_types[key]
-                fields[key] = casting_fct(value)
-            except (ValueError, TypeError):
-                print(f"Error when casting value ({key}:{value}). Ignored.")
-                continue
-
-    return fields
 
 
 class SonoffThermometerMeasurement(SensorMeasurement):

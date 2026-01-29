@@ -1,0 +1,20 @@
+[Unit]
+Description=Daikin API to InfluxDB bridge
+After=network.target influxdb.service
+Requires=influxdb.service
+
+[Service]
+ExecStart=/home/bird/minimal_home_assistant/venv/bin/daikin_to_influx
+WorkingDirectory=/home/bird/minimal_home_assistant/
+StandardOutput=journal
+StandardError=journal
+Restart=always
+User=bird
+Group=bird
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+
+
+
