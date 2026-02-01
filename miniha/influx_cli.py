@@ -20,6 +20,12 @@ def main(measurement: str = None, day: str = None) -> None:
     measurements = influx_client.list_measurements()
     click.echo(f"Measurements: {", ".join(measurements)}")
 
+    for m in measurements:
+        fields = influx_client.show_fields(m)
+        click.echo(f"\nFields for measurement '{m}':")
+        for field in fields:
+            click.echo(f" - {field['fieldKey']}: {field['fieldType']}")
+
     if measurement is not None:
         click.echo(f"\nQuerying records for measurement '{measurement}':")
 
@@ -29,6 +35,9 @@ def main(measurement: str = None, day: str = None) -> None:
                 "name",
                 "outside_temperature",
                 "inside_temperature",
+                "target_temperature",
+                "power",
+                "compressor_frequency",
                 # "name",
             ],
             start=day,

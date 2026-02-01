@@ -45,7 +45,7 @@ class InfluxInterface:
         query_parts.append('ORDER BY "time" ASC')
 
         query = "\n".join(query_parts)
-        # print(f"InfluxDB query: {query}")
+        print(f"InfluxDB query: {query}")
         raw_result = self.df_client.query(query)
         if not raw_result:
             return
@@ -58,6 +58,15 @@ class InfluxInterface:
             return []
         else:
             return [pts["name"] for pts in result.get_points()]
+
+    def show_fields(self, measurement: str) -> List[Dict[str, Any]]:
+        """Show fields for a given measurement."""
+        query = f'SHOW FIELD KEYS FROM "{measurement}"'
+        result = self.df_client.query(query)
+        if result is None:
+            return []
+        else:
+            return list(result.get_points())
 
     def get_last_record_for_measurement(self, measurement: str) -> pd.DataFrame:
         """Get the last record for a given measurement."""

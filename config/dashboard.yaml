@@ -1,0 +1,28 @@
+
+graphs:
+  - title: "Clim"
+    measurement: "daikin_aircon"
+    fields:
+      - "compressor_frequency"
+      - "indoor_temperature"
+      - "outdoor_temperature"
+    # group_by: ["name"]
+
+# - title: "Memory Statistics"
+#   measurement: "mem"
+#   fields:
+#     - "used"
+#     - "available"
+#     - "buffered"
+#   filters:
+#     host: "server-01"
+#   unit: "bytes"
+
+# - title: "Disk I/O"
+#   measurement: "diskio"
+#   fields:
+#     - "read_bytes"
+#     - "write_bytes"
+#   filters:
+#     device: "sda1"
+#   unit: "bytes/sec"
