@@ -9,7 +9,7 @@ from influxdb import InfluxDBClient
 from collections import defaultdict
 
 # --- Config ---
-INFLUX_HOST = "localhost"
+INFLUX_HOST = "192.168.1.87"
 INFLUX_PORT = 8086
 INFLUX_DB = "sensors2"
 OUTPUT_DIR = "output"
@@ -20,8 +20,13 @@ influx = InfluxDBClient(host=INFLUX_HOST, port=INFLUX_PORT, database=INFLUX_DB)
 
 def get_data(day: date):
     """Query InfluxDB for temperature data of a given day"""
-    start = datetime.combine(day, datetime.min.time()).isoformat() + "Z"
-    end = datetime.combine(day + timedelta(days=1), datetime.min.time()).isoformat() + "Z"
+    start = (
+        datetime.combine(day, datetime.min.time()) - timedelta(hours=6)
+    ).isoformat() + "Z"
+    end = (
+        datetime.combine(day + timedelta(days=1), datetime.min.time())
+        + timedelta(hours=6)
+    ).isoformat() + "Z"
 
     query = f"""
     SELECT "name", "temperature" FROM "sonoff_thermometer"
@@ -39,7 +44,7 @@ def get_data(day: date):
         name = point["name"].split("/")[-1]
         row = [
             datetime.fromisoformat(point["time"].replace("Z", "+00:00")),
-            point["temperature"]
+            point["temperature"],
         ]
         print(row)
         results[name].append(row)
@@ -57,7 +62,12 @@ def plot_temperature(values: dict, day: date):
     for name, rows in values.items():
         rows = np.array(rows)
         plt.plot(rows[:, 0], rows[:, 1], label=name, marker=None, linestyle="-")
-    
+
+    midnight_start = datetime.combine(day, datetime.min.time())
+    midnight_end = datetime.combine(day + timedelta(days=1), datetime.min.time())
+    plt.axvline(midnight_start, color="gray", linestyle="--", linewidth=1)
+    plt.axvline(midnight_end, color="gray", linestyle="--", linewidth=1)
+
     plt.title(f"Temperature on {day.isoformat()}")
     plt.xlabel("Time")
     plt.ylabel("Temperature (°C)")
@@ -74,9 +84,12 @@ def plot_temperature(values: dict, day: date):
 
 
 @click.command()
-@click.option("--day", type=click.DateTime(formats=["%Y-%m-%d"]),
-              default=None,
-              help="Day in YYYY-MM-DD format (default: today)")
+@click.option(
+    "--day",
+    type=click.DateTime(formats=["%Y-%m-%d"]),
+    default=None,
+    help="Day in YYYY-MM-DD format (default: today)",
+)
 def main(day):
     """Plot temperature data from InfluxDB for the given day (or today)."""
     if day is None:
