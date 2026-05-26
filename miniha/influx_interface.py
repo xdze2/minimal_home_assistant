@@ -30,6 +30,7 @@ class InfluxInterface:
         start: str,
         end: str,
         group_by: str = None,
+        wheres: List[Tuple[str, str]] = None,
     ) -> Dict[Tuple, pd.DataFrame]:
         """Query InfluxDB and return a Dict of DataFrame."""
 
@@ -40,6 +41,9 @@ class InfluxInterface:
             f'SELECT {fields_str} FROM "{measurement}"',
             f"WHERE time >= '{start}' AND time < '{end}'",
         ]
+        if wheres is not None:
+            for where in wheres:
+                query_parts.append(f"AND \"{where[0]}\" = '{where[1]}'")
         if group_by is not None:
             query_parts.append(f'GROUP BY "{group_by}"')
         query_parts.append('ORDER BY "time" ASC')
@@ -62,6 +66,24 @@ class InfluxInterface:
     def show_fields(self, measurement: str) -> List[Dict[str, Any]]:
         """Show fields for a given measurement."""
         query = f'SHOW FIELD KEYS FROM "{measurement}"'
+        result = self.df_client.query(query)
+        if result is None:
+            return []
+        else:
+            return list(result.get_points())
+
+    def show_tags(self, measurement: str) -> List[Dict[str, Any]]:
+        """Show tags for a given measurement."""
+        query = f'SHOW TAG KEYS FROM "{measurement}"'
+        result = self.df_client.query(query)
+        if result is None:
+            return []
+        else:
+            return list(result.get_points())
+
+    def show_series(self, measurement: str) -> List[Dict[str, Any]]:
+        """Show series for a given measurement."""
+        query = f'SHOW SERIES FROM "{measurement}"'
         result = self.df_client.query(query)
         if result is None:
             return []

@@ -26,6 +26,11 @@ def main(measurement: str = None, day: str = None) -> None:
         for field in fields:
             click.echo(f" - {field['fieldKey']}: {field['fieldType']}")
 
+        series = influx_client.show_series(m)
+        click.echo(f"\nSeries for measurement '{m}':")
+        for s in series:
+            click.echo(f" - {s}")
+
     if measurement is not None:
         click.echo(f"\nQuerying records for measurement '{measurement}':")
 
