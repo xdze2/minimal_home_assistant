@@ -9,6 +9,7 @@ WorkingDirectory=/home/bird/minimal_home_assistant/
 StandardOutput=journal
 StandardError=journal
 Restart=always
+RestartSec=30
 User=bird
 Group=bird
 Environment=PYTHONUNBUFFERED=1
