@@ -28,5 +28,6 @@ namespaces = false
 miniha_webapp = "miniha.webapp:main" 
 mqtt_to_influx = "miniha.mqtt_to_influx:main"
 daikin_to_influx = "miniha.daikin_to_influx:main"
+daikin_to_influx_v2 = "miniha.daikin_to_influx_v2:main"
 influxcli = "miniha.influx_cli:main"
 dashboard = "miniha.dashboard:main"

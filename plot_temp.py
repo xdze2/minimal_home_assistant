@@ -51,6 +51,38 @@ def get_data(day: date):
     return results
 
 
+def get_daikin_data(day: date):
+    """Query InfluxDB for Daikin inside/outside temperatures of a given day"""
+    start = (
+        datetime.combine(day, datetime.min.time()) - timedelta(hours=6)
+    ).isoformat() + "Z"
+    end = (
+        datetime.combine(day + timedelta(days=1), datetime.min.time())
+        + timedelta(hours=6)
+    ).isoformat() + "Z"
+
+    query = f"""
+    SELECT "name", "inside_temperature", "outside_temperature" FROM "daikin_aircon_v2"
+    WHERE time >= '{start}' AND time < '{end}'
+    ORDER BY time ASC
+    """
+    raw_result = influx.query(query)
+
+    if not raw_result:
+        return
+
+    results = defaultdict(list)
+
+    for point in raw_result.get_points():
+        name = point["name"]
+        ts = datetime.fromisoformat(point["time"].replace("Z", "+00:00"))
+        if point.get("inside_temperature") is not None:
+            results[f"{name} inside"].append([ts, point["inside_temperature"]])
+        if point.get("outside_temperature") is not None:
+            results[f"{name} outside"].append([ts, point["outside_temperature"]])
+    return results
+
+
 def plot_temperature(values: dict, day: date):
     """Plot temperature and save to PNG"""
     if not values:
@@ -97,7 +129,9 @@ def main(day):
     else:
         day = day.date()
 
-    values = get_data(day)
+    values = get_data(day) or {}
+    daikin_values = get_daikin_data(day) or {}
+    values.update(daikin_values)
     plot_temperature(values, day)
 
 

@@ -4,7 +4,7 @@ After=network.target influxdb.service
 Requires=influxdb.service
 
 [Service]
-ExecStart=/home/bird/minimal_home_assistant/venv/bin/daikin_to_influx
+ExecStart=/home/bird/minimal_home_assistant/venv/bin/daikin_to_influx_v2
 WorkingDirectory=/home/bird/minimal_home_assistant/
 StandardOutput=journal
 StandardError=journal
