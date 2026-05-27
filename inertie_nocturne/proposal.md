@@ -158,7 +158,7 @@ Hébergement : statique pur, n'importe quel S3 / Pages / Netlify.
 
 ## Plan d'itérations
 
-**MVP (v0)** — un fichier, une journée :
+**v0** — fait ✅ : un fichier HTML, sliders partout, mobile-first.
 
 - 3 sliders pièce + sélecteur matériau
 - 2 sliders température (T_int, T_ext constants)
@@ -168,18 +168,52 @@ Hébergement : statique pur, n'importe quel S3 / Pages / Netlify.
 - Frise des ventilateurs avec marqueur
 - Tous les nombres physiques affichés
 
-**V1** — peaufinage :
+Décisions prises pendant l'implémentation :
+
+- `A_walls` = murs verticaux seuls (pas sol/plafond) pour coller aux ancres du doc. Sol/plafond reviennent en V2 via la décomposition par surface.
+- Régime laminaire/turbulent piloté par le taux de renouvellement (≥ 5 vol/h → turbulent), pas par une vitesse fictive d'air. Proxy grossier — la vraie vitesse près des parois dépend de l'orientation du brasseur. À raffiner avec l'encart « couche limite » de V1.
+
+**v0.1** — fait ✅ : ergonomie tablette.
+
+- Layout 2 colonnes (entrées à gauche, valeurs dérivées à droite), pile à <760 px
+- Sliders remplacés par des chips presets + popup « Personnalisé » pour pièce, matériau, ventilation
+- Chaque chip matériau affiche `ρ` et `d` inline
+- Valeurs dérivées affichées en regard du titre de chaque bloc (taille → V, matériau → peau, T → ΔT, ventilation → m³/h + vol/h)
+- Températures restent en sliders (continu, pas de preset forcé)
+- Composant popup générique réutilisable
+
+**v0.2** — fait ✅ : physique honnête + ergonomie.
+
+- Contraste augmenté (`--dim` → couleur plus claire) pour lisibilité
+- Sliders de température alignés (labels élargis à 150 px)
+- **Ventilateurs en single-select** (multiselect essayé puis abandonné — trop d'états, UX confuse, bugs sur le toggle/custom).
+- **Frise à double axe** : m³/h en haut, **m/s avec étiquettes Beaufort indoor** en bas (calme / à peine perceptible / brise légère / vent agréable / papiers s'envolent). Marqueur bleu = débit, marqueur orange = vitesse d'air estimée près des parois.
+- **Modèle de convection refait** :
+  - chaque preset ventilateur porte une `v_typ` (m/s, vitesse typique près des parois)
+  - dilution par `(V_ref / V)^(1/3)` — une plus grande pièce dissipe le brassage (V_ref = 48 m³)
+  - `h = 5.7 + 3.8·v` (corrélation Jürges, simple et continue), `h → 5.7` quand `v → 0` (convection naturelle)
+- **Sanity checks console** : 6 assertions vérifient les ordres de grandeur (τ par défaut 4–10 h, plus grande pièce → τ plus long, brasseur plafond → τ ≈ 5 h, fenêtre seule → τ > 8 h, pierre > léger, ratio masse air/murs 100–300×). À ouvrir avec la console développeur.
+
+Décisions à noter :
+
+- L'ancien proxy `ACH ≥ 5 vol/h → turbulent` ne respectait pas l'intuition « plus grande pièce → moins efficace ». Le nouveau modèle traite `v_air` comme une **caractéristique du brassage**, pas du débit pur — un brasseur plafond à 2000 m³/h fait plus de brassage qu'une fenêtre à 2000 m³/h.
+- Les valeurs `v_typ` par preset sont des **estimations à calibrer**. C'est le maillon faible.
+- Au défaut (table fan + brique standard), τ ≈ 6.5 h. Avec un brasseur plafond, τ ≈ 4.8 h. Cohérent avec le doc.
+
+**V1** — peaufinage visuel :
 
 - Coupe SVG de la pièce avec peau active animée
-- Barres masse / capacité thermique
-- Petit encart « couche limite » : laminaire vs turbulent, h qui saute
+- Barres masse / capacité thermique côte à côte
+- Petit encart « couche limite » : laminaire vs turbulent, le saut de h ×5
+- Icônes SVG sur les chips (matériaux, ventilateurs) — inline, single-file
+- Bloc « coût » : puissance ventilateur (W) → kWh/nuit → € (tarif éditable, défaut 0,25 €/kWh)
 
 **V2** — T_ext sinusoïdale :
 
 - Sliders amplitude + heure de pic
 - ODE Euler explicite
 - Indicateur ouvrir/fermer fenêtre
-- Préparer hooks pour décomposition par surface
+- Préparer hooks pour décomposition par surface (sol, plafond, murs ext/int)
 
 **V3** — données réelles :
 
@@ -189,8 +223,19 @@ Hébergement : statique pur, n'importe quel S3 / Pages / Netlify.
 
 **V4** (peut-être) — décomposition mur par mur, matériau par surface.
 
+## Idées en attente
+
+- **Coût électrique** : chaque preset ventilateur a une puissance typique (VMC ~20 W, brasseur plafond ~70 W, drum ~150 W). Affiche kWh sur la nuit + € au tarif courant. Trois lignes max sous la frise, pas une section.
+- **Icônes/pictogrammes** sur les chips : un par matériau (brique empilée, planche, pierre) et un par ventilateur (fenêtre, gaine VMC, ventilo de table, pales plafond, drum, extracteur). SVG inline pour rester en un seul fichier.
+- **Mode « explication »** avec formules au clic (τ → `τ = m·c/h·A`). TBD — peut-être un toggle global plutôt que des popups par valeur.
+- **Vérification des constantes matériaux** : les triplets `(ρ, c, α)` sont des valeurs textbook raisonnables, à recouper avec une source sérieuse (CSTB, ADEME).
+- **Calibration des `v_typ` des ventilateurs** : valeurs actuelles à l'œil (fenêtre 0.05, VMC 0.10, table 0.50, brasseur plafond 1.20, drum 1.80, extracteur 2.50 m/s). Idéalement mesurer à l'anémomètre, ou se rabattre sur des plaques techniques constructeur.
+- **Validation contre un cas de référence** : trouver un papier ou cas instrumenté (ventilation nocturne, géométrie connue, courbe T_int(t) mesurée) et vérifier que notre τ est dans 30 % de la mesure. C'est la vraie épreuve.
+- **Modèle de convection** : la corrélation Jürges (`h = 5.7 + 3.8·v`) est valable jusqu'à ~5 m/s. Au-delà, autre régime. La sommation quadratique des `v_typ` suppose des sources indépendantes — un brasseur plafond + un ventilo de table dans la même pièce ne sont pas réellement indépendants. Approximation.
+
 ## Questions ouvertes
 
-- Nommer le projet ? `cool_inertia` est sympa en interne, mais titre français pour l'UI ? « Inertie nocturne » / « Fraîcheur de nuit » / « Ventiler malin » ? "Inertie nocturne"
-- Pour la frise ventilateurs, garder les marques (Domair, Arctic) ou rester génériques ? rester génériques
+- Nommer le projet ? `cool_inertia` est sympa en interne, mais titre français pour l'UI ? « Inertie nocturne » / « Fraîcheur de nuit » / « Ventiler malin » ? → **« Inertie nocturne »**
+- Pour la frise ventilateurs, garder les marques (Domair, Arctic) ou rester génériques ? → **génériques**
 - Mode « explication » avec les formules visibles (clic sur τ → popup `τ = m·c/h·A`) ou rester silencieux ? TBD
+- Cible principale : mobile ou tablette/desktop ? → **tablette** (touch + densité d'info), avec fallback mobile en pile
