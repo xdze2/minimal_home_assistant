@@ -27,8 +27,8 @@ FIELD_TYPES: Dict[str, type] = {
     "ver": str,
 }
 
-# Setpoint / config fields: safe to force-write on heartbeat
-# because the value at heartbeat time is genuinely current.
+# Fields safe to force-write on heartbeat because the value at heartbeat
+# time is genuinely current (setpoints, config, and live sensor readings).
 HEARTBEAT_FIELDS: Set[str] = {
     "mode",
     "fan_rate",
@@ -38,6 +38,10 @@ HEARTBEAT_FIELDS: Set[str] = {
     "price_int",
     "rev",
     "ver",
+    "inside_temperature",
+    "outside_temperature",
+    "compressor_frequency",
+    "power",
 }
 
 
@@ -124,7 +128,7 @@ def main() -> None:
 
     IP_ADDRESSES = ["192.168.1.73", "192.168.1.84"]
     PULL_PERIOD = 120  # seconds between device polls
-    HEARTBEAT_PERIOD = 30 * 60  # seconds between forced setpoint writes
+    HEARTBEAT_PERIOD = 60 * 60  # seconds between forced setpoint writes
 
     print(f"Connecting to InfluxDB {INFLUX_HOST}:{INFLUX_PORT} on db={INFLUX_DB}...")
     influx = InfluxDBClient(host=INFLUX_HOST, port=INFLUX_PORT)
