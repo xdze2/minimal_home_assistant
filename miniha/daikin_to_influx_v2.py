@@ -6,7 +6,6 @@ import requests
 from daikinapi import Daikin
 from influxdb import InfluxDBClient
 
-
 MEASUREMENT_NAME = "daikin_aircon_v2"
 
 FIELD_TYPES: Dict[str, type] = {
@@ -66,15 +65,10 @@ def read_device_fields(API: Daikin) -> Dict[str, Any]:
     return fields
 
 
-def seed_cache_from_db(
-    influx: InfluxDBClient, mac: str
-) -> Dict[str, Any]:
+def seed_cache_from_db(influx: InfluxDBClient, mac: str) -> Dict[str, Any]:
     """Query last value per field from InfluxDB to seed the in-memory cache."""
     cache: Dict[str, Any] = {}
-    query = (
-        f'SELECT last(*) FROM "{MEASUREMENT_NAME}" '
-        f"WHERE \"mac\" = '{mac}'"
-    )
+    query = f'SELECT last(*) FROM "{MEASUREMENT_NAME}" ' f"WHERE \"mac\" = '{mac}'"
     try:
         result = influx.query(query)
     except Exception as e:
@@ -165,6 +159,7 @@ def main() -> None:
                 print(f"Failed to read {API.mac}: {e}")
                 continue
 
+            print("current", current)
             heartbeat_due = (now - last_heartbeat[API.mac]) >= HEARTBEAT_PERIOD
             point = build_point(API, current, caches[API.mac], heartbeat_due)
 

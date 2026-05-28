@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily Open-Meteo archive fetch
+
+[Timer]
+# Run every day at 04:00 local time. Open-Meteo archive has ~2 day delay,
+# but yesterday's data is usually published by then.
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+RandomizedDelaySec=30m
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,85 @@
+# Sensor registry — TEMPLATE.
+#
+# Copy this file to `sensors.yaml` (which is gitignored) and edit for your
+# deployment. The application loads `config/sensors.yaml` by default; override
+# with the MINIHA_SENSORS environment variable.
+#
+# rooms: logical zones used in the UI.
+# sensors: physical devices. `source` is the Influx measurement, `match`
+# is a set of tag=value pairs that identify this sensor's records.
+#
+# Edit `room:` to match reality. Sensors with an unknown room are skipped
+# by the webapp at startup (a warning is logged).
+
+rooms:
+  - id: salon
+    label: Salon
+  - id: cuisine
+    label: Cuisine
+  - id: chambre
+    label: Chambre
+  # - id: room_b
+  #   label: Room B
+  # - id: room_c
+  #   label: Room C
+  # - id: room_e
+  #   label: Room E
+  # - id: room_f
+  #   label: Room F
+  # - id: outside
+  #   label: Outside
+
+sensors:
+  # Sonoff thermometers (matched by Zigbee2MQTT topic)
+  # - id: thA
+  #   source: sonoff_thermometer
+  #   match: { name: sensors/thA }
+  #   room: room_a
+  #   kind: temperature
+
+  # - id: thB
+  #   source: sonoff_thermometer
+  #   match: { name: sensors/thB }
+  #   room: room_a
+  #   kind: temperature
+
+  # - id: thC
+  #   source: sonoff_thermometer
+  #   match: { name: sensors/thC }
+  #   room: room_a
+  #   kind: temperature
+
+  - id: thE
+    source: sonoff_thermometer
+    match: { name: sensors/thE }
+    room: chambre
+    kind: temperature
+
+  - id: thF
+    source: sonoff_thermometer
+    match: { name: sensors/thF }
+    room: salon
+    kind: temperature
+
+  # Daikin aircon units (matched by friendly name; mac kept for reference)
+  - id: daikin_salon
+    source: daikin_aircon_v2
+    match: { name: Salon }
+    mac: C0E434E6AA1C
+    room: salon
+    kind: aircon
+    provides_outdoor: true
+
+  - id: daikin_cuisine
+    source: daikin_aircon_v2
+    match: { name: "Cuisine " }   # trailing space is real in the Daikin config
+    mac: C0E434E63752
+    room: cuisine
+    kind: aircon
+    provides_outdoor: true
+
+# Open-Meteo historic weather feed (one daily job per location)
+open_meteo:
+  - location: somewhere
+    latitude: 40.825
+    longitude: 4.0235

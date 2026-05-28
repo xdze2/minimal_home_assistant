@@ -1,0 +1,18 @@
+[Unit]
+Description=Open-Meteo historic archive to InfluxDB (daily)
+After=network-online.target influxdb.service
+Wants=network-online.target
+Requires=influxdb.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/bird/minimal_home_assistant/venv/bin/open_meteo_to_influx
+WorkingDirectory=/home/bird/minimal_home_assistant/
+StandardOutput=journal
+StandardError=journal
+User=bird
+Group=bird
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
