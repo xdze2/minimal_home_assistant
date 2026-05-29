@@ -1,8 +1,8 @@
 """Fetch yesterday's hourly weather from Open-Meteo and write it to InfluxDB.
 
 Run as a one-shot daily job (via systemd timer or cron). Locations are read
-from `config/sensors.yaml` under the `open_meteo:` key; each entry is written
-with a `location` tag.
+from `config/open_meteo.yaml` under the `locations:` key; each entry is
+written with a `location` tag.
 """
 
 import os
@@ -25,16 +25,16 @@ HOURLY_VARIABLES = [
     "cloud_cover",
     "wind_speed_10m",
 ]
-DEFAULT_SENSORS_PATH = "config/sensors.yaml"
+DEFAULT_CONFIG_PATH = "config/open_meteo.yaml"
 
 
 def load_locations(path: str | None = None) -> List[Dict[str, Any]]:
-    p = Path(path or os.environ.get("MINIHA_SENSORS") or DEFAULT_SENSORS_PATH)
+    p = Path(path or os.environ.get("MINIHA_OPEN_METEO") or DEFAULT_CONFIG_PATH)
     with p.open("r") as f:
         raw = yaml.safe_load(f) or {}
-    locations = raw.get("open_meteo") or []
+    locations = raw.get("locations") or []
     if not locations:
-        raise ValueError(f"No `open_meteo` entries found in {p}")
+        raise ValueError(f"No `locations` entries found in {p}")
     return locations
 
 

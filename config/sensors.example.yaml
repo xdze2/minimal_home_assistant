@@ -77,9 +77,3 @@ sensors:
     room: cuisine
     kind: aircon
     provides_outdoor: true
-
-# Open-Meteo historic weather feed (one daily job per location)
-open_meteo:
-  - location: somewhere
-    latitude: 40.825
-    longitude: 4.0235

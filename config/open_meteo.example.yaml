@@ -1,0 +1,9 @@
+# Open-Meteo historic weather feed (one daily job per location).
+#
+# Copy this file to `open_meteo.yaml` (gitignored) and edit for your
+# deployment. Override the path with the `MINIHA_OPEN_METEO` env var.
+
+locations:
+  - location: somewhere
+    latitude: null
+    longitude: null

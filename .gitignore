@@ -4,6 +4,7 @@ out/
 # Local deployment config — copy from the matching *.example.yaml / .env.example
 config/sensors.yaml
 config/devices.yaml
+config/open_meteo.yaml
 .env
 !.env.example
 user_models/
