@@ -216,7 +216,7 @@ def main() -> None:
                 st.error(f"Load failed: {e}")
                 continue
 
-        tab_inspect, tab_fit = st.tabs(["Inspect", "Grey-box fit"])
+        tab_inspect, tab_fit = st.tabs(["Inspect", "1R1C model"])
         with tab_inspect:
             _render_inspect(cfg, cached)
         with tab_fit:
