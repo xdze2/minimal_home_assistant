@@ -1,7 +1,8 @@
 # Network devices: physical hardware addressed by IP on the LAN.
 #
-# Rooms reference `config/sensors.yaml`. Sensors whose room is unknown
-# are skipped at startup (a warning is logged), same as in sensors.yaml.
+# Only `ip` is consumed today; `id` and `room` are kept for future use
+# (per-device labels, room mapping matching `config/sensors.yaml`) and
+# to keep entries self-documenting.
 
 daikin:
   - id: daikin_salon
