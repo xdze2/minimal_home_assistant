@@ -3,6 +3,7 @@ out/
 
 # Local deployment config — copy from config/sensors.example.yaml
 config/sensors.yaml
+user_models/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
