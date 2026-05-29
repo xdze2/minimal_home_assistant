@@ -80,9 +80,7 @@ def build_points(df: pd.DataFrame, location: str) -> List[Dict[str, Any]]:
     help="Target day in YYYY-MM-DD format. Defaults to yesterday.",
 )
 def main(day_str: str | None) -> None:
-    INFLUX_HOST = "192.168.1.87"
-    INFLUX_PORT = 8086
-    INFLUX_DB = "sensors2"
+    from .config import config
 
     if day_str:
         target_day = datetime.strptime(day_str, "%Y-%m-%d").date()
@@ -91,10 +89,10 @@ def main(day_str: str | None) -> None:
     print(f"Fetching Open-Meteo archive for {target_day.isoformat()}...")
 
     locations = load_locations()
-    print(f"Connecting to InfluxDB {INFLUX_HOST}:{INFLUX_PORT} on db={INFLUX_DB}...")
-    influx = InfluxDBClient(host=INFLUX_HOST, port=INFLUX_PORT)
-    influx.create_database(INFLUX_DB)
-    influx.switch_database(INFLUX_DB)
+    print(f"Connecting to InfluxDB {config.INFLUX_HOST}:{config.INFLUX_PORT} on db={config.INFLUX_DB}...")
+    influx = InfluxDBClient(host=config.INFLUX_HOST, port=config.INFLUX_PORT)
+    influx.create_database(config.INFLUX_DB)
+    influx.switch_database(config.INFLUX_DB)
 
     for loc in locations:
         name = loc["location"]

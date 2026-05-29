@@ -15,6 +15,10 @@ SYSTEMD_DIR   ?= /etc/systemd/system
 SYSTEMD_SRC   := $(REPO_DIR)/config/systemd
 SENSORS_FILE  := $(REPO_DIR)/config/sensors.yaml
 SENSORS_TPL   := $(REPO_DIR)/config/sensors.example.yaml
+DEVICES_FILE  := $(REPO_DIR)/config/devices.yaml
+DEVICES_TPL   := $(REPO_DIR)/config/devices.example.yaml
+ENV_FILE      := $(REPO_DIR)/.env
+ENV_TPL       := $(REPO_DIR)/.env.example
 
 UNITS := \
   daikin_to_influx.service \
@@ -46,12 +50,15 @@ help:
 	@echo "  uninstall  Remove unit symlinks from $(SYSTEMD_DIR)."
 
 config:
-	@if [ -f $(SENSORS_FILE) ]; then \
-	  echo "$(SENSORS_FILE) already exists — leaving it alone."; \
-	else \
-	  cp $(SENSORS_TPL) $(SENSORS_FILE); \
-	  echo "Created $(SENSORS_FILE) from template. Edit it before running services."; \
-	fi
+	@for pair in "$(SENSORS_FILE):$(SENSORS_TPL)" "$(DEVICES_FILE):$(DEVICES_TPL)" "$(ENV_FILE):$(ENV_TPL)"; do \
+	  dst=$${pair%%:*}; src=$${pair##*:}; \
+	  if [ -f $$dst ]; then \
+	    echo "$$dst already exists — leaving it alone."; \
+	  else \
+	    mkdir -p $$(dirname $$dst); cp $$src $$dst; \
+	    echo "Created $$dst from template. Edit it before running services."; \
+	  fi; \
+	done
 
 install:
 	@if [ ! -x $(PIP) ]; then \

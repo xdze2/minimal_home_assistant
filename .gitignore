@@ -1,8 +1,11 @@
 output/
 out/
 
-# Local deployment config — copy from config/sensors.example.yaml
+# Local deployment config — copy from the matching *.example.yaml / .env.example
 config/sensors.yaml
+config/devices.yaml
+.env
+!.env.example
 user_models/
 
 # Byte-compiled / optimized / DLL files

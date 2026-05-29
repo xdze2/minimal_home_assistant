@@ -8,13 +8,13 @@ from influxdb import InfluxDBClient
 
 from collections import defaultdict
 
-# --- Config ---
-INFLUX_HOST = "192.168.1.87"
-INFLUX_PORT = 8086
-INFLUX_DB = "sensors2"
-OUTPUT_DIR = "output"
+from miniha.config import config
 
-# --- Connect to InfluxDB ---
+INFLUX_HOST = config.INFLUX_HOST
+INFLUX_PORT = config.INFLUX_PORT
+INFLUX_DB = config.INFLUX_DB
+OUTPUT_DIR = config.OUTPUT_DIR
+
 influx = InfluxDBClient(host=INFLUX_HOST, port=INFLUX_PORT, database=INFLUX_DB)
 
 

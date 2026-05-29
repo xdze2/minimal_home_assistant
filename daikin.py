@@ -1,9 +1,11 @@
 from daikinapi import Daikin
 import requests
 
-ip_address = "192.168.1.73"  # Salon
-ip_address = "192.168.1.84"  # Cuisine
-print(f"Connecting to Daikin AC at {ip_address}...")
+from miniha.devices import load_devices
+
+devices = load_devices().daikin
+ip_address = devices[-1].ip
+print(f"Connecting to Daikin AC at {ip_address} ({devices[-1].id})...")
 
 try:
     API = Daikin(ip_address)

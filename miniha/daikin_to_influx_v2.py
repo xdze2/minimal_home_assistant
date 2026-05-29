@@ -115,19 +115,17 @@ def build_point(
 
 
 def main() -> None:
+    from .config import config
+    from .devices import load_devices
 
-    INFLUX_HOST = "192.168.1.87"
-    INFLUX_PORT = 8086
-    INFLUX_DB = "sensors2"
-
-    IP_ADDRESSES = ["192.168.1.73", "192.168.1.84"]
+    IP_ADDRESSES = [d.ip for d in load_devices().daikin]
     PULL_PERIOD = 120  # seconds between device polls
     HEARTBEAT_PERIOD = 60 * 60  # seconds between forced setpoint writes
 
-    print(f"Connecting to InfluxDB {INFLUX_HOST}:{INFLUX_PORT} on db={INFLUX_DB}...")
-    influx = InfluxDBClient(host=INFLUX_HOST, port=INFLUX_PORT)
-    influx.create_database(INFLUX_DB)
-    influx.switch_database(INFLUX_DB)
+    print(f"Connecting to InfluxDB {config.INFLUX_HOST}:{config.INFLUX_PORT} on db={config.INFLUX_DB}...")
+    influx = InfluxDBClient(host=config.INFLUX_HOST, port=config.INFLUX_PORT)
+    influx.create_database(config.INFLUX_DB)
+    influx.switch_database(config.INFLUX_DB)
 
     devices: List[Daikin] = []
     for ip in IP_ADDRESSES:

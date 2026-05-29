@@ -75,19 +75,15 @@ class DaikinAirconMeasurement(SensorMeasurement):
 
 
 def main() -> None:
+    from .config import config
+    from .devices import load_devices
 
-    # InfluxDB settings (InfluxDB 1.x)
-    INFLUX_HOST = "192.168.1.87"  # "localhost"
-    INFLUX_PORT = 8086
-    INFLUX_DB = "sensors2"
+    print(f"Connecting to InfluxDB {config.INFLUX_HOST}:{config.INFLUX_PORT} on db={config.INFLUX_DB}...")
+    influx = InfluxDBClient(host=config.INFLUX_HOST, port=config.INFLUX_PORT)
+    influx.create_database(config.INFLUX_DB)
+    influx.switch_database(config.INFLUX_DB)
 
-    # # Connect to InfluxDB
-    print(f"Connecting to InfluxDB {INFLUX_HOST}:{INFLUX_PORT} on db={INFLUX_DB}...")
-    influx = InfluxDBClient(host=INFLUX_HOST, port=INFLUX_PORT)
-    influx.create_database(INFLUX_DB)
-    influx.switch_database(INFLUX_DB)
-
-    IP_ADDRESSES = ["192.168.1.73", "192.168.1.84"]
+    IP_ADDRESSES = [d.ip for d in load_devices().daikin]
     PERIOD_SECONDS = 120
 
     devices = list()

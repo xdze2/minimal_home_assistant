@@ -49,9 +49,8 @@ chart per series role and a small per-role table (n, NaN, min/max, gap count).
   threshold to `> 1h + ε`. Adjust in [flags.py](miniha/th_models/flags.py) if noisy.)
 - **Stuck-value detection dropped.** Sonoff legitimately repeats values when
   the room is stable.
-- **InfluxDB connection** is hard-coded in
-  [load.py](miniha/th_models/load.py) (host `192.168.1.87`, db `sensors2`).
-  Move to a `.env` file later — tracked as a TODO comment in the module.
+- **InfluxDB connection** comes from `miniha.config.config` (loaded from
+  `.env` at the repo root, see `.env.example`).
 - **Time grid**: indices are converted to UTC at load time. No resampling.
 
 ## Data sources (verified from the codebase)
@@ -98,7 +97,6 @@ When wiring the fitter:
 
 ## Open TODOs
 
-- Move Influx connection details to a `.env` file.
 - Confirm Sonoff pipeline writes UTC (Open-Meteo does).
 - Acceptance criterion for "inspector done": all configured series render
   for the default window, gap shading looks sensible, table coverage > 95%

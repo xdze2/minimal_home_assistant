@@ -5,22 +5,15 @@ import sys
 import paho.mqtt.client as mqtt
 from influxdb import InfluxDBClient
 
+from .config import config
 from .influx_interface import SensorMeasurement
 
-# MQTT settings
-BROKER = "localhost"
 TOPIC = "zigbee2mqtt/#"
 
-# InfluxDB settings (InfluxDB 1.x)
-INFLUX_HOST = "localhost"
-INFLUX_PORT = 8086
-INFLUX_DB = "sensors2"
-
-# Connect to InfluxDB
-print(f"Connecting to InfluxDB {INFLUX_HOST}:{INFLUX_PORT} on db={INFLUX_DB}...")
-influx = InfluxDBClient(host=INFLUX_HOST, port=INFLUX_PORT)
-influx.create_database(INFLUX_DB)
-influx.switch_database(INFLUX_DB)
+print(f"Connecting to InfluxDB {config.INFLUX_HOST}:{config.INFLUX_PORT} on db={config.INFLUX_DB}...")
+influx = InfluxDBClient(host=config.INFLUX_HOST, port=config.INFLUX_PORT)
+influx.create_database(config.INFLUX_DB)
+influx.switch_database(config.INFLUX_DB)
 
 
 class SonoffThermometerMeasurement(SensorMeasurement):
@@ -93,7 +86,7 @@ def on_message(client, userdata, message):
 # MQTT client
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 client.on_message = on_message
-client.connect(BROKER)
+client.connect(config.MQTT_HOST, config.MQTT_PORT)
 client.subscribe(TOPIC)
 
 

@@ -9,11 +9,12 @@ from influxdb import DataFrameClient
 
 from collections import defaultdict
 
-# --- Config ---
-INFLUX_HOST = "localhost"
-INFLUX_PORT = 8086
-INFLUX_DB = "sensors2"
-OUTPUT_DIR = "output"
+from miniha.config import config
+
+INFLUX_HOST = config.INFLUX_HOST
+INFLUX_PORT = config.INFLUX_PORT
+INFLUX_DB = config.INFLUX_DB
+OUTPUT_DIR = config.OUTPUT_DIR
 
 
 def get_data(day: date) -> pd.DataFrame:

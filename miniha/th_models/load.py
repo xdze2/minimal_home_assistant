@@ -7,17 +7,13 @@ from typing import Iterable
 
 import pandas as pd
 
+from ..config import config
 from ..influx_interface import InfluxInterface
 from .config import RoomConfig, Segment, SeriesSpec
 
-# TODO: read these from env (.env) — see NEXT.md.
-INFLUX_HOST = "192.168.1.87"
-INFLUX_PORT = 8086
-INFLUX_DB = "sensors2"
-
 
 def make_client() -> InfluxInterface:
-    return InfluxInterface(host=INFLUX_HOST, port=INFLUX_PORT, database=INFLUX_DB)
+    return InfluxInterface(host=config.INFLUX_HOST, port=config.INFLUX_PORT, database=config.INFLUX_DB)
 
 
 def _segment_window(seg: Segment, win_start: datetime, win_end: datetime) -> tuple[datetime, datetime] | None:

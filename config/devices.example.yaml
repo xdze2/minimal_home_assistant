@@ -1,0 +1,12 @@
+# Network devices: physical hardware addressed by IP on the LAN.
+#
+# Rooms reference `config/sensors.yaml`. Sensors whose room is unknown
+# are skipped at startup (a warning is logged), same as in sensors.yaml.
+
+daikin:
+  - id: daikin_salon
+    ip: 192.168.1.73
+    room: salon
+  - id: daikin_cuisine
+    ip: 192.168.1.84
+    room: cuisine

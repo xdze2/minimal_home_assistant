@@ -1,5 +1,4 @@
 from flask import Flask, send_from_directory, jsonify, request
-import os
 import json
 from .influx_interface import InfluxInterface
 from .sensors import load_sensors, Sensor
@@ -456,8 +455,7 @@ def monthly_summary() -> object:
 
 
 def main() -> None:
-    port = int(os.environ.get("MINIHA_PORT", "5001"))
-    app.run(debug=True, host="0.0.0.0", port=port)
+    app.run(debug=True, host="0.0.0.0", port=config.WEBAPP_PORT)
 
 
 if __name__ == "__main__":
