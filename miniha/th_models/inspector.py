@@ -82,7 +82,7 @@ def main() -> None:
         rows = []
         for role, items in cached.items():
             s = _to_series(items)
-            gaps = find_gaps(s, MAX_GAP)
+            gaps = find_gaps(s, MAX_GAP, window_start=cfg.window.start, window_end=cfg.window.end)
             rows.append(
                 {
                     "role": role,
