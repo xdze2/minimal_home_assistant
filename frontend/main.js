@@ -3,10 +3,8 @@ function getTodayISO() {
   return d.toISOString().slice(0, 10);
 }
 
-let currentEvent = null;
 let linkyPlot = null;
 let tempPlot = null;
-let eventRanges = [];
 let selectedDate = new Date();
 selectedDate.setHours(0, 0, 0, 0);
 
@@ -146,8 +144,6 @@ function fetchAndDraw(day) {
 
   // Temperatures chart
   fetchAndDrawTemperatures(day);
-  // Events
-  fetchAndShowEvents(day);
 }
 
 function fetchAndDrawTemperatures(day) {
@@ -253,169 +249,231 @@ function fetchAndDrawTemperatures(day) {
     });
 }
 
-function fetchAndShowEvents(day) {
-  fetch(`/events?day=${day}`)
+let monthlyData = null;
+let monthlyPlots = [];
+
+const PALETTE = [
+  "#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00",
+  "#a65628", "#f781bf", "#999999", "#66c2a5", "#fc8d62",
+];
+
+function statusColor(status) {
+  if (status === "ok") return "#22c55e";
+  if (status === "ongoing") return "#f59e42";
+  if (status === "nok") return "#e41a1c";
+  return "#bbb";
+}
+
+// Map a numeric value to a background color across a min..max range.
+// scheme: "kwh" (blue scale), "cold" (blue), "warm" (red).
+function heatColor(value, min, max, scheme) {
+  if (value == null || min == null || max == null || max === min) return "";
+  const t = Math.max(0, Math.min(1, (value - min) / (max - min)));
+  // Light → saturated, white background blended with the hue.
+  const alpha = 0.08 + t * 0.55;
+  let rgb;
+  if (scheme === "warm") rgb = "228, 26, 28";
+  else if (scheme === "cold") rgb = "55, 126, 184";
+  else rgb = "55, 126, 184";
+  return `rgba(${rgb}, ${alpha.toFixed(3)})`;
+}
+
+function fmtNum(v, digits) {
+  if (v == null || Number.isNaN(v)) return "—";
+  return Number(v).toFixed(digits);
+}
+
+function renderMonthlyCharts() {
+  const root = document.getElementById("monthly-charts");
+  root.innerHTML = "";
+  monthlyPlots.forEach((p) => p.destroy());
+  monthlyPlots = [];
+
+  if (!monthlyData || !monthlyData.days || !monthlyData.days.length) return;
+
+  // Oldest → newest, x-axis = unix seconds (uPlot time scale).
+  const ordered = [...monthlyData.days].reverse();
+  const xs = ordered.map((d) => new Date(d.date + "T00:00:00Z").getTime() / 1000);
+
+  const rooms = monthlyData.rooms || [];
+  const width = Math.max(600, root.clientWidth - 16);
+  const height = 220;
+
+  const commonAxes = [{}, { size: 45 }];
+
+  // 1) Daily kWh as bars.
+  const kwh = ordered.map((d) => (d.kwh == null ? null : d.kwh));
+  monthlyPlots.push(makeChart(root, "Daily energy (kWh)", {
+    width, height,
+    series: [
+      {},
+      {
+        label: "kWh",
+        stroke: "#377eb8",
+        fill: "rgba(55,126,184,0.4)",
+        paths: uPlot.paths.bars({ size: [0.7, 100] }),
+        points: { show: false },
+      },
+    ],
+    axes: commonAxes,
+  }, [xs, kwh]));
+
+  // 2) Temperatures: outdoor min/max + indoor min/max per room.
+  const extMin = ordered.map((d) => (d.ext_min == null ? null : d.ext_min));
+  const extMax = ordered.map((d) => (d.ext_max == null ? null : d.ext_max));
+  const tempSeries = [
+    {},
+    { label: "Outdoor min", stroke: "#377eb8", width: 2, spanGaps: true },
+    { label: "Outdoor max", stroke: "#e41a1c", width: 2, spanGaps: true },
+  ];
+  const tempData = [xs, extMin, extMax];
+  rooms.forEach((r, i) => {
+    const color = PALETTE[(i + 2) % PALETTE.length];
+    tempSeries.push({ label: `${r} min`, stroke: color, dash: [4, 3], spanGaps: true });
+    tempSeries.push({ label: `${r} max`, stroke: color, spanGaps: true });
+    tempData.push(ordered.map((d) => d.rooms?.[r]?.min ?? null));
+    tempData.push(ordered.map((d) => d.rooms?.[r]?.max ?? null));
+  });
+  monthlyPlots.push(makeChart(root, "Temperatures (°C, daily min/max)", {
+    width, height,
+    series: tempSeries,
+    axes: commonAxes,
+  }, tempData));
+}
+
+function makeChart(root, title, opts, data) {
+  const wrap = document.createElement("div");
+  wrap.className = "monthly-chart";
+  const h = document.createElement("div");
+  h.className = "monthly-chart-title";
+  h.textContent = title;
+  wrap.appendChild(h);
+  root.appendChild(wrap);
+  return new uPlot(opts, data, wrap);
+}
+
+function renderMonthOverview() {
+  const root = document.getElementById("month-overview");
+  if (!monthlyData) {
+    root.textContent = "Loading…";
+    return;
+  }
+  const { days, rooms } = monthlyData;
+  if (!days || !days.length) {
+    root.textContent = "No data.";
+    return;
+  }
+
+  // Oldest → newest so reading order is left-to-right chronological.
+  const orderedDays = [...days].reverse();
+
+  const selISO = selectedDate.toISOString().slice(0, 10);
+
+  const table = document.createElement("table");
+  table.className = "month-table";
+
+  // Build a per-row helper: label + a value-cell builder for each day.
+  const rows = [];
+
+  // Date: split into day-of-month and month rows.
+  rows.push({
+    label: "Day",
+    build: (d) => {
+      const dt = new Date(d.date + "T00:00:00");
+      const td = document.createElement("td");
+      td.className = "date";
+      td.textContent = dt.getDate();
+      if (dt.getDay() === 0 || dt.getDay() === 6) td.classList.add("weekend");
+      return td;
+    },
+  });
+  rows.push({
+    label: "Month",
+    build: (d, idx) => {
+      const dt = new Date(d.date + "T00:00:00");
+      const td = document.createElement("td");
+      td.className = "month";
+      // Show month label on the 1st of the month or on the leftmost column.
+      const showLabel = dt.getDate() === 1 || idx === 0;
+      td.textContent = showLabel ? dt.getMonth() + 1 : "";
+      return td;
+    },
+  });
+
+  // kWh status (one dot per day).
+  rows.push({
+    label: "Energy",
+    build: (d) => {
+      const td = document.createElement("td");
+      td.innerHTML = `<span class="status-dot" title="${d.status} (${fmtNum(d.kwh, 1)} kWh)" style="background:${statusColor(d.status)}"></span>`;
+      return td;
+    },
+  });
+
+  // One row per sensor/room: data-present dot.
+  rooms.forEach((r) => {
+    rows.push({
+      label: r,
+      build: (d) => {
+        const td = document.createElement("td");
+        const room = d.rooms?.[r];
+        const present = room && (room.min != null || room.max != null);
+        const color = present ? "#22c55e" : "#ddd";
+        const title = present
+          ? `${r}: ${fmtNum(room.min, 1)} / ${fmtNum(room.max, 1)} °C`
+          : `${r}: no data`;
+        td.innerHTML = `<span class="status-dot" title="${title}" style="background:${color}"></span>`;
+        return td;
+      },
+    });
+  });
+
+  const tbody = document.createElement("tbody");
+  rows.forEach((row) => {
+    const tr = document.createElement("tr");
+    const th = document.createElement("th");
+    th.scope = "row";
+    th.textContent = row.label;
+    tr.appendChild(th);
+    orderedDays.forEach((d, idx) => {
+      const td = row.build(d, idx);
+      if (d.date === selISO) td.classList.add("col-selected");
+      td.onclick = () => {
+        selectedDate = new Date(d.date + "T00:00:00");
+        selectedDate.setHours(0, 0, 0, 0);
+        renderMonthOverview();
+        document.getElementById("day-detail-title").textContent = `Detail — ${d.date}`;
+        fetchAndDraw(d.date);
+      };
+      td.style.cursor = "pointer";
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+
+  root.innerHTML = "";
+  root.appendChild(table);
+}
+
+function fetchMonthOverview() {
+  fetch(`/monthly_summary?days=60`)
     .then((res) => res.json())
-    .then((events) => {
-      eventRanges = events.map((ev, idx) => {
-        // Parse start/end as minutes since midnight UTC
-        const startDt = new Date(ev.start);
-        const endDt = new Date(ev.end);
-        return {
-          ...ev,
-          idx,
-          startMinutes: startDt.getUTCHours() * 60 + startDt.getUTCMinutes(),
-          endMinutes: endDt.getUTCHours() * 60 + endDt.getUTCMinutes(),
-        };
-      });
-      renderEventList();
+    .then((data) => {
+      monthlyData = data;
+      renderMonthlyCharts();
+      renderMonthOverview();
     })
     .catch((err) => {
-      document.getElementById("event-list").innerText = "Failed to load events";
-      eventRanges = [];
-      renderEventList();
+      document.getElementById("month-overview").textContent =
+        "Failed to load monthly summary.";
       console.error(err);
     });
 }
 
-function renderEventList() {
-  const ul = document.getElementById("event-list");
-  ul.innerHTML = "";
-  if (!eventRanges.length) {
-    ul.innerHTML = "<li>No events</li>";
-    return;
-  }
-  eventRanges.forEach((ev) => {
-    const li = document.createElement("li");
-    li.className =
-      "event-item" +
-      (currentEvent && currentEvent.idx === ev.idx ? " selected" : "");
-    li.innerHTML = `<div class="event-title">${ev.title}</div>
-      <div class="event-message">${ev.message}</div>
-      <div style="font-size:0.9em;color:#888;">
-        ${formatMinutes(ev.startMinutes)} - ${formatMinutes(ev.endMinutes)}
-      </div>`;
-    li.onclick = () => {
-      currentEvent = ev;
-      console.log("Selected event", ev);
-      renderEventList();
-      // Redraw graphs with highlight
-      // fetchAndDraw(document.getElementById("day").value);
-    };
-    ul.appendChild(li);
-  });
-}
-
-function formatMinutes(mins) {
-  const h = Math.floor(mins / 60)
-    .toString()
-    .padStart(2, "0");
-  const m = (mins % 60).toString().padStart(2, "0");
-  return `${h}:${m}`;
-}
-
-function renderCalendar(date) {
-  const calendarDiv = document.getElementById("calendar");
-  calendarDiv.innerHTML = "";
-
-  const year = date.getFullYear();
-  const month = date.getMonth();
-
-  // First day of month
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month + 1, 0);
-  const firstWeekDay = firstDay.getDay() || 7; // Monday=1, Sunday=7
-  const daysInMonth = lastDay.getDate();
-
-  // Calendar navigation
-  const nav = document.createElement("div");
-  nav.className = "calendar-nav";
-  const prevBtn = document.createElement("button");
-  prevBtn.textContent = "<";
-  prevBtn.onclick = () => {
-    renderCalendar(new Date(year, month - 1, 1));
-  };
-  const nextBtn = document.createElement("button");
-  nextBtn.textContent = ">";
-  nextBtn.onclick = () => {
-    renderCalendar(new Date(year, month + 1, 1));
-  };
-  const label = document.createElement("span");
-  label.textContent = date.toLocaleString(undefined, {
-    month: "long",
-    year: "numeric",
-  });
-  nav.appendChild(prevBtn);
-  nav.appendChild(label);
-  nav.appendChild(nextBtn);
-  calendarDiv.appendChild(nav);
-
-  // Table
-  const table = document.createElement("table");
-  table.className = "calendar";
-  const thead = document.createElement("thead");
-  const tr = document.createElement("tr");
-  ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].forEach((d) => {
-    const th = document.createElement("th");
-    th.textContent = d;
-    tr.appendChild(th);
-  });
-  thead.appendChild(tr);
-  table.appendChild(thead);
-
-  const tbody = document.createElement("tbody");
-  let row = document.createElement("tr");
-  // Fill empty cells before first day
-  for (let i = 1; i < firstWeekDay; i++) {
-    const td = document.createElement("td");
-    td.className = "empty";
-    row.appendChild(td);
-  }
-  for (let day = 1; day <= daysInMonth; day++) {
-    if (row.children.length === 7) {
-      tbody.appendChild(row);
-      row = document.createElement("tr");
-    }
-    const td = document.createElement("td");
-    td.textContent = day;
-    td.className = "";
-    const cellDate = new Date(year, month, day);
-    cellDate.setHours(0, 0, 0, 0);
-
-    // Highlight today
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    if (cellDate.getTime() === today.getTime()) {
-      td.classList.add("today");
-    }
-    // Highlight selected
-    if (cellDate.getTime() === selectedDate.getTime()) {
-      td.classList.add("selected");
-    }
-    td.onclick = () => {
-      selectedDate = cellDate;
-      renderCalendar(selectedDate);
-      currentEvent = null;
-      fetchAndDraw(selectedDate.toISOString().slice(0, 10));
-    };
-    row.appendChild(td);
-  }
-  // Fill empty cells after last day
-  while (row.children.length < 7) {
-    const td = document.createElement("td");
-    td.className = "empty";
-    row.appendChild(td);
-  }
-  tbody.appendChild(row);
-  table.appendChild(tbody);
-  calendarDiv.appendChild(table);
-}
-
-// Replace dayInput logic with calendar
 document.addEventListener("DOMContentLoaded", () => {
-  renderCalendar(selectedDate);
-  fetchAndDraw(selectedDate.toISOString().slice(0, 10));
+  const iso = selectedDate.toISOString().slice(0, 10);
+  document.getElementById("day-detail-title").textContent = `Detail — ${iso}`;
+  fetchMonthOverview();
+  fetchAndDraw(iso);
 });
-
-// Initial load
-fetchAndDraw(selectedDate.toISOString().slice(0, 10));

@@ -7,54 +7,17 @@
     <link rel="stylesheet" href="uPlot.min.css" />
     <style>
       body {
-        display: flex;
-        flex-direction: row;
         min-height: 100vh;
-      }
-      .main-content {
-        flex: 1 1 auto;
-        padding-right: 320px;
-      }
-      #sidebar {
-        width: 300px;
-        background: #f9f9fa;
-        border-left: 1px solid #eee;
-        padding: 1em;
-        margin-right: 1em;
-        position: fixed;
-        right: 0;
-        top: 0;
-        height: 100vh;
-        overflow-y: auto;
-      }
-      #sidebar h2 {
-        font-size: 1.2em;
-        margin-top: 0;
-      }
-      .event-list {
-        list-style: none;
-        padding: 0;
         margin: 0;
       }
-      .event-list li {
-        margin-bottom: 1em;
-        padding: 0.5em;
-        border-radius: 6px;
-        cursor: pointer;
-        border-left: 4px solid #377eb8;
-        background: #f0f6ff;
-        transition: background 0.2s;
+      h1 {
+        margin: 0;
+        padding: 0.5em 1em;
+        background: #fff;
+        border-bottom: 1px solid #eee;
       }
-      .event-list li.selected {
-        background: #dbeafe;
-        border-left: 4px solid #e41a1c;
-      }
-      .event-title {
-        font-weight: bold;
-      }
-      .event-message {
-        font-size: 0.95em;
-        color: #444;
+      .main-content {
+        padding: 0 1em;
       }
       .chart {
         width: 90%;
@@ -70,69 +33,85 @@
       .chart canvas {
         display: block;
       }
-      .calendar-container {
-        display: flex;
-        justify-content: center;
-        margin-top: 2rem;
-        margin-bottom: 1rem;
-      }
-      .calendar {
-        border-collapse: collapse;
+      .month-overview {
+        margin: 1em auto;
         background: #fff;
         border-radius: 8px;
         box-shadow: 0 2px 8px rgba(60, 72, 88, 0.08);
-        font-size: 1em;
+        padding: 0.5em;
+        overflow-x: auto;
       }
-      .calendar th,
-      .calendar td {
-        width: 2.5em;
-        height: 2.5em;
+      .month-table {
+        border-collapse: collapse;
+        font-size: 0.7em;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.1;
+      }
+      .month-table th,
+      .month-table td {
+        padding: 1px 3px;
         text-align: center;
-        cursor: pointer;
-        border: 1px solid #eee;
-        border-radius: 4px;
-        transition: background 0.2s;
+        border-bottom: 1px solid #f0f0f0;
+        white-space: nowrap;
       }
-      .calendar th {
+      .month-table th[scope="row"] {
+        text-align: right;
+        font-weight: 600;
         background: #f0f6ff;
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        padding-right: 0.5em;
+      }
+      .month-table td {
+        min-width: 1.6em;
+        transition: background 0.15s;
+      }
+      .month-table td.date {
+        font-family: monospace;
         font-weight: 600;
-        cursor: default;
+        background: #f8fafc;
       }
-      .calendar td.selected {
-        background: #377eb8;
-        color: #fff;
-        font-weight: bold;
+      .month-table td.month {
+        font-family: monospace;
+        background: #f8fafc;
+        color: #888;
+        font-size: 0.85em;
       }
-      .calendar td.today {
-        border: 2px solid #e41a1c;
+      .month-table td.weekend {
+        color: #888;
       }
-      .calendar td:hover:not(.selected):not(.empty) {
-        background: #dbeafe;
+      .month-table td.col-selected {
+        outline: 2px solid #377eb8;
+        outline-offset: -2px;
       }
-      .calendar td.empty {
-        background: transparent;
-        cursor: default;
-        border: none;
+      .month-table td:hover {
+        filter: brightness(0.92);
       }
-      .calendar-nav {
+      .status-dot {
+        display: inline-block;
+        width: 0.7em;
+        height: 0.7em;
+        border-radius: 50%;
+        vertical-align: middle;
+      }
+      #monthly-charts {
         display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 0.5em;
+        flex-direction: column;
+        gap: 0.75em;
+        margin-bottom: 0.75em;
       }
-      .calendar-nav button {
-        background: #377eb8;
-        color: #fff;
-        border: none;
-        border-radius: 4px;
-        padding: 0.2em 0.7em;
-        font-size: 1em;
-        cursor: pointer;
-        margin: 0 0.5em;
+      .monthly-chart {
+        background: #fff;
+        border-radius: 6px;
+        box-shadow: 0 1px 4px rgba(60, 72, 88, 0.08);
+        padding: 0.4em;
       }
-      .calendar-nav span {
+      .monthly-chart-title {
+        font-size: 0.85em;
         font-weight: 600;
-        font-size: 1.1em;
+        margin: 0 0 0.25em 0.25em;
+        color: #444;
       }
       #daily-summary {
         max-width: 800px;
@@ -148,9 +127,12 @@
     <h1>Mini HA</h1>
 
     <div class="main-content">
-      <div class="calendar-container">
-        <div id="calendar"></div>
+      <h2 style="margin:1em 0 0.25em 0;">Last 60 days</h2>
+      <div id="monthly-charts"></div>
+      <div class="month-overview">
+        <div id="month-overview">Loading…</div>
       </div>
+      <h2 style="margin:1.5em 0 0.25em 0;" id="day-detail-title">Selected day</h2>
       <div id="chart"></div>
 
       <div
@@ -167,12 +149,8 @@
         <!-- Daily summary will be injected here -->
       </div>
 
-      <h1>Temperatures</h1>
+      <h2>Temperatures</h2>
       <div id="temp-chart"></div>
-    </div>
-    <div id="sidebar">
-      <h2>Events</h2>
-      <ul class="event-list" id="event-list"></ul>
     </div>
     <script src="uPlot.iife.min.js"></script>
     <script src="main.js"></script>
