@@ -24,6 +24,9 @@ HOURLY_VARIABLES = [
     "relative_humidity_2m",
     "cloud_cover",
     "wind_speed_10m",
+    "shortwave_radiation",
+    "direct_radiation",
+    "diffuse_radiation",
 ]
 DEFAULT_CONFIG_PATH = "config/open_meteo.yaml"
 

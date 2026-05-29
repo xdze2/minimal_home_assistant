@@ -82,20 +82,20 @@ def _plot_obs_vs_model(df: pd.DataFrame, sim: pd.Series) -> go.Figure:
     fig.add_trace(go.Scattergl(x=df.index, y=df["T_in"], mode="lines",
                                name="indoor (obs)", line=dict(color="royalblue")))
     fig.add_trace(go.Scattergl(x=sim.index, y=sim.values, mode="lines",
-                               name="indoor (1R1C)", line=dict(color="orange", dash="dot")))
+                               name="indoor (1R1C)", line=dict(color="black")))
     fig.update_layout(height=320, margin=dict(l=40, r=20, t=30, b=30),
                       title="Observed vs 1R1C", yaxis_title="°C")
     return fig
 
 
 def _plot_residual(df: pd.DataFrame, sim: pd.Series) -> go.Figure:
-    resid = sim - df["T_in"]
+    resid = df["T_in"] - sim
     fig = go.Figure()
     fig.add_trace(go.Scattergl(x=resid.index, y=resid.values, mode="lines",
-                               name="model − obs", line=dict(color="gray")))
+                               name="obs − model", line=dict(color="gray")))
     fig.add_hline(y=0, line=dict(color="black", width=1))
     fig.update_layout(height=260, margin=dict(l=40, r=20, t=30, b=30),
-                      title="Residual (model − observed)", yaxis_title="°C")
+                      title="Residual (observed − model)", yaxis_title="°C")
     return fig
 
 
@@ -117,12 +117,13 @@ def _render_fit(cached: dict) -> None:
         st.error(f"Fit failed: {e}")
         return
 
-    sim = simulate(df, res.tau_hours)
+    sim = simulate(df, res.tau_hours, res.dT_eq)
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("τ = R·C", f"{res.tau_hours:.2f} h", f"± {res.tau_stderr_hours:.2f} h")
-    c2.metric("samples (Δ-pairs)", f"{res.n_samples}")
-    c3.metric("step RMSE", f"{res.rmse * 1000:.1f} m°C")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("τ = R·C", f"{res.tau_hours:.2f} ± {res.tau_stderr_hours:.2f} h")
+    c2.metric("ΔT_eq (Q₀·R)", f"{res.dT_eq:+.2f} ± {res.dT_eq_stderr:.2f} °C")
+    c3.metric("samples (Δ-pairs)", f"{res.n_samples}")
+    c4.metric("step RMSE", f"{res.rmse * 1000:.1f} m°C")
 
     st.plotly_chart(_plot_in_out(df), use_container_width=True)
     st.plotly_chart(_plot_obs_vs_model(df, sim), use_container_width=True)
