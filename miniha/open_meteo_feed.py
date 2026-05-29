@@ -38,12 +38,12 @@ def load_locations(path: str | None = None) -> List[Dict[str, Any]]:
     return locations
 
 
-def fetch_hourly(latitude: float, longitude: float, day: date) -> pd.DataFrame:
+def fetch_hourly(latitude: float, longitude: float, start: date, end: date) -> pd.DataFrame:
     params = {
         "latitude": latitude,
         "longitude": longitude,
-        "start_date": day.isoformat(),
-        "end_date": day.isoformat(),
+        "start_date": start.isoformat(),
+        "end_date": end.isoformat(),
         "hourly": ",".join(HOURLY_VARIABLES),
     }
     response = requests.get(ARCHIVE_URL, params=params, timeout=30)
@@ -77,16 +77,42 @@ def build_points(df: pd.DataFrame, location: str) -> List[Dict[str, Any]]:
     "--day",
     "day_str",
     default=None,
-    help="Target day in YYYY-MM-DD format. Defaults to yesterday.",
+    help="Single target day (YYYY-MM-DD). Shortcut for --start=DAY --end=DAY.",
 )
-def main(day_str: str | None) -> None:
+@click.option(
+    "--start",
+    "start_str",
+    default=None,
+    help="Range start date (YYYY-MM-DD, inclusive).",
+)
+@click.option(
+    "--end",
+    "end_str",
+    default=None,
+    help="Range end date (YYYY-MM-DD, inclusive). Defaults to yesterday.",
+)
+def main(day_str: str | None, start_str: str | None, end_str: str | None) -> None:
     from .config import config
 
+    if day_str and (start_str or end_str):
+        raise click.UsageError("--day cannot be combined with --start/--end")
+
     if day_str:
-        target_day = datetime.strptime(day_str, "%Y-%m-%d").date()
+        start_day = end_day = datetime.strptime(day_str, "%Y-%m-%d").date()
     else:
-        target_day = date.today() - timedelta(days=1)
-    print(f"Fetching Open-Meteo archive for {target_day.isoformat()}...")
+        end_day = (
+            datetime.strptime(end_str, "%Y-%m-%d").date()
+            if end_str
+            else date.today() - timedelta(days=1)
+        )
+        start_day = (
+            datetime.strptime(start_str, "%Y-%m-%d").date() if start_str else end_day
+        )
+
+    if start_day > end_day:
+        raise click.UsageError("--start must be on or before --end")
+
+    print(f"Fetching Open-Meteo archive from {start_day.isoformat()} to {end_day.isoformat()}...")
 
     locations = load_locations()
     print(f"Connecting to InfluxDB {config.INFLUX_HOST}:{config.INFLUX_PORT} on db={config.INFLUX_DB}...")
@@ -99,13 +125,13 @@ def main(day_str: str | None) -> None:
         lat = float(loc["latitude"])
         lon = float(loc["longitude"])
         print(f"[{name}] fetching ({lat}, {lon})...")
-        df = fetch_hourly(lat, lon, target_day)
+        df = fetch_hourly(lat, lon, start_day, end_day)
         points = build_points(df, name)
         if not points:
             print(f"[{name}] no points to write")
             continue
         print(f"[{name}] writing {len(points)} points")
-        influx.write_points(points)
+        influx.write_points(points, batch_size=5000)
 
     influx.close()
 
