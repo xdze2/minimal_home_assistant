@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from miniha.th_models.config import discover_configs, load_room_config
-from miniha.th_models.fit import fit_1r1c, prepare, simulate
+from miniha.th_models.fit import fit_thermal, prepare, simulate
 from miniha.th_models.flags import MAX_GAP, find_gaps
 from miniha.th_models.load import load_room
 
@@ -88,6 +88,15 @@ def _plot_obs_vs_model(df: pd.DataFrame, sim: pd.Series) -> go.Figure:
     return fig
 
 
+def _plot_solar(df: pd.DataFrame) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(go.Scattergl(x=df.index, y=df["I_solar"], mode="lines",
+                               name="shortwave", line=dict(color="goldenrod")))
+    fig.update_layout(height=200, margin=dict(l=40, r=20, t=30, b=30),
+                      title="Solar irradiance (horizontal)", yaxis_title="W/m²")
+    return fig
+
+
 def _plot_residual(df: pd.DataFrame, sim: pd.Series) -> go.Figure:
     resid = df["T_in"] - sim
     fig = go.Figure()
@@ -102,32 +111,79 @@ def _plot_residual(df: pd.DataFrame, sim: pd.Series) -> go.Figure:
 def _render_fit(cached: dict) -> None:
     indoor = _to_series(cached.get("indoor_temp", []))
     outdoor = _to_series(cached.get("outdoor_temp", []))
-    if indoor.empty or outdoor.empty:
-        st.warning("Need both `indoor_temp` and `outdoor_temp` series.")
+    solar = _to_series(cached.get("shortwave_radiation", []))
+    if indoor.empty or outdoor.empty or solar.empty:
+        st.warning("Need `indoor_temp`, `outdoor_temp` and `shortwave_radiation` series.")
         return
 
-    df = prepare(indoor, outdoor)
-    if len(df) < 3:
+    df = prepare(indoor, outdoor, solar)
+    if len(df) < 4:
         st.warning(f"Not enough aligned samples to fit ({len(df)}).")
         return
 
     try:
-        res = fit_1r1c(df)
+        res = fit_thermal(df)
     except ValueError as e:
         st.error(f"Fit failed: {e}")
         return
 
-    sim = simulate(df, res.tau_hours, res.dT_eq)
+    sim = simulate(df, res.tau_hours, res.dT_eq, res.g_solar)
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("τ = R·C", f"{res.tau_hours:.2f} ± {res.tau_stderr_hours:.2f} h")
     c2.metric("ΔT_eq (Q₀·R)", f"{res.dT_eq:+.2f} ± {res.dT_eq_stderr:.2f} °C")
-    c3.metric("samples (Δ-pairs)", f"{res.n_samples}")
-    c4.metric("step RMSE", f"{res.rmse * 1000:.1f} m°C")
+    c3.metric("g_solar (a·R)",
+              f"{res.g_solar*1000:.2f} ± {res.g_solar_stderr*1000:.2f} m°C·m²/W")
+    c4.metric("samples (Δ-pairs)", f"{res.n_samples}")
+    c5.metric("step RMSE", f"{res.rmse * 1000:.1f} m°C")
 
     st.plotly_chart(_plot_in_out(df), use_container_width=True)
+    st.plotly_chart(_plot_solar(df), use_container_width=True)
     st.plotly_chart(_plot_obs_vs_model(df, sim), use_container_width=True)
     st.plotly_chart(_plot_residual(df, sim), use_container_width=True)
+
+    _render_model_doc()
+
+
+def _render_model_doc() -> None:
+    with st.expander("Model & fit method"):
+        st.markdown("**Continuous-time energy balance** (single zone, lumped capacitance):")
+        st.latex(r"C \, \frac{dT_\text{in}}{dt} \;=\; \frac{T_\text{out} - T_\text{in}}{R} \;+\; Q_0 \;+\; a \, I_\text{solar}")
+        st.markdown(
+            "- $T_\\text{in}, T_\\text{out}$: indoor / outdoor air temperature [°C]\n"
+            "- $I_\\text{solar}$: horizontal shortwave irradiance [W/m²]\n"
+            "- $R$: thermal resistance envelope ↔ outside [°C / W]\n"
+            "- $C$: lumped thermal capacitance of the zone [J / °C]\n"
+            "- $Q_0$: constant heat input (internal gains, adjacent-room coupling) [W]\n"
+            "- $a$: effective solar aperture (window area × shading × transmittance) [m²]"
+        )
+
+        st.markdown("**Discretisation** on a uniform grid of step $\\Delta t$:")
+        st.latex(r"\Delta T_\text{in}[k] \;=\; \alpha \, (T_\text{out}[k] - T_\text{in}[k]) \;+\; \beta \;+\; \gamma \, I_\text{solar}[k]")
+        st.latex(r"\alpha = \frac{\Delta t}{\tau},\quad \beta = \frac{\Delta t \, Q_0}{C},\quad \gamma = \frac{\Delta t \, a}{C}")
+        st.markdown(
+            "$R$, $C$, $Q_0$, $a$ are not individually identifiable from temperatures alone "
+            "(a common scale is unobservable). The identifiable combinations are:"
+        )
+        st.latex(r"\tau = R\,C, \quad \Delta T_\text{eq} = Q_0 R = \beta/\alpha, \quad g_\text{solar} = a R = \gamma/\alpha")
+
+        st.markdown(
+            "**Fit (current): one-step OLS (equation error).** "
+            "Stack the discretised equation over all consecutive sample pairs and solve a linear "
+            "least-squares problem for $(\\alpha, \\beta, \\gamma)$:"
+        )
+        st.latex(r"\min_{\alpha,\beta,\gamma} \sum_k \bigl(\Delta T_\text{in}[k] - \alpha(T_\text{out}[k]-T_\text{in}[k]) - \beta - \gamma I_\text{solar}[k]\bigr)^2")
+        st.markdown(
+            "Closed-form via `np.linalg.lstsq`. Standard errors come from the residual covariance "
+            "$\\sigma^2 (X^\\top X)^{-1}$; propagation to $\\tau, \\Delta T_\\text{eq}, g_\\text{solar}$ "
+            "uses the first-order delta method.\n\n"
+            "**Caveat.** One-step fits compare predictions one step ahead, anchored on the *observed* "
+            "previous value — they do not penalise drift over long horizons. With correlated regressors "
+            "(here, outdoor temperature and solar irradiance both peak in the afternoon), the OLS "
+            "solution can split heat input between $\\beta$ and $\\gamma$ in physically wrong ways. "
+            "Next step is a **simulation-based (output-error) fit**: integrate the discretised ODE forward "
+            "and minimise $\\sum (T_\\text{in}^\\text{sim}[k] - T_\\text{in}^\\text{obs}[k])^2$."
+        )
 
 
 def main() -> None:
@@ -160,7 +216,7 @@ def main() -> None:
                 st.error(f"Load failed: {e}")
                 continue
 
-        tab_inspect, tab_fit = st.tabs(["Inspect", "1R1C fit"])
+        tab_inspect, tab_fit = st.tabs(["Inspect", "Grey-box fit"])
         with tab_inspect:
             _render_inspect(cfg, cached)
         with tab_fit:
