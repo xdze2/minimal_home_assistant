@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Tuple
 import pandas as pd
 from influxdb import DataFrameClient
 from .utils import normalize_to_datetime
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class InfluxInterface:
@@ -117,7 +117,7 @@ class SensorMeasurement:
                     "name": device_info.get("friendlyName"),
                     "ieee_addr": device_info.get("ieeeAddr"),
                 },
-                "time": datetime.now().isoformat(),  # raw_fields["last_seen"],
+                "time": raw_fields.get("last_seen") or datetime.now(timezone.utc).isoformat(),
                 "fields": normalized_values(raw_fields, clc.__field_types__),
             }
         ]

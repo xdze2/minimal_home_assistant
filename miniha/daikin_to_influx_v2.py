@@ -1,5 +1,5 @@
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Set
 
 import requests
@@ -109,7 +109,7 @@ def build_point(
     return {
         "measurement": MEASUREMENT_NAME,
         "tags": {"name": API.name, "mac": API.mac, "type": API.type},
-        "time": datetime.now().isoformat(),
+        "time": datetime.now(timezone.utc).isoformat(),
         "fields": fields_to_write,
     }
 
