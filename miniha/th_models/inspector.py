@@ -109,12 +109,13 @@ def _plot_residual(df: pd.DataFrame, sim: pd.Series) -> go.Figure:
 
 
 def _render_fit(cached: dict) -> None:
-    indoor = _to_series(cached.get("indoor_temp", []))
-    outdoor = _to_series(cached.get("outdoor_temp", []))
-    solar = _to_series(cached.get("shortwave_radiation", []))
-    if indoor.empty or outdoor.empty or solar.empty:
-        st.warning("Need `indoor_temp`, `outdoor_temp` and `shortwave_radiation` series.")
+    needed = {"indoor_temp", "outdoor_temp", "shortwave_radiation"}
+    series = {name: _to_series(cached.get(name, [])) for name in needed}
+    missing = [name for name, s in series.items() if s.empty]
+    if missing:
+        st.warning(f"Missing or empty series: {', '.join(f'`{m}`' for m in missing)}.")
         return
+    indoor, outdoor, solar = series["indoor_temp"], series["outdoor_temp"], series["shortwave_radiation"]
 
     df = prepare(indoor, outdoor, solar)
     if len(df) < 4:
@@ -198,31 +199,34 @@ def main() -> None:
         if not configs:
             st.warning("No YAML files in user_models/")
             return
-        for p in configs:
-            st.write(f"- `{p.name}`")
-
-    for cfg_path in configs:
-        cfg = load_room_config(cfg_path)
-        st.header(f"Room: {cfg.room}")
-        st.caption(
-            f"`{cfg_path.name}` · window "
-            f"{cfg.window.start.isoformat()} → {cfg.window.end.isoformat()}"
+        cfg_path = st.selectbox(
+            "Select a config",
+            configs,
+            format_func=lambda p: p.name,
         )
+        if st.button("Reload data", use_container_width=True):
+            _load_room_cached.clear()
+            st.rerun()
 
-        with st.spinner(f"Loading {cfg.room}…"):
-            try:
-                cached = _load_room_cached(str(cfg_path))
-            except Exception as e:
-                st.error(f"Load failed: {e}")
-                continue
+    cfg = load_room_config(cfg_path)
+    st.header(f"Room: {cfg.room}")
+    st.caption(
+        f"`{cfg_path.name}` · window "
+        f"{cfg.window.start.isoformat()} → {cfg.window.end.isoformat()}"
+    )
 
-        tab_inspect, tab_fit = st.tabs(["Inspect", "1R1C model"])
-        with tab_inspect:
-            _render_inspect(cfg, cached)
-        with tab_fit:
-            _render_fit(cached)
+    with st.spinner(f"Loading {cfg.room}…"):
+        try:
+            cached = _load_room_cached(str(cfg_path))
+        except Exception as e:
+            st.error(f"Load failed: {e}")
+            return
 
-        st.divider()
+    tab_inspect, tab_fit = st.tabs(["Inspect", "1R1C model"])
+    with tab_inspect:
+        _render_inspect(cfg, cached)
+    with tab_fit:
+        _render_fit(cached)
 
 
 if __name__ == "__main__":
