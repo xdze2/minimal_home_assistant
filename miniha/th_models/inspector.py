@@ -6,7 +6,13 @@ Run:
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+)
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -16,6 +22,13 @@ from miniha.th_models.config import discover_configs, load_room_config
 from miniha.th_models.fit import fit_thermal, prepare, simulate
 from miniha.th_models.flags import MAX_GAP, find_gaps
 from miniha.th_models.load import load_room
+from miniha.th_models.sliding_exp import (
+    WindowFit,
+    merge_grow,
+    resample_series,
+    scan,
+    to_dataframe,
+)
 
 USER_MODELS_DIR = Path(__file__).resolve().parents[2] / "user_models"
 
@@ -146,6 +159,167 @@ def _render_fit(cached: dict) -> None:
     _render_model_doc()
 
 
+@st.cache_data(show_spinner=False)
+def _scan_cached(
+    config_path: str,
+    window_h: float,
+    step_min: float,
+    resample: str,
+) -> pd.DataFrame:
+    cached = _load_room_cached(config_path)
+    indoor = _to_series(cached.get("indoor_temp", []))
+    if indoor.empty:
+        return to_dataframe([])
+    fits = scan(
+        indoor, window_h=window_h, step_min=step_min, resample=resample,
+    )
+    return to_dataframe(fits)
+
+
+def _render_decay_scan(config_path: str, cached: dict) -> None:
+    indoor = _to_series(cached.get("indoor_temp", []))
+    if indoor.empty:
+        st.warning("Missing or empty `indoor_temp` series.")
+        return
+
+    c1, c2, c3 = st.columns(3)
+    window_h = c1.slider("Window length (h)", 1.0, 12.0, 4.0, 0.5)
+    step_min = c2.slider("Step (min)", 5, 120, 30, 5)
+    resample = c3.selectbox("Resample", ["5min", "10min", "15min"], index=0)
+
+    c4, c5, c6 = st.columns(3)
+    r2_min = c4.slider("R² ≥", 0.80, 1.0, 0.98, 0.005)
+    tau_lo = c5.number_input("τ min (h)", 0.5, 100.0, 2.0, 0.5)
+    tau_hi = c6.number_input("τ max (h)", 0.5, 200.0, 50.0, 1.0)
+
+    c7, c8, c9 = st.columns(3)
+    do_merge = c7.checkbox("Greedy-grow merge", value=True)
+    tau_log_tol = c8.slider("τ log-tolerance", 0.05, 1.0, 0.2, 0.05)
+    Tinf_tol = c9.slider("T∞ tolerance (°C)", 0.1, 5.0, 0.5, 0.1)
+
+    with st.spinner(f"scanning (window={window_h}h, step={step_min}min, resample={resample})…"):
+        fits_df = _scan_cached(config_path, window_h, step_min, resample)
+
+    if fits_df.empty:
+        st.info("No fits produced. Try a longer window.")
+        return
+
+    accepted = fits_df[
+        (fits_df["r2"] >= r2_min)
+        & (fits_df["tau_h"] >= tau_lo)
+        & (fits_df["tau_h"] <= tau_hi)
+    ].reset_index(drop=True)
+
+    if do_merge and len(accepted):
+        with st.spinner(f"merging {len(accepted)} windows…"):
+            fits_in = [
+                WindowFit(
+                    t_start=row["t_start"], t_end=row["t_end"],
+                    tau_h=row["tau_h"], T_inf=row["T_inf"], T_0=row["T_0"],
+                    r2=row["r2"], n=int(row["n"]),
+                )
+                for _, row in accepted.iterrows()
+            ]
+            resampled = resample_series(indoor, resample)
+            merged = merge_grow(
+                fits_in, resampled, resample,
+                r2_min=r2_min, tau_log_tol=tau_log_tol, Tinf_tol_C=Tinf_tol,
+            )
+            accepted = to_dataframe(merged)
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Windows scanned", f"{len(fits_df)}")
+    m2.metric("Accepted", f"{len(accepted)}")
+    m3.metric(
+        "Median τ (h)",
+        f"{accepted['tau_h'].median():.2f}" if len(accepted) else "—",
+    )
+    m4.metric(
+        "Median span (h)",
+        f"{((accepted['t_end'] - accepted['t_start']).dt.total_seconds() / 3600).median():.1f}"
+        if len(accepted) else "—",
+    )
+
+    st.plotly_chart(_plot_decay_overlay(indoor, accepted), use_container_width=True)
+
+    if len(accepted):
+        c_l, c_r = st.columns(2)
+        with c_l:
+            st.plotly_chart(_plot_tau_vs_time(accepted), use_container_width=True)
+        with c_r:
+            st.plotly_chart(_plot_tau_hist(accepted), use_container_width=True)
+        st.dataframe(accepted.head(1000), hide_index=True)
+        if len(accepted) > 1000:
+            st.caption(f"showing first 1000 of {len(accepted)} accepted windows")
+
+
+MAX_VRECTS = 400
+
+
+def _plot_decay_overlay(indoor: pd.Series, accepted: pd.DataFrame) -> go.Figure:
+    if len(indoor) > 5000:
+        indoor = indoor.iloc[:: len(indoor) // 5000 + 1]
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scattergl(x=indoor.index, y=indoor.values, mode="lines",
+                     name="indoor", line=dict(color="royalblue"))
+    )
+    # Plot accepted windows as one line trace with None separators between
+    # segments. Cheaper than N traces or N vrect shapes.
+    if len(accepted):
+        y_min = float(indoor.min())
+        y_band = float(indoor.max() - y_min) * 0.05
+        y_bar = y_min - y_band
+        xs: list = []
+        ys: list = []
+        for _, row in accepted.iterrows():
+            xs += [row["t_start"], row["t_end"], None]
+            ys += [y_bar, y_bar, None]
+        fig.add_trace(go.Scattergl(
+            x=xs, y=ys, mode="lines",
+            line=dict(color="seagreen", width=6),
+            name=f"accepted ({len(accepted)})",
+            hoverinfo="skip",
+        ))
+    fig.update_layout(
+        height=360, margin=dict(l=40, r=20, t=30, b=30),
+        title=f"Indoor temperature · {len(accepted)} accepted windows",
+        yaxis_title="°C",
+    )
+    return fig
+
+
+def _plot_tau_vs_time(accepted: pd.DataFrame) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scattergl(
+            x=accepted["t_start"], y=accepted["tau_h"], mode="markers",
+            marker=dict(
+                size=7, color=accepted["r2"], colorscale="Viridis",
+                cmin=accepted["r2"].min(), cmax=1.0,
+                colorbar=dict(title="R²"),
+            ),
+            name="τ",
+        )
+    )
+    fig.update_layout(
+        height=320, margin=dict(l=40, r=20, t=30, b=30),
+        title="τ vs window start (color = R²)", yaxis_title="τ (h)",
+    )
+    return fig
+
+
+def _plot_tau_hist(accepted: pd.DataFrame) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(go.Histogram(x=accepted["tau_h"], nbinsx=30,
+                               marker=dict(color="seagreen")))
+    fig.update_layout(
+        height=320, margin=dict(l=40, r=20, t=30, b=30),
+        title="τ distribution", xaxis_title="τ (h)", yaxis_title="count",
+    )
+    return fig
+
+
 def _render_model_doc() -> None:
     with st.expander("Model & fit method"):
         st.markdown("**Continuous-time energy balance** (single zone, lumped capacitance):")
@@ -222,11 +396,13 @@ def main() -> None:
             st.error(f"Load failed: {e}")
             return
 
-    tab_inspect, tab_fit = st.tabs(["Inspect", "1R1C model"])
+    tab_inspect, tab_fit, tab_decay = st.tabs(["Inspect", "1R1C model", "Decay scan"])
     with tab_inspect:
         _render_inspect(cfg, cached)
     with tab_fit:
         _render_fit(cached)
+    with tab_decay:
+        _render_decay_scan(str(cfg_path), cached)
 
 
 if __name__ == "__main__":
