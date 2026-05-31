@@ -20,6 +20,7 @@ import streamlit as st
 
 from miniha.th_models.config import discover_configs, load_room_config
 from miniha.th_models.fit import fit_thermal, prepare, simulate
+from miniha.th_models.fit_2r2c import fit_2r2c, simulate_2r2c
 from miniha.th_models.flags import MAX_GAP, find_gaps
 from miniha.th_models.load import load_room
 from miniha.th_models.sliding_exp import (
@@ -151,10 +152,10 @@ def _render_fit(cached: dict) -> None:
     c4.metric("samples (Δ-pairs)", f"{res.n_samples}")
     c5.metric("step RMSE", f"{res.rmse * 1000:.1f} m°C")
 
-    st.plotly_chart(_plot_in_out(df), use_container_width=True)
-    st.plotly_chart(_plot_solar(df), use_container_width=True)
-    st.plotly_chart(_plot_obs_vs_model(df, sim), use_container_width=True)
-    st.plotly_chart(_plot_residual(df, sim), use_container_width=True)
+    st.plotly_chart(_plot_in_out(df), use_container_width=True, key="1r1c_in_out")
+    st.plotly_chart(_plot_solar(df), use_container_width=True, key="1r1c_solar")
+    st.plotly_chart(_plot_obs_vs_model(df, sim), use_container_width=True, key="1r1c_obs_vs_model")
+    st.plotly_chart(_plot_residual(df, sim), use_container_width=True, key="1r1c_residual")
 
     _render_model_doc()
 
@@ -320,6 +321,114 @@ def _plot_tau_hist(accepted: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def _plot_obs_vs_model_2r2c(df: pd.DataFrame, sim: pd.DataFrame) -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(go.Scattergl(x=df.index, y=df["T_in"], mode="lines",
+                               name="indoor (obs)", line=dict(color="royalblue")))
+    fig.add_trace(go.Scattergl(x=sim.index, y=sim["T_in_model"], mode="lines",
+                               name="indoor (2R2C)", line=dict(color="black")))
+    fig.add_trace(go.Scattergl(x=sim.index, y=sim["T_wall_model"], mode="lines",
+                               name="wall (latent)", line=dict(color="darkorange", dash="dot")))
+    fig.update_layout(height=320, margin=dict(l=40, r=20, t=30, b=30),
+                      title="Observed vs 2R2C", yaxis_title="°C")
+    return fig
+
+
+def _render_fit_2r2c(cached: dict) -> None:
+    needed = {"indoor_temp", "outdoor_temp", "shortwave_radiation"}
+    series = {name: _to_series(cached.get(name, [])) for name in needed}
+    missing = [name for name, s in series.items() if s.empty]
+    if missing:
+        st.warning(f"Missing or empty series: {', '.join(f'`{m}`' for m in missing)}.")
+        return
+    indoor, outdoor, solar = series["indoor_temp"], series["outdoor_temp"], series["shortwave_radiation"]
+
+    df = prepare(indoor, outdoor, solar)
+    if len(df) < 8:
+        st.warning(f"Not enough aligned samples to fit ({len(df)}).")
+        return
+
+    try:
+        warm_res = fit_thermal(df)
+        warm = (warm_res.tau_hours, warm_res.dT_eq, warm_res.g_solar)
+    except ValueError:
+        warm = None
+
+    with st.spinner("Fitting 2R2C (output-error NLS)…"):
+        try:
+            res = fit_2r2c(df, warm=warm)
+        except ValueError as e:
+            st.error(f"Fit failed: {e}")
+            return
+
+    if not res.success:
+        st.warning(f"Optimiser did not fully converge: {res.message}")
+
+    sim = simulate_2r2c(df, res)
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("τ_fast", f"{res.tau_fast_h:.2f} h")
+    c2.metric("τ_slow", f"{res.tau_slow_h:.2f} h")
+    c3.metric("ΔT_eq (Q₀)", f"{res.dT_eq:+.2f} °C")
+    c4.metric("g_solar", f"{res.g_solar * 1000:.2f} m°C·m²/W")
+    c5.metric("trajectory RMSE", f"{res.rmse:.3f} °C")
+
+    st.plotly_chart(_plot_in_out(df), use_container_width=True, key="2r2c_in_out")
+    st.plotly_chart(_plot_solar(df), use_container_width=True, key="2r2c_solar")
+    st.plotly_chart(_plot_obs_vs_model_2r2c(df, sim), use_container_width=True, key="2r2c_obs_vs_model")
+    st.plotly_chart(_plot_residual(df, sim["T_in_model"]), use_container_width=True, key="2r2c_residual")
+
+    with st.expander("Raw fitted parameters (R, C in arbitrary gauge — see model doc)"):
+        st.write({
+            "R_int (K/W)":  res.R_int,
+            "R_ext (K/W)":  res.R_ext,
+            "C_in (J/K)":   res.C_in,
+            "C_wall (J/K)": res.C_wall,
+            "Q0 (W)":       res.Q0,
+            "a_in (m²)":    res.a_in,
+            "a_wall (m²)":  res.a_wall,
+            "T_wall(0) (°C)": res.T_wall0,
+            "n_samples":    res.n_samples,
+            "optimiser_success": res.success,
+            "optimiser_message": res.message,
+        })
+
+    _render_model_doc_2r2c()
+
+
+def _render_model_doc_2r2c() -> None:
+    with st.expander("2R2C model & fit method"):
+        st.markdown(
+            "**Two-node lumped model.** Air node `T_in` (observed) coupled to "
+            "a wall/mass node `T_wall` (latent). Solar gain splits between the "
+            "two nodes (instant on air, lagged via the mass)."
+        )
+        st.latex(
+            r"C_\text{in} \, \dot{T}_\text{in} \;=\; "
+            r"\frac{T_\text{wall} - T_\text{in}}{R_\text{int}} \;+\; Q_0 \;+\; a_\text{in} I_\text{solar}"
+        )
+        st.latex(
+            r"C_\text{wall} \, \dot{T}_\text{wall} \;=\; "
+            r"\frac{T_\text{in} - T_\text{wall}}{R_\text{int}} \;+\; "
+            r"\frac{T_\text{out} - T_\text{wall}}{R_\text{ext}} \;+\; a_\text{wall} I_\text{solar}"
+        )
+        st.markdown(
+            "Two real eigenvalues of $A$ → two time constants: $\\tau_\\text{fast}$ "
+            "(air mode) and $\\tau_\\text{slow}$ (mass mode). The 1R1C $\\tau$ is "
+            "a weighted average; here they're separated.\n\n"
+            "**Fit: output-error NLS.** Integrate the linear system forward with "
+            "ZOH (matrix exponential), minimise $\\sum_k (T_\\text{in}^\\text{sim}[k] - T_\\text{in}^\\text{obs}[k])^2$ "
+            "with `scipy.optimize.least_squares` (TRF). Log-parameterisation on "
+            "$R_\\text{int}, R_\\text{ext}, C_\\text{in}, C_\\text{wall}$ for positivity. "
+            "Warm-started from the 1R1C OLS fit on the same data; $T_\\text{wall}(0)$ "
+            "is co-fit, $T_\\text{in}(0)$ pinned to the observation.\n\n"
+            "**Gauge note.** Individual $R$, $C$, $Q_0$, $a$ values share an "
+            "unobservable scale (same identifiability issue as 1R1C, doubled). "
+            "Reported $\\tau_\\text{fast}, \\tau_\\text{slow}, \\Delta T_\\text{eq}, g_\\text{solar}$ "
+            "are the scale-free quantities."
+        )
+
+
 def _render_model_doc() -> None:
     with st.expander("Model & fit method"):
         st.markdown("**Continuous-time energy balance** (single zone, lumped capacitance):")
@@ -396,11 +505,15 @@ def main() -> None:
             st.error(f"Load failed: {e}")
             return
 
-    tab_inspect, tab_fit, tab_decay = st.tabs(["Inspect", "1R1C model", "Decay scan"])
+    tab_inspect, tab_fit, tab_fit_2r2c, tab_decay = st.tabs(
+        ["Inspect", "1R1C model", "2R2C model", "Decay scan"]
+    )
     with tab_inspect:
         _render_inspect(cfg, cached)
     with tab_fit:
         _render_fit(cached)
+    with tab_fit_2r2c:
+        _render_fit_2r2c(cached)
     with tab_decay:
         _render_decay_scan(str(cfg_path), cached)
 
