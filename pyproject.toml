@@ -27,6 +27,14 @@ where = ["."]
 include = ["miniha"]
 namespaces = false
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
+
 
 [project.scripts]
 miniha_webapp = "miniha.webapp:main" 
