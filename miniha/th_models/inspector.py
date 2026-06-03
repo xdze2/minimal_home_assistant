@@ -14,6 +14,7 @@ logging.basicConfig(
     format="%(asctime)s %(name)s %(levelname)s %(message)s",
 )
 
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -249,6 +250,15 @@ def _render_decay_scan(config_path: str, cached: dict) -> None:
             st.plotly_chart(_plot_tau_vs_time(accepted), use_container_width=True)
         with c_r:
             st.plotly_chart(_plot_tau_hist(accepted), use_container_width=True)
+
+        outdoor = _to_series(cached.get("outdoor_temp", []))
+        solar = _to_series(cached.get("shortwave_radiation", []))
+        c_l2, c_r2 = st.columns(2)
+        with c_l2:
+            st.plotly_chart(_plot_tau_tinf_scatter(accepted), use_container_width=True)
+        with c_r2:
+            st.plotly_chart(_plot_tinf_vs_solar(accepted, outdoor, solar), use_container_width=True)
+
         st.dataframe(accepted.head(1000), hide_index=True)
         if len(accepted) > 1000:
             st.caption(f"showing first 1000 of {len(accepted)} accepted windows")
@@ -265,9 +275,31 @@ def _plot_decay_overlay(indoor: pd.Series, accepted: pd.DataFrame) -> go.Figure:
         go.Scattergl(x=indoor.index, y=indoor.values, mode="lines",
                      name="indoor", line=dict(color="royalblue"))
     )
-    # Plot accepted windows as one line trace with None separators between
-    # segments. Cheaper than N traces or N vrect shapes.
     if len(accepted):
+        # Fit curves: one continuous trace with None separators.
+        fit_xs: list = []
+        fit_ys: list = []
+        for _, row in accepted.iterrows():
+            t_start = row["t_start"]
+            t_end = row["t_end"]
+            tau_s = row["tau_h"] * 3600.0
+            T_inf = row["T_inf"]
+            T_0 = row["T_0"]
+            n_pts = max(int((t_end - t_start).total_seconds() / 60), 2)
+            t_rel = np.linspace(0.0, (t_end - t_start).total_seconds(), n_pts)
+            ts = [t_start + pd.Timedelta(seconds=s) for s in t_rel]
+            ys = (T_0 - T_inf) * np.exp(-t_rel / tau_s) + T_inf
+            fit_xs += ts + [None]
+            fit_ys += list(ys) + [None]
+        fig.add_trace(go.Scattergl(
+            x=fit_xs, y=fit_ys, mode="lines",
+            line=dict(color="tomato", width=4),
+            opacity=0.55,
+            name="exp fit",
+            hoverinfo="skip",
+        ))
+
+        # Accepted-window bar at the bottom of the chart.
         y_min = float(indoor.min())
         y_band = float(indoor.max() - y_min) * 0.05
         y_bar = y_min - y_band
@@ -317,6 +349,75 @@ def _plot_tau_hist(accepted: pd.DataFrame) -> go.Figure:
     fig.update_layout(
         height=320, margin=dict(l=40, r=20, t=30, b=30),
         title="τ distribution", xaxis_title="τ (h)", yaxis_title="count",
+    )
+    return fig
+
+
+def _plot_tinf_vs_solar(accepted: pd.DataFrame, outdoor: pd.Series, solar: pd.Series) -> go.Figure:
+    """T∞ − T_out vs mean solar irradiance per segment. Each dot = one decay event."""
+    rows = []
+    for _, seg in accepted.iterrows():
+        mask_out = (outdoor.index >= seg["t_start"]) & (outdoor.index <= seg["t_end"])
+        mask_sol = (solar.index >= seg["t_start"]) & (solar.index <= seg["t_end"])
+        T_out_mean = float(outdoor[mask_out].mean()) if mask_out.any() else float("nan")
+        I_mean = float(solar[mask_sol].mean()) if mask_sol.any() else float("nan")
+        rows.append({"dT": seg["T_inf"] - T_out_mean, "I_solar": I_mean, "tau_h": seg["tau_h"]})
+    df = pd.DataFrame(rows).dropna()
+    if df.empty:
+        fig = go.Figure()
+        fig.update_layout(title="T∞ − T_out vs solar (no outdoor/solar data)", height=320)
+        return fig
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df["I_solar"], y=df["dT"], mode="markers",
+        marker=dict(
+            size=9, color=df["tau_h"], colorscale="Plasma",
+            colorbar=dict(title="τ (h)"), opacity=0.8,
+        ),
+        text=[f"τ={r.tau_h:.1f}h" for r in df.itertuples()],
+        hovertemplate="I=%{x:.0f} W/m²<br>ΔT=%{y:.2f}°C<br>%{text}<extra></extra>",
+        name="segments",
+    ))
+    # Simple OLS trendline
+    if len(df) >= 3:
+        x = df["I_solar"].to_numpy()
+        y = df["dT"].to_numpy()
+        A = np.column_stack([np.ones_like(x), x])
+        coef, *_ = np.linalg.lstsq(A, y, rcond=None)
+        x_line = np.array([x.min(), x.max()])
+        fig.add_trace(go.Scatter(
+            x=x_line, y=coef[0] + coef[1] * x_line, mode="lines",
+            line=dict(color="tomato", dash="dash", width=2),
+            name=f"OLS  slope={coef[1]*1000:.2f} °C/(W/m²)·10³",
+        ))
+    fig.update_layout(
+        height=340, margin=dict(l=40, r=20, t=40, b=40),
+        title="T∞ − T_out vs mean solar irradiance (color = τ)",
+        xaxis_title="mean I_solar over segment (W/m²)",
+        yaxis_title="T∞ − T_out (°C)",
+    )
+    return fig
+
+
+def _plot_tau_tinf_scatter(accepted: pd.DataFrame) -> go.Figure:
+    """(τ, T∞) scatter — tight cloud = single regime; bimodal = multiple states."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=accepted["tau_h"], y=accepted["T_inf"], mode="markers",
+        marker=dict(
+            size=8, color=accepted["r2"], colorscale="Viridis",
+            cmin=accepted["r2"].min(), cmax=1.0,
+            colorbar=dict(title="R²"), opacity=0.8,
+        ),
+        text=[f"R²={r:.3f}" for r in accepted["r2"]],
+        hovertemplate="τ=%{x:.1f}h<br>T∞=%{y:.2f}°C<br>%{text}<extra></extra>",
+        name="segments",
+    ))
+    fig.update_layout(
+        height=340, margin=dict(l=40, r=20, t=40, b=40),
+        title="(τ, T∞) scatter — cloud shape diagnoses regime stability",
+        xaxis_title="τ (h)", yaxis_title="T∞ (°C)",
     )
     return fig
 
