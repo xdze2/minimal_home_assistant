@@ -131,7 +131,7 @@ def _plot_residual(df: pd.DataFrame, sim: pd.Series) -> go.Figure:
     return fig
 
 
-def _render_fit(cached: dict) -> None:
+def _render_fit(cfg, cached: dict) -> None:
     needed = {"indoor_temp", "outdoor_temp", "shortwave_radiation"}
     series = {name: _to_series(cached.get(name, [])) for name in needed}
     missing = [name for name, s in series.items() if s.empty]
@@ -139,6 +139,37 @@ def _render_fit(cached: dict) -> None:
         st.warning(f"Missing or empty series: {', '.join(f'`{m}`' for m in missing)}.")
         return
     indoor, outdoor, solar = series["indoor_temp"], series["outdoor_temp"], series["shortwave_radiation"]
+
+    # Window selector — defaults to the full config window.
+    full_start = cfg.window.start.date()
+    full_end = cfg.window.end.date()
+    total_days = max((full_end - full_start).days, 1)
+    DURATION_OPTIONS = [1, 2, 3, 7, 14, 30, 60, 90, 180, 365]
+    default_duration = next((d for d in DURATION_OPTIONS if d >= total_days), DURATION_OPTIONS[-1])
+
+    c_start, c_dur = st.columns(2)
+    win_start = c_start.date_input("Start date", value=full_start,
+                                   min_value=full_start, max_value=full_end,
+                                   key="fit1r1c_start")
+    duration_days = c_dur.selectbox("Window size", DURATION_OPTIONS,
+                                    index=DURATION_OPTIONS.index(default_duration),
+                                    format_func=lambda d: f"{d} day" if d == 1 else f"{d} days",
+                                    key="fit1r1c_dur")
+    win_end = win_start + pd.Timedelta(days=duration_days)
+
+    def _slice_series(s: pd.Series) -> pd.Series:
+        if s.empty:
+            return s
+        t0 = pd.Timestamp(win_start)
+        t1 = pd.Timestamp(win_end)
+        if s.index.tz is not None:
+            t0 = t0.tz_localize(s.index.tz)
+            t1 = t1.tz_localize(s.index.tz)
+        return s[(s.index >= t0) & (s.index < t1)]
+
+    indoor = _slice_series(indoor)
+    outdoor = _slice_series(outdoor)
+    solar = _slice_series(solar)
 
     df = prepare(indoor, outdoor, solar)
     if len(df) < 4:
@@ -782,7 +813,7 @@ def main() -> None:
     with tab_inspect:
         _render_inspect(cfg, cached)
     with tab_fit:
-        _render_fit(cached)
+        _render_fit(cfg, cached)
     with tab_fit_2r2c:
         _render_fit_2r2c(cached)
     with tab_decay:
