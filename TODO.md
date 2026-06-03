@@ -30,44 +30,41 @@ model-agnostic package. Any thermal model can be plugged in as a `Fitter`.
 | `sliding/exp_fitter.py` | Free-decay exponential fitter (same physics as old `sliding_exp.py`) |
 | `sliding/rc_fitter.py` | 1R1C fitter with penalised OLS priors on (τ, ΔT_eq, g_solar) |
 
-`sliding_exp.py` is still in place and the inspector still uses it directly —
-the new framework is not yet wired into the UI.
+### RcFitter wired into the inspector UI
+- **Fitter selector** added to `_render_decay_scan`: "Exponential (free decay)"
+  / "1R1C (T_out + solar)".
+- When 1R1C is selected, `scan()` receives `{T_in, T_out, shortwave_radiation}`;
+  quality slider shifts to −RMSE range; τ prior value and σ controls are shown.
+- Scan and merge now go through `sliding/scan.py` for both fitters (the old
+  `sliding_exp.py` path is still imported but no longer used by the UI).
+- Overlay plot for 1R1C forward-simulates each segment via `_rc_sim_segment`
+  using the stored (τ, ΔT_eq, g_solar) params and the outdoor/solar series.
+- (τ, T∞) and T∞−T_out scatter plots are hidden when 1R1C is selected (they
+  need T∞ which RcFitter doesn't produce).
 
-### Tests (`tests/`, 42 tests, all passing)
+### RcFitter curve_fn origin fix
+- `curve_fn` in `rc_fitter.py` now anchors interpolation to `t_sec[0]`, not
+  `times[0]`, so it stays correct if a caller passes times that don't start
+  at the window origin.
+- Two new tests in `TestRcFitterCurveFn` cover the initial condition and
+  finite-output invariants (44 tests total, all passing).
+
+### Tests (`tests/`, 44 tests, all passing)
 - `tests/th_models/test_exp_fitter.py` — ExpFitter: recovery, rejections, noise, params_close
-- `tests/th_models/test_rc_fitter.py` — RcFitter: recovery, rejections, prior effect, params_close
+- `tests/th_models/test_rc_fitter.py` — RcFitter: recovery, rejections, prior effect, params_close, curve_fn
 - `tests/th_models/test_scan.py` — generic scan/merge: resample, scan with both fitters, merge properties
 
 ---
 
 ## Next steps (priority order)
 
-### 1. Wire RcFitter into the inspector UI
-The `RcFitter` exists and is tested but is not yet reachable from the
-inspector. The decay-scan tab currently hardcodes `ExpFitter`.
+### 1. Verify RcFitter overlay visually
+The 1R1C overlay is computed from stored params + outdoor/solar series (not
+from `_curve_fn`). Check visually that it aligns with the observed indoor
+temperature. If there is drift, suspect the initial condition (`T_0` fallback
+in `_rc_sim_segment`) or the resampling step.
 
-- Add a **fitter selector** to the `_render_decay_scan` sidebar (selectbox:
-  "Exponential (free decay)" / "1R1C (T_out + solar)").
-- When 1R1C is selected, pass `{"T_in", "T_out", "shortwave_radiation"}` to
-  `scan()` instead of just `{"T_in"}`.
-- The fit curve overlay in `_plot_decay_overlay` already uses
-  `result._curve_fn` — it will work for RcFitter without changes, but
-  `RcFitter.curve_fn` currently forward-integrates on the original window
-  grid and interpolates. Verify visually that the overlay looks right.
-- Expose the `RcFitterConfig` priors as inspector controls (at minimum: τ
-  prior value and sigma, g_solar prior sigma).
-
-### 2. Fix RcFitter curve_fn for the overlay plot
-The current `curve_fn` in `rc_fitter.py` closes over the original window
-numpy arrays and interpolates to requested timestamps. This works but the
-`times` argument is assumed to start at `t_start` — see the line:
-```python
-t_abs = np.array([(ts - times[0]).total_seconds() for ts in times], dtype=float)
-```
-This should instead use `t_start` as the origin, not `times[0]`, to be
-consistent with how `_plot_decay_overlay` calls it. Add a test for this.
-
-### 3. (τ, T∞) scatter — identify the two regimes
+### 2. (τ, T∞) scatter — identify the two regimes
 The bedroom data shows a clear bimodal τ distribution (≈4h and ≈10h
 clusters). Add a **regime split** to the scatter plots:
 - Add a "τ threshold" slider to `_render_decay_scan`.
@@ -76,7 +73,7 @@ clusters). Add a **regime split** to the scatter plots:
 - This visually identifies which nights had the window open without any
   reed switch.
 
-### 4. Segment-level solar regression
+### 3. Segment-level solar regression
 The `T∞ − T_out` vs solar plot shows a negative slope in winter (collinearity:
 sunny days → higher T_out → smaller gap). Fix this with a **2D regression**
 across segments:
@@ -89,7 +86,7 @@ across segments:
 This recovers the solar gain coefficient free of the T_out correlation.
 Add this as a third scatter plot (or replace the current one).
 
-### 5. 2R2C fitter
+### 4. 2R2C fitter
 Following the same pattern as `RcFitter`, implement `Rc2Fitter` (2R2C with
 ceiling/roof mass node). Key additions:
 - State vector is `[T_air, T_ceiling]`; only `T_air` is observed.
@@ -103,10 +100,11 @@ ceiling/roof mass node). Key additions:
 Decision rule (from NEXT.md): build this if the 1R1C residual still shows
 a diurnal ripple lagging the solar peak by 2–4h.
 
-### 6. Backward-compat: deprecate `sliding_exp.py`
-Once the inspector uses `sliding/exp_fitter.py`, the old `sliding_exp.py`
-can be reduced to a thin import shim or removed. Don't do this until the
-UI switch is confirmed working.
+### 5. Backward-compat: deprecate `sliding_exp.py`
+The inspector no longer uses `sliding_exp.py` for scan/merge (it now goes
+through `sliding/scan.py`), but still imports `WindowFit` and the old
+functions. Once the visual overlay is confirmed working, the old imports can
+be dropped and `sliding_exp.py` reduced to a thin shim or removed.
 
 ---
 

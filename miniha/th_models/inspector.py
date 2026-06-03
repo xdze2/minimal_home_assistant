@@ -26,10 +26,18 @@ from miniha.th_models.flags import MAX_GAP, find_gaps
 from miniha.th_models.load import load_room
 from miniha.th_models.sliding_exp import (
     WindowFit,
-    merge_grow,
+    merge_grow as _old_merge_grow,
     resample_series,
-    scan,
-    to_dataframe,
+    scan as _old_scan,
+    to_dataframe as _old_to_dataframe,
+)
+from miniha.th_models.sliding.exp_fitter import ExpFitter, ExpFitterConfig
+from miniha.th_models.sliding.rc_fitter import RcFitter, RcFitterConfig
+from miniha.th_models.sliding.scan import (
+    merge_grow as sliding_merge_grow,
+    resample_inputs,
+    scan as sliding_scan,
+    to_dataframe as sliding_to_dataframe,
 )
 
 USER_MODELS_DIR = Path(__file__).resolve().parents[2] / "user_models"
@@ -164,18 +172,32 @@ def _render_fit(cached: dict) -> None:
 @st.cache_data(show_spinner=False)
 def _scan_cached(
     config_path: str,
+    fitter_name: str,
     window_h: float,
     step_min: float,
     resample: str,
+    tau_prior_val: float = 8.0,
+    tau_prior_sigma: float = 4.0,
 ) -> pd.DataFrame:
     cached = _load_room_cached(config_path)
     indoor = _to_series(cached.get("indoor_temp", []))
     if indoor.empty:
-        return to_dataframe([])
-    fits = scan(
-        indoor, window_h=window_h, step_min=step_min, resample=resample,
-    )
-    return to_dataframe(fits)
+        return sliding_to_dataframe([])
+
+    if fitter_name == "1R1C (T_out + solar)":
+        outdoor = _to_series(cached.get("outdoor_temp", []))
+        solar = _to_series(cached.get("shortwave_radiation", []))
+        inputs = {"T_in": indoor, "T_out": outdoor, "shortwave_radiation": solar}
+        rc_cfg = RcFitterConfig()
+        rc_cfg.tau_prior.value = tau_prior_val
+        rc_cfg.tau_prior.sigma = tau_prior_sigma
+        fitter = RcFitter(rc_cfg)
+    else:
+        inputs = {"T_in": indoor}
+        fitter = ExpFitter()
+
+    results = sliding_scan(inputs, fitter, window_h=window_h, step_min=step_min, resample=resample)
+    return sliding_to_dataframe(results)
 
 
 def _render_decay_scan(config_path: str, cached: dict) -> None:
@@ -184,50 +206,99 @@ def _render_decay_scan(config_path: str, cached: dict) -> None:
         st.warning("Missing or empty `indoor_temp` series.")
         return
 
-    c1, c2, c3 = st.columns(3)
-    window_h = c1.slider("Window length (h)", 1.0, 12.0, 4.0, 0.5)
-    step_min = c2.slider("Step (min)", 5, 120, 30, 5)
-    resample = c3.selectbox("Resample", ["5min", "10min", "15min"], index=0)
+    fitter_name = st.selectbox(
+        "Fitter",
+        ["Exponential (free decay)", "1R1C (T_out + solar)"],
+        index=0,
+    )
+    is_rc = fitter_name == "1R1C (T_out + solar)"
+
+    RESAMPLE = "15min"
+    WINDOW_OPTIONS = [2, 3, 4, 6, 8, 12, 18, 24, 36, 48, 72, 120, 168]  # hours, log-ish spacing
+    STEP_FRACS = [2, 4, 8, 16, 24]  # step = window / denom
+
+    c1, c2 = st.columns(2)
+    window_h = c1.selectbox(
+        "Window length (h)",
+        WINDOW_OPTIONS,
+        index=WINDOW_OPTIONS.index(12),
+        format_func=lambda h: f"{h}h" if h < 24 else f"{h//24}d{h%24:02d}h" if h % 24 else f"{h//24}d",
+    )
+    step_denom = c2.selectbox(
+        "Step (fraction of window)",
+        STEP_FRACS,
+        index=STEP_FRACS.index(8),
+        format_func=lambda d: f"1/{d}  ({window_h * 60 // d}min)",
+    )
+    step_min = max(15, window_h * 60 // step_denom)
 
     c4, c5, c6 = st.columns(3)
-    r2_min = c4.slider("R² ≥", 0.80, 1.0, 0.98, 0.005)
+    # For RcFitter quality = -RMSE; use a large negative default to pass all windows.
+    if is_rc:
+        r2_min = c4.slider("Quality ≥ (−RMSE)", -2.0, 0.0, -0.5, 0.05)
+    else:
+        r2_min = c4.slider("R² ≥", 0.80, 1.0, 0.98, 0.005)
     tau_lo = c5.number_input("τ min (h)", 0.5, 100.0, 2.0, 0.5)
     tau_hi = c6.number_input("τ max (h)", 0.5, 200.0, 50.0, 1.0)
 
     c7, c8, c9 = st.columns(3)
     do_merge = c7.checkbox("Greedy-grow merge", value=True)
-    tau_log_tol = c8.slider("τ log-tolerance", 0.05, 1.0, 0.2, 0.05)
-    Tinf_tol = c9.slider("T∞ tolerance (°C)", 0.1, 5.0, 0.5, 0.1)
+    show_rejected = c8.checkbox("Show rejected fits", value=False)
+    tau_log_tol = c9.slider("τ log-tolerance", 0.05, 1.0, 0.2, 0.05)
 
+    _default_rc = RcFitterConfig()
+    if is_rc:
+        c9, c10 = st.columns(2)
+        tau_prior_val = c9.number_input("τ prior (h)", 1.0, 50.0, float(_default_rc.tau_prior.value), 0.5)
+        tau_prior_sigma = c10.number_input("τ prior σ (h)", 0.5, 20.0, float(_default_rc.tau_prior.sigma), 0.5)
+        rc_cfg = RcFitterConfig(tau_log_tol=tau_log_tol)
+        rc_cfg.tau_prior.value = tau_prior_val
+        rc_cfg.tau_prior.sigma = tau_prior_sigma
+        fitter_for_merge = RcFitter(rc_cfg)
+    else:
+        tau_prior_val = _default_rc.tau_prior.value
+        tau_prior_sigma = _default_rc.tau_prior.sigma
+        exp_cfg = ExpFitterConfig(tau_log_tol=tau_log_tol)
+        fitter_for_merge = ExpFitter(exp_cfg)
+
+    resample = RESAMPLE
     with st.spinner(f"scanning (window={window_h}h, step={step_min}min, resample={resample})…"):
-        fits_df = _scan_cached(config_path, window_h, step_min, resample)
+        fits_df = _scan_cached(
+            config_path, fitter_name, window_h, step_min, resample,
+            tau_prior_val=tau_prior_val, tau_prior_sigma=tau_prior_sigma,
+        )
 
     if fits_df.empty:
         st.info("No fits produced. Try a longer window.")
         return
 
     accepted = fits_df[
-        (fits_df["r2"] >= r2_min)
+        (fits_df["quality"] >= r2_min)
         & (fits_df["tau_h"] >= tau_lo)
         & (fits_df["tau_h"] <= tau_hi)
     ].reset_index(drop=True)
 
     if do_merge and len(accepted):
+        outdoor = _to_series(cached.get("outdoor_temp", []))
+        solar = _to_series(cached.get("shortwave_radiation", []))
+        if is_rc:
+            inputs = {"T_in": indoor, "T_out": outdoor, "shortwave_radiation": solar}
+        else:
+            inputs = {"T_in": indoor}
         with st.spinner(f"merging {len(accepted)} windows…"):
-            fits_in = [
-                WindowFit(
+            from miniha.th_models.sliding.protocol import WindowResult as _WR
+            seeds = []
+            for _, row in accepted.iterrows():
+                wr = _WR(
                     t_start=row["t_start"], t_end=row["t_end"],
-                    tau_h=row["tau_h"], T_inf=row["T_inf"], T_0=row["T_0"],
-                    r2=row["r2"], n=int(row["n"]),
+                    params={k: row[k] for k in row.index if k not in ("t_start", "t_end", "quality", "n")},
+                    quality=row["quality"], n=int(row["n"]),
                 )
-                for _, row in accepted.iterrows()
-            ]
-            resampled = resample_series(indoor, resample)
-            merged = merge_grow(
-                fits_in, resampled, resample,
-                r2_min=r2_min, tau_log_tol=tau_log_tol, Tinf_tol_C=Tinf_tol,
+                seeds.append(wr)
+            merged = sliding_merge_grow(
+                seeds, inputs, fitter_for_merge, resample, quality_min=r2_min,
             )
-            accepted = to_dataframe(merged)
+            accepted = sliding_to_dataframe(merged)
 
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Windows scanned", f"{len(fits_df)}")
@@ -242,7 +313,23 @@ def _render_decay_scan(config_path: str, cached: dict) -> None:
         if len(accepted) else "—",
     )
 
-    st.plotly_chart(_plot_decay_overlay(indoor, accepted), use_container_width=True)
+    outdoor = _to_series(cached.get("outdoor_temp", []))
+    solar = _to_series(cached.get("shortwave_radiation", []))
+    rejected_mask = ~(
+        (fits_df["quality"] >= r2_min)
+        & (fits_df["tau_h"] >= tau_lo)
+        & (fits_df["tau_h"] <= tau_hi)
+    )
+    rejected = fits_df[rejected_mask].reset_index(drop=True) if show_rejected else pd.DataFrame()
+    st.plotly_chart(
+        _plot_decay_overlay(
+            indoor, accepted,
+            outdoor=outdoor if is_rc else None,
+            solar=solar if is_rc else None,
+            rejected=rejected if show_rejected else None,
+        ),
+        use_container_width=True,
+    )
 
     if len(accepted):
         c_l, c_r = st.columns(2)
@@ -251,13 +338,12 @@ def _render_decay_scan(config_path: str, cached: dict) -> None:
         with c_r:
             st.plotly_chart(_plot_tau_hist(accepted), use_container_width=True)
 
-        outdoor = _to_series(cached.get("outdoor_temp", []))
-        solar = _to_series(cached.get("shortwave_radiation", []))
-        c_l2, c_r2 = st.columns(2)
-        with c_l2:
-            st.plotly_chart(_plot_tau_tinf_scatter(accepted), use_container_width=True)
-        with c_r2:
-            st.plotly_chart(_plot_tinf_vs_solar(accepted, outdoor, solar), use_container_width=True)
+        if not is_rc and "T_inf" in accepted.columns:
+            c_l2, c_r2 = st.columns(2)
+            with c_l2:
+                st.plotly_chart(_plot_tau_tinf_scatter(accepted), use_container_width=True)
+            with c_r2:
+                st.plotly_chart(_plot_tinf_vs_solar(accepted, outdoor, solar), use_container_width=True)
 
         st.dataframe(accepted.head(1000), hide_index=True)
         if len(accepted) > 1000:
@@ -267,7 +353,60 @@ def _render_decay_scan(config_path: str, cached: dict) -> None:
 MAX_VRECTS = 400
 
 
-def _plot_decay_overlay(indoor: pd.Series, accepted: pd.DataFrame) -> go.Figure:
+def _rc_sim_segment(
+    row: pd.Series,
+    indoor: pd.Series,
+    outdoor: pd.Series,
+    solar: pd.Series,
+    resample: str = "5min",
+) -> tuple[list, list]:
+    """Forward-simulate 1R1C for one accepted segment; return (xs, ys) lists."""
+    t_start, t_end = row["t_start"], row["t_end"]
+    mask_in = (indoor.index >= t_start) & (indoor.index <= t_end)
+    mask_out = (outdoor.index >= t_start) & (outdoor.index <= t_end)
+    mask_sol = (solar.index >= t_start) & (solar.index <= t_end)
+    t_in_seg = indoor[mask_in]
+    t_out_seg = outdoor[mask_out]
+    sol_seg = solar[mask_sol]
+
+    grid_sec = pd.Timedelta(resample).total_seconds()
+    alpha = grid_sec / (row["tau_h"] * 3600.0)
+    dT_eq = row["dT_eq"]
+    g_solar = row["g_solar"]
+
+    # Resample all inputs to the uniform grid over this segment.
+    inputs = resample_inputs(
+        {"T_in": t_in_seg, "T_out": t_out_seg, "shortwave_radiation": sol_seg}, resample
+    )
+    if not inputs or "T_out" not in inputs or inputs["T_out"].empty:
+        return [], []
+
+    T_out_arr = inputs["T_out"].to_numpy()
+    sol_arr = inputs.get("shortwave_radiation", pd.Series(dtype=float)).reindex(inputs["T_out"].index).fillna(0.0).to_numpy()
+    idx = inputs["T_out"].index
+
+    sim = np.empty(len(T_out_arr))
+    # Use actual indoor temperature at t_start as initial condition.
+    if "T_in" in inputs and not inputs["T_in"].empty:
+        sim[0] = float(inputs["T_in"].iloc[0])
+    else:
+        sim[0] = float(T_out_arr[0]) + dT_eq
+    for k in range(len(T_out_arr) - 1):
+        sim[k + 1] = sim[k] + alpha * (T_out_arr[k] - sim[k] + dT_eq + g_solar * max(sol_arr[k], 0.0))
+
+    xs = list(idx) + [None]
+    ys = list(sim) + [None]
+    return xs, ys
+
+
+def _plot_decay_overlay(
+    indoor: pd.Series,
+    accepted: pd.DataFrame,
+    outdoor: pd.Series | None = None,
+    solar: pd.Series | None = None,
+    resample: str = "5min",
+    rejected: pd.DataFrame | None = None,
+) -> go.Figure:
     if len(indoor) > 5000:
         indoor = indoor.iloc[:: len(indoor) // 5000 + 1]
     fig = go.Figure()
@@ -275,69 +414,98 @@ def _plot_decay_overlay(indoor: pd.Series, accepted: pd.DataFrame) -> go.Figure:
         go.Scattergl(x=indoor.index, y=indoor.values, mode="lines",
                      name="indoor", line=dict(color="royalblue"))
     )
+    y_min = float(indoor.min())
+    y_band = float(indoor.max() - y_min) * 0.05
+    y_bar = y_min - y_band
+    y_bar_rejected = y_bar - y_band
+
     if len(accepted):
-        # Fit curves: one continuous trace with None separators.
         fit_xs: list = []
         fit_ys: list = []
+        is_rc = "dT_eq" in accepted.columns and outdoor is not None
+
         for _, row in accepted.iterrows():
-            t_start = row["t_start"]
-            t_end = row["t_end"]
-            tau_s = row["tau_h"] * 3600.0
-            T_inf = row["T_inf"]
-            T_0 = row["T_0"]
-            n_pts = max(int((t_end - t_start).total_seconds() / 60), 2)
-            t_rel = np.linspace(0.0, (t_end - t_start).total_seconds(), n_pts)
-            ts = [t_start + pd.Timedelta(seconds=s) for s in t_rel]
-            ys = (T_0 - T_inf) * np.exp(-t_rel / tau_s) + T_inf
-            fit_xs += ts + [None]
-            fit_ys += list(ys) + [None]
+            if is_rc:
+                xs, ys = _rc_sim_segment(row, indoor, outdoor, solar, resample)
+                fit_xs += xs
+                fit_ys += ys
+            else:
+                # Exponential curve from stored params.
+                t_start = row["t_start"]
+                t_end = row["t_end"]
+                tau_s = row["tau_h"] * 3600.0
+                T_inf = row["T_inf"]
+                T_0 = row["T_0"]
+                n_pts = max(int((t_end - t_start).total_seconds() / 60), 2)
+                t_rel = np.linspace(0.0, (t_end - t_start).total_seconds(), n_pts)
+                ts = [t_start + pd.Timedelta(seconds=s) for s in t_rel]
+                ys = (T_0 - T_inf) * np.exp(-t_rel / tau_s) + T_inf
+                fit_xs += ts + [None]
+                fit_ys += list(ys) + [None]
+
+        label = "1R1C sim" if is_rc else "exp fit"
         fig.add_trace(go.Scattergl(
             x=fit_xs, y=fit_ys, mode="lines",
             line=dict(color="tomato", width=4),
             opacity=0.55,
-            name="exp fit",
+            name=label,
             hoverinfo="skip",
         ))
 
-        # Accepted-window bar at the bottom of the chart.
-        y_min = float(indoor.min())
-        y_band = float(indoor.max() - y_min) * 0.05
-        y_bar = y_min - y_band
-        xs: list = []
-        ys: list = []
+        xs_bar: list = []
+        ys_bar: list = []
         for _, row in accepted.iterrows():
-            xs += [row["t_start"], row["t_end"], None]
-            ys += [y_bar, y_bar, None]
+            xs_bar += [row["t_start"], row["t_end"], None]
+            ys_bar += [y_bar, y_bar, None]
         fig.add_trace(go.Scattergl(
-            x=xs, y=ys, mode="lines",
+            x=xs_bar, y=ys_bar, mode="lines",
             line=dict(color="seagreen", width=6),
             name=f"accepted ({len(accepted)})",
             hoverinfo="skip",
         ))
+
+    if rejected is not None and len(rejected):
+        xs_rej: list = []
+        ys_rej: list = []
+        for _, row in rejected.iterrows():
+            xs_rej += [row["t_start"], row["t_end"], None]
+            ys_rej += [y_bar_rejected, y_bar_rejected, None]
+        fig.add_trace(go.Scattergl(
+            x=xs_rej, y=ys_rej, mode="lines",
+            line=dict(color="lightcoral", width=3),
+            opacity=0.5,
+            name=f"rejected ({len(rejected)})",
+            hoverinfo="skip",
+        ))
+    has_rejected = rejected is not None and len(rejected)
+    y_axis_min = y_bar_rejected - y_band if has_rejected else y_bar - y_band
     fig.update_layout(
         height=360, margin=dict(l=40, r=20, t=30, b=30),
         title=f"Indoor temperature · {len(accepted)} accepted windows",
         yaxis_title="°C",
+        yaxis=dict(range=[y_axis_min, float(indoor.max()) + y_band]),
     )
     return fig
 
 
 def _plot_tau_vs_time(accepted: pd.DataFrame) -> go.Figure:
+    color_col = "r2" if "r2" in accepted.columns else "quality"
+    color_vals = accepted[color_col]
     fig = go.Figure()
     fig.add_trace(
         go.Scattergl(
             x=accepted["t_start"], y=accepted["tau_h"], mode="markers",
             marker=dict(
-                size=7, color=accepted["r2"], colorscale="Viridis",
-                cmin=accepted["r2"].min(), cmax=1.0,
-                colorbar=dict(title="R²"),
+                size=7, color=color_vals, colorscale="Viridis",
+                cmin=float(color_vals.min()), cmax=float(color_vals.max()),
+                colorbar=dict(title=color_col),
             ),
             name="τ",
         )
     )
     fig.update_layout(
         height=320, margin=dict(l=40, r=20, t=30, b=30),
-        title="τ vs window start (color = R²)", yaxis_title="τ (h)",
+        title=f"τ vs window start (color = {color_col})", yaxis_title="τ (h)",
     )
     return fig
 
@@ -402,15 +570,17 @@ def _plot_tinf_vs_solar(accepted: pd.DataFrame, outdoor: pd.Series, solar: pd.Se
 
 def _plot_tau_tinf_scatter(accepted: pd.DataFrame) -> go.Figure:
     """(τ, T∞) scatter — tight cloud = single regime; bimodal = multiple states."""
+    color_col = "r2" if "r2" in accepted.columns else "quality"
+    color_vals = accepted[color_col]
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=accepted["tau_h"], y=accepted["T_inf"], mode="markers",
         marker=dict(
-            size=8, color=accepted["r2"], colorscale="Viridis",
-            cmin=accepted["r2"].min(), cmax=1.0,
-            colorbar=dict(title="R²"), opacity=0.8,
+            size=8, color=color_vals, colorscale="Viridis",
+            cmin=float(color_vals.min()), cmax=float(color_vals.max()),
+            colorbar=dict(title=color_col), opacity=0.8,
         ),
-        text=[f"R²={r:.3f}" for r in accepted["r2"]],
+        text=[f"{color_col}={r:.3f}" for r in color_vals],
         hovertemplate="τ=%{x:.1f}h<br>T∞=%{y:.2f}°C<br>%{text}<extra></extra>",
         name="segments",
     ))

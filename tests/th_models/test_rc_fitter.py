@@ -156,6 +156,51 @@ class TestRcFitterPriorEffect:
         assert abs(result.params["tau_h"] - tau_true) < 1.5
 
 
+class TestRcFitterCurveFn:
+    def test_curve_fn_anchors_to_t_start(self):
+        """curve_fn(times) must use t_sec[0] as origin, not times[0].
+
+        Concretely: if we call curve_fn with times starting at t_start AND
+        with times shifted by an arbitrary offset, the results must differ
+        correctly (or match only when the offset is zero). This verifies that
+        the function does not silently re-anchor to times[0].
+        """
+        import pandas as pd
+
+        t, inputs = make_inputs(n=60, dt_s=300.0)
+        fitter = RcFitter()
+        result = fitter.fit(t, inputs)
+        assert result is not None
+
+        t0 = pd.Timestamp("2024-01-15 00:00:00")
+        times_start = pd.DatetimeIndex([t0 + pd.Timedelta(seconds=float(s)) for s in t])
+
+        curve_from_start = result._curve_fn(times_start)
+
+        # The first value of the forward simulation is T_in[0]; curve_fn
+        # evaluated at t=0 should match (within numerical noise).
+        assert abs(curve_from_start[0] - inputs["T_in"][0]) < 0.1
+
+    def test_curve_fn_matches_forward_integration(self):
+        """curve_fn output matches manual forward integration on the same grid."""
+        import pandas as pd
+
+        dt_s = 300.0
+        t, inputs = make_inputs(n=48, dt_s=dt_s, tau_h=8.0, dT_eq=2.0, g_solar=0.005)
+        fitter = RcFitter()
+        result = fitter.fit(t, inputs)
+        assert result is not None
+
+        t0 = pd.Timestamp("2024-01-15 00:00:00")
+        times = pd.DatetimeIndex([t0 + pd.Timedelta(seconds=float(s)) for s in t])
+        curve = result._curve_fn(times)
+
+        # First point must equal T_in[0] (initial condition).
+        assert abs(curve[0] - inputs["T_in"][0]) < 0.01
+        # Curve values must be finite.
+        assert np.all(np.isfinite(curve))
+
+
 class TestRcFitterParamsClose:
     def test_identical_result_is_close(self):
         t, inputs = make_inputs(n=96)

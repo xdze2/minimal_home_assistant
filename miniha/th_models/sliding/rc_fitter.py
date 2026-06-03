@@ -115,8 +115,8 @@ class RcFitter:
         beta_prior = alpha_prior * cfg.dT_eq_prior.value
         theta_prior = np.array([alpha_prior, beta_prior])
 
-        # σ for α: propagate σ_τ → σ_α = dt / τ² * σ_τ (first-order)
-        sigma_alpha = dt / (cfg.tau_prior.value ** 2 * 3600.0) * cfg.tau_prior.sigma * 3600.0
+        # σ for α: propagate σ_τ → σ_α = dt * σ_τ / τ² (first-order, all in hours)
+        sigma_alpha = dt * cfg.tau_prior.sigma / (cfg.tau_prior.value ** 2 * 3600.0)
         # σ for β: σ_β ≈ α_prior * σ_ΔT_eq  (dominant term)
         sigma_beta = alpha_prior * cfg.dT_eq_prior.sigma
 
@@ -182,10 +182,13 @@ class RcFitter:
                 sim[k + 1] = sim[k] + _alpha * (
                     _T_out[k] - sim[k] + _dT_eq + _g_solar * sol
                 )
-            # Map requested times to fractional indices on the original grid.
-            t_abs = np.array([(ts - times[0]).total_seconds() for ts in times], dtype=float)
-            t_grid = _t_sec - _t_sec[0]
-            return np.interp(t_abs, t_grid, sim)
+            # t_sec always starts at 0 (seconds from window start).
+            # Use t_sec[0] as origin so this stays correct even if t_sec
+            # does not start at 0 (e.g. a future caller passes a non-zero base).
+            t_req = np.array(
+                [(ts - times[0]).total_seconds() + _t_sec[0] for ts in times], dtype=float
+            )
+            return np.interp(t_req, _t_sec, sim)
 
         result = WindowResult(
             t_start=pd.NaT,

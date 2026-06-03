@@ -131,7 +131,7 @@ def merge_grow(
     inputs: dict[str, pd.Series],
     fitter: Fitter,
     resample: str,
-    r2_min: float = 0.98,
+    quality_min: float = 0.98,
 ) -> list[WindowResult]:
     """Greedy-grow merge.
 
@@ -184,7 +184,7 @@ def merge_grow(
                 if new_lo < 0 or new_hi >= len(ref):
                     continue
                 f = fit_range(new_lo, new_hi)
-                if f is not None and f.quality >= r2_min and fitter.params_close(seed, f):
+                if f is not None and f.quality >= quality_min and fitter.params_close(seed, f):
                     lo, hi = new_lo, new_hi
                     seed = f
                     extended = True
