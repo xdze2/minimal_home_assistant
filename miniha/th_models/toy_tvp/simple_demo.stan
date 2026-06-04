@@ -1,11 +1,11 @@
 // Simple demo: a + b + c = 0
-// Observe a with noise; prior on b is a mixture of Gaussians; prior on c is Gaussian.
-// Inference recovers the joint posterior over (b, c).
+// All three are parameters with priors.
+// The model is: y = a + b + c = 0 (observed as soft constraint with noise sigma_y).
 
 data {
-  int<lower=1> n_obs;          // number of observations
-  array[n_obs] real a_obs;     // observed values of a (= -(b+c) + noise)
-  real<lower=0> sigma_obs;     // observation noise std
+  // Prior on a: single Gaussian
+  real a_mu;
+  real<lower=0> a_sigma;
 
   // Prior on b: mixture of K Gaussians
   int<lower=1> K;
@@ -16,15 +16,20 @@ data {
   // Prior on c: single Gaussian
   real c_mu;
   real<lower=0> c_sigma;
+
+  // Observation noise for the constraint y = a+b+c ~ 0
+  real<lower=0> sigma_y;
 }
 
 parameters {
+  real a;
   real b;
   real c;
 }
 
 model {
-  // Prior on c
+  // Priors
+  a ~ normal(a_mu, a_sigma);
   c ~ normal(c_mu, c_sigma);
 
   // Prior on b: mixture of Gaussians via log_mix
@@ -35,8 +40,6 @@ model {
     target += log_sum_exp(lps);
   }
 
-  // Likelihood: each observation of a satisfies a = -(b+c) + noise
-  // => a_obs ~ normal(-(b+c), sigma_obs)
-  for (i in 1:n_obs)
-    a_obs[i] ~ normal(-(b + c), sigma_obs);
+  // Likelihood: observe y = 0 = a + b + c (soft constraint)
+  0 ~ normal(a + b + c, sigma_y);
 }
