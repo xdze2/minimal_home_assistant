@@ -20,6 +20,8 @@ dependencies = [
     "daikinapi",
     "streamlit>=1.58.0",
     "plotly>=6.7.0",
+    "cmdstanpy>=1.2",
+    "arviz>=0.18",
 ]
 
 [tool.setuptools.packages.find]
