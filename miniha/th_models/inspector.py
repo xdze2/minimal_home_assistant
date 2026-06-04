@@ -91,12 +91,37 @@ def _render_inspect(cfg, cached: dict) -> None:
 
 def _plot_in_out(df: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
+    y_lo = float(min(df["T_in"].min(), df["T_out"].min()))
+    y_hi = float(max(df["T_in"].max(), df["T_out"].max()))
+    pad = (y_hi - y_lo) * 0.05 or 1.0
+    y_lo -= pad
+    y_hi += pad
+    solar = df["I_solar"].clip(lower=0).to_numpy()
+    fig.add_trace(go.Heatmap(
+        x=df.index, y=[y_lo, y_hi], z=[solar, solar],
+        colorscale=[(0.0, "white"), (1.0, "goldenrod")],
+        zmin=0, zmax=max(float(solar.max()), 1.0),
+        showscale=True, colorbar=dict(title="W/m²", thickness=10),
+        hoverinfo="skip", name="solar",
+    ))
     fig.add_trace(go.Scattergl(x=df.index, y=df["T_in"], mode="lines",
                                name="indoor", line=dict(color="royalblue")))
     fig.add_trace(go.Scattergl(x=df.index, y=df["T_out"], mode="lines",
                                name="outdoor", line=dict(color="crimson")))
+    tz = "Europe/Paris"
+    idx = df.index
+    if idx.tz is None:
+        local = idx.tz_localize("UTC").tz_convert(tz)
+    else:
+        local = idx.tz_convert(tz)
+    start_day = local.min().normalize()
+    end_day = local.max().normalize() + pd.Timedelta(days=1)
+    midnights = pd.date_range(start_day, end_day, freq="D", tz=tz)
+    for ts in midnights:
+        fig.add_vline(x=ts, line=dict(color="black", width=1))
     fig.update_layout(height=320, margin=dict(l=40, r=20, t=30, b=30),
-                      title="Indoor vs outdoor", yaxis_title="°C")
+                      title="Indoor vs outdoor", yaxis_title="°C",
+                      yaxis=dict(range=[y_lo, y_hi]))
     return fig
 
 
