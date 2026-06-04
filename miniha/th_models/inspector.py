@@ -89,13 +89,7 @@ def _render_inspect(cfg, cached: dict) -> None:
     st.dataframe(pd.DataFrame(rows), hide_index=True)
 
 
-def _plot_in_out(df: pd.DataFrame) -> go.Figure:
-    fig = go.Figure()
-    y_lo = float(min(df["T_in"].min(), df["T_out"].min()))
-    y_hi = float(max(df["T_in"].max(), df["T_out"].max()))
-    pad = (y_hi - y_lo) * 0.05 or 1.0
-    y_lo -= pad
-    y_hi += pad
+def _add_solar_background(fig: go.Figure, df: pd.DataFrame, y_lo: float, y_hi: float) -> None:
     solar = df["I_solar"].clip(lower=0).to_numpy()
     fig.add_trace(go.Heatmap(
         x=df.index, y=[y_lo, y_hi], z=[solar, solar],
@@ -104,21 +98,30 @@ def _plot_in_out(df: pd.DataFrame) -> go.Figure:
         showscale=True, colorbar=dict(title="W/m²", thickness=10),
         hoverinfo="skip", name="solar",
     ))
+
+
+def _add_midnight_lines(fig: go.Figure, index: pd.DatetimeIndex) -> None:
+    tz = "Europe/Paris"
+    local = index.tz_localize("UTC").tz_convert(tz) if index.tz is None else index.tz_convert(tz)
+    start_day = local.min().normalize()
+    end_day = local.max().normalize() + pd.Timedelta(days=1)
+    for ts in pd.date_range(start_day, end_day, freq="D", tz=tz):
+        fig.add_vline(x=ts, line=dict(color="black", width=1))
+
+
+def _plot_in_out(df: pd.DataFrame) -> go.Figure:
+    fig = go.Figure()
+    y_lo = float(min(df["T_in"].min(), df["T_out"].min()))
+    y_hi = float(max(df["T_in"].max(), df["T_out"].max()))
+    pad = (y_hi - y_lo) * 0.05 or 1.0
+    y_lo -= pad
+    y_hi += pad
+    _add_solar_background(fig, df, y_lo, y_hi)
     fig.add_trace(go.Scattergl(x=df.index, y=df["T_in"], mode="lines",
                                name="indoor", line=dict(color="royalblue")))
     fig.add_trace(go.Scattergl(x=df.index, y=df["T_out"], mode="lines",
                                name="outdoor", line=dict(color="crimson")))
-    tz = "Europe/Paris"
-    idx = df.index
-    if idx.tz is None:
-        local = idx.tz_localize("UTC").tz_convert(tz)
-    else:
-        local = idx.tz_convert(tz)
-    start_day = local.min().normalize()
-    end_day = local.max().normalize() + pd.Timedelta(days=1)
-    midnights = pd.date_range(start_day, end_day, freq="D", tz=tz)
-    for ts in midnights:
-        fig.add_vline(x=ts, line=dict(color="black", width=1))
+    _add_midnight_lines(fig, df.index)
     fig.update_layout(height=320, margin=dict(l=40, r=20, t=30, b=30),
                       title="Indoor vs outdoor", yaxis_title="°C",
                       yaxis=dict(range=[y_lo, y_hi]))
@@ -127,12 +130,20 @@ def _plot_in_out(df: pd.DataFrame) -> go.Figure:
 
 def _plot_obs_vs_model(df: pd.DataFrame, sim: pd.Series) -> go.Figure:
     fig = go.Figure()
+    y_lo = float(min(df["T_in"].min(), float(sim.min())))
+    y_hi = float(max(df["T_in"].max(), float(sim.max())))
+    pad = (y_hi - y_lo) * 0.05 or 1.0
+    y_lo -= pad
+    y_hi += pad
+    _add_solar_background(fig, df, y_lo, y_hi)
     fig.add_trace(go.Scattergl(x=df.index, y=df["T_in"], mode="lines",
                                name="indoor (obs)", line=dict(color="royalblue")))
     fig.add_trace(go.Scattergl(x=sim.index, y=sim.values, mode="lines",
                                name="indoor (1R1C)", line=dict(color="black")))
+    _add_midnight_lines(fig, df.index)
     fig.update_layout(height=320, margin=dict(l=40, r=20, t=30, b=30),
-                      title="Observed vs 1R1C", yaxis_title="°C")
+                      title="Observed vs 1R1C", yaxis_title="°C",
+                      yaxis=dict(range=[y_lo, y_hi]))
     return fig
 
 
@@ -650,18 +661,26 @@ def _plot_tau_tinf_scatter(accepted: pd.DataFrame) -> go.Figure:
 
 def _plot_obs_vs_model_2r2c(df: pd.DataFrame, sim: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
+    y_lo = float(min(df["T_in"].min(), float(sim["T_in_model"].min()), float(sim["T_wall_model"].min())))
+    y_hi = float(max(df["T_in"].max(), float(sim["T_in_model"].max()), float(sim["T_wall_model"].max())))
+    pad = (y_hi - y_lo) * 0.05 or 1.0
+    y_lo -= pad
+    y_hi += pad
+    _add_solar_background(fig, df, y_lo, y_hi)
     fig.add_trace(go.Scattergl(x=df.index, y=df["T_in"], mode="lines",
                                name="indoor (obs)", line=dict(color="royalblue")))
     fig.add_trace(go.Scattergl(x=sim.index, y=sim["T_in_model"], mode="lines",
                                name="indoor (2R2C)", line=dict(color="black")))
     fig.add_trace(go.Scattergl(x=sim.index, y=sim["T_wall_model"], mode="lines",
                                name="wall (latent)", line=dict(color="darkorange", dash="dot")))
+    _add_midnight_lines(fig, df.index)
     fig.update_layout(height=320, margin=dict(l=40, r=20, t=30, b=30),
-                      title="Observed vs 2R2C", yaxis_title="°C")
+                      title="Observed vs 2R2C", yaxis_title="°C",
+                      yaxis=dict(range=[y_lo, y_hi]))
     return fig
 
 
-def _render_fit_2r2c(cached: dict) -> None:
+def _render_fit_2r2c(cfg, cached: dict) -> None:
     needed = {"indoor_temp", "outdoor_temp", "shortwave_radiation"}
     series = {name: _to_series(cached.get(name, [])) for name in needed}
     missing = [name for name, s in series.items() if s.empty]
@@ -669,6 +688,36 @@ def _render_fit_2r2c(cached: dict) -> None:
         st.warning(f"Missing or empty series: {', '.join(f'`{m}`' for m in missing)}.")
         return
     indoor, outdoor, solar = series["indoor_temp"], series["outdoor_temp"], series["shortwave_radiation"]
+
+    full_start = cfg.window.start.date()
+    full_end = cfg.window.end.date()
+    total_days = max((full_end - full_start).days, 1)
+    DURATION_OPTIONS = [1, 2, 3, 7, 14, 30, 60, 90, 180, 365]
+    default_duration = next((d for d in DURATION_OPTIONS if d >= total_days), DURATION_OPTIONS[-1])
+
+    c_start, c_dur = st.columns(2)
+    win_start = c_start.date_input("Start date", value=full_start,
+                                   min_value=full_start, max_value=full_end,
+                                   key="fit2r2c_start")
+    duration_days = c_dur.selectbox("Window size", DURATION_OPTIONS,
+                                    index=DURATION_OPTIONS.index(default_duration),
+                                    format_func=lambda d: f"{d} day" if d == 1 else f"{d} days",
+                                    key="fit2r2c_dur")
+    win_end = win_start + pd.Timedelta(days=duration_days)
+
+    def _slice_series(s: pd.Series) -> pd.Series:
+        if s.empty:
+            return s
+        t0 = pd.Timestamp(win_start)
+        t1 = pd.Timestamp(win_end)
+        if s.index.tz is not None:
+            t0 = t0.tz_localize(s.index.tz)
+            t1 = t1.tz_localize(s.index.tz)
+        return s[(s.index >= t0) & (s.index < t1)]
+
+    indoor = _slice_series(indoor)
+    outdoor = _slice_series(outdoor)
+    solar = _slice_series(solar)
 
     df = prepare(indoor, outdoor, solar)
     if len(df) < 8:
@@ -840,7 +889,7 @@ def main() -> None:
     with tab_fit:
         _render_fit(cfg, cached)
     with tab_fit_2r2c:
-        _render_fit_2r2c(cached)
+        _render_fit_2r2c(cfg, cached)
     with tab_decay:
         _render_decay_scan(str(cfg_path), cached)
 
