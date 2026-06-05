@@ -58,6 +58,17 @@ model-agnostic package. Any thermal model can be plugged in as a `Fitter`.
 
 ## Next steps (priority order)
 
+### 0. UI — data exploration tab
+Build out the data exploration page in the Svelte UI (currently a placeholder).
+Goals:
+- List available signals/datasets from the backend
+- Show a time-series preview for a selected signal
+- Display basic metadata (date range, sample count, gaps)
+
+This is the first tab to implement before simulation run.
+
+---
+
 ### 1. Verify RcFitter overlay visually
 The 1R1C overlay is computed from stored params + outdoor/solar series (not
 from `_curve_fn`). Check visually that it aligns with the observed indoor

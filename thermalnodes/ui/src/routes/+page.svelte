@@ -3,6 +3,15 @@
 	import GraphView from '$lib/GraphView.svelte';
 	import PropertiesPanel from '$lib/PropertiesPanel.svelte';
 
+	// ── page navigation ───────────────────────────────────────────────────────
+	let activePage = $state('model');
+
+	const PAGES = [
+		{ id: 'data',       label: 'Data exploration' },
+		{ id: 'model',      label: 'Model building'   },
+		{ id: 'simulation', label: 'Simulation run'   },
+	];
+
 	// ── model state ───────────────────────────────────────────────────────────
 	let selectedModelId = $state(MODELS[0].id);
 	// Deep-clone so edits don't mutate the imported constant
@@ -114,25 +123,51 @@
 <svelte:window onkeydown={onKeyDown} />
 
 <div class="shell">
-	<header>
-		<select value={selectedModelId} onchange={onModelChange}>
-			{#each MODELS as m}
-				<option value={m.id}>{m.label}</option>
-			{/each}
-		</select>
-		<span class="meta">{model.id} · schema {model.schema_version}</span>
-		{#if model.notes}
-			<span class="notes">{model.notes}</span>
-		{/if}
-		<div class="spacer"></div>
-		<button onclick={() => fileInput?.click()}>Load JSON</button>
-		<button onclick={saveJSON}>Save JSON</button>
-		<input bind:this={fileInput} type="file" accept=".json" style="display:none" onchange={onFileChange} />
-	</header>
+	<nav class="sidenav">
+		<div class="nav-logo">miniha</div>
+		{#each PAGES as p}
+			<button
+				class="nav-item"
+				class:active={activePage === p.id}
+				onclick={() => (activePage = p.id)}
+			>{p.label}</button>
+		{/each}
+	</nav>
 
-	<div class="body">
-		<GraphView {model} {selected} onselect={(s) => (selected = s)} {onaddedge} />
-		<PropertiesPanel {model} {selected} {onpatch} {onadd} {ondelete} {ondeleteedge} />
+	<div class="main">
+		{#if activePage === 'model'}
+			<header>
+				<select value={selectedModelId} onchange={onModelChange}>
+					{#each MODELS as m}
+						<option value={m.id}>{m.label}</option>
+					{/each}
+				</select>
+				<span class="meta">{model.id} · schema {model.schema_version}</span>
+				{#if model.notes}
+					<span class="notes">{model.notes}</span>
+				{/if}
+				<div class="spacer"></div>
+				<button onclick={() => fileInput?.click()}>Load JSON</button>
+				<button onclick={saveJSON}>Save JSON</button>
+				<input bind:this={fileInput} type="file" accept=".json" style="display:none" onchange={onFileChange} />
+			</header>
+			<div class="body">
+				<GraphView {model} {selected} onselect={(s) => (selected = s)} {onaddedge} />
+				<PropertiesPanel {model} {selected} {onpatch} {onadd} {ondelete} {ondeleteedge} />
+			</div>
+
+		{:else if activePage === 'data'}
+			<div class="placeholder">
+				<h2>Data exploration</h2>
+				<p>Browse and inspect available signals and datasets.</p>
+			</div>
+
+		{:else if activePage === 'simulation'}
+			<div class="placeholder">
+				<h2>Simulation run</h2>
+				<p>Configure and launch simulation runs.</p>
+			</div>
+		{/if}
 	</div>
 </div>
 
@@ -145,8 +180,51 @@
 
 	.shell {
 		display: flex;
-		flex-direction: column;
+		flex-direction: row;
 		height: 100vh;
+	}
+
+	/* ── side nav ── */
+	.sidenav {
+		display: flex;
+		flex-direction: column;
+		width: 160px;
+		flex-shrink: 0;
+		background: #1e293b;
+		border-right: 1px solid #334155;
+		padding: 12px 0;
+		gap: 2px;
+	}
+
+	.nav-logo {
+		color: #94a3b8;
+		font-size: 13px;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		padding: 8px 16px 16px;
+	}
+
+	.nav-item {
+		background: none;
+		border: none;
+		color: #94a3b8;
+		font-size: 13px;
+		text-align: left;
+		padding: 8px 16px;
+		cursor: pointer;
+		border-radius: 0;
+		transition: background 0.1s, color 0.1s;
+	}
+	.nav-item:hover { background: #334155; color: #f1f5f9; }
+	.nav-item.active { background: #334155; color: #f1f5f9; font-weight: 600; }
+
+	/* ── main area ── */
+	.main {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
 	}
 
 	header {
@@ -201,4 +279,16 @@
 		display: flex;
 		min-height: 0;
 	}
+
+	.placeholder {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		color: #94a3b8;
+		gap: 8px;
+	}
+	.placeholder h2 { margin: 0; font-size: 20px; color: #f1f5f9; }
+	.placeholder p  { margin: 0; font-size: 14px; }
 </style>
