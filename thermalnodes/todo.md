@@ -38,7 +38,7 @@ Assembly eliminates resistance nodes by condensing the conductance network:
 for each resistance node (exactly 2 edges), replace with a direct conductance
 G = 1/R between its two neighbours.
 
-- [ ] `assemble(model) -> AssembledSystem`
+- [x] `assemble(model) -> AssembledSystem`
   - Parse node kinds: `mass` (state), `boundary` (forced), `resistance` (wire),
     `source` (heat injection).
   - Build conductance adjacency: for each resistance node between nodes A and B,
@@ -52,10 +52,12 @@ G = 1/R between its two neighbours.
     - `B_source` [n×n_s]: heat source injection
       `B[i,s] = gain_s / C_i` if source s is wired to mass i
   - Returns: `AssembledSystem(A, B_boundary, B_source, mass_ids, boundary_ids, source_ids)`
-- [ ] **Verify**: for `chambre_1r1c.json` → 1×1 A matrix, τ = -1/A[0,0] matches R·C.
-- [ ] **Verify**: for `chambre_v1.json` → 2×2 A matrix (chambre + mur_SE).
-      Check: eigenvalues give two τ values consistent with expected fast (hours) and
-      slow (days) modes. Reachable by hand calculation: τ_slow ≈ C_mur·R_wall_SE.
+- [x] **Verify**: for `chambre_1r1c.json` → 1×1 A matrix, τ = -1/A[0,0] matches R·C.
+- [x] **Verify**: for `chambre_v1.json` → 2×2 A matrix (chambre + mur_SE).
+      Check: eigenvalues give two τ values consistent with expected fast (~7 h) and
+      slow (~38 h) modes, well-separated (ratio > 5×). Note: τ_slow ≈ 38 h (not
+      ~112 h) because parallel paths through roof/windows/insulated walls also drain
+      the wall node.
 
 ### 3b — Forward simulation (`solver/simulate.py`)
 

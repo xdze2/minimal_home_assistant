@@ -26,11 +26,11 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["miniha"]
+include = ["miniha", "thermalnodes", "thermalnodes.*"]
 namespaces = false
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "thermalnodes/solver/tests"]
 
 [dependency-groups]
 dev = [
