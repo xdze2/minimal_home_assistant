@@ -37,18 +37,6 @@
         }
       }
     },
-    "R_si": {
-      "type": "number",
-      "description": "Interior surface thermal resistance [m²·K/W]. Default 0.13 (vertical wall, ISO 6946).",
-      "default": 0.13,
-      "minimum": 0
-    },
-    "R_se": {
-      "type": "number",
-      "description": "Exterior surface thermal resistance [m²·K/W]. Default 0.04 (ISO 6946).",
-      "default": 0.04,
-      "minimum": 0
-    },
     "notes": {
       "type": "string"
     }

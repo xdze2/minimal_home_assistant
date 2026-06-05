@@ -4,10 +4,11 @@
   "title": "ThermalModel",
   "description": "A thermal RC network: room nodes, boundary nodes, resistive edges, and heat sources. Assembles to a linear ODE C·dT/dt = -L·T + B·u(t).",
   "type": "object",
-  "required": ["id", "name", "nodes", "boundaries", "edges"],
+  "required": ["schema_version", "id", "name", "nodes", "boundaries", "edges"],
   "additionalProperties": false,
   "properties": {
 
+    "schema_version": { "type": "string", "const": "0.1", "description": "Schema version — bump when making breaking changes." },
     "id": { "type": "string", "examples": ["chambre_1r1c"] },
     "name": { "type": "string", "examples": ["Chambre — modèle 1R1C"] },
     "notes": { "type": "string" },
@@ -62,6 +63,12 @@
                 }
               }
             ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["air", "mass"],
+            "default": "air",
+            "description": "air = zone air node; mass = internal thermal mass (wall core, slab, furniture)."
           },
           "T_initial": {
             "type": "number",
@@ -157,6 +164,52 @@
       }
     },
 
+    "solar_surfaces": {
+      "type": "array",
+      "description": "Oriented surfaces used to derive plane-of-array (POA) irradiance from weather inputs. Each surface produces a named signal (its id) that heat_sources can reference.",
+      "items": {
+        "type": "object",
+        "required": ["id", "tilt", "azimuth"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Signal name produced by this surface, referenced in heat_sources as signal. Convention: poa/<name>.",
+            "examples": ["poa/wall_south", "poa/roof", "poa/window_west"]
+          },
+          "label": { "type": "string" },
+          "tilt": {
+            "type": "number",
+            "description": "Surface tilt from horizontal [°]. 0 = horizontal (roof), 90 = vertical (wall).",
+            "minimum": 0,
+            "maximum": 90,
+            "examples": [90, 30, 0]
+          },
+          "azimuth": {
+            "type": "number",
+            "description": "Surface azimuth [°], meteorological convention: 0/360 = North, 90 = East, 180 = South, 270 = West.",
+            "minimum": 0,
+            "exclusiveMaximum": 360,
+            "examples": [180, 90, 270]
+          },
+          "albedo": {
+            "type": "number",
+            "description": "Ground albedo used for the reflected irradiance component. Default 0.2 (typical ground).",
+            "default": 0.2,
+            "minimum": 0,
+            "maximum": 1
+          },
+          "shading_factor": {
+            "type": "number",
+            "description": "Scalar shading factor applied to beam irradiance [0–1]. 1.0 = unobstructed, 0.0 = fully shaded. MVP placeholder — will be replaced by a horizon profile in a future schema version.",
+            "default": 1.0,
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+
     "heat_sources": {
       "type": "array",
       "description": "Time-varying heat inputs into a node (solar gain, internal gains, HVAC).",
@@ -171,14 +224,19 @@
             "type": "string",
             "description": "Target node id that receives the heat input."
           },
+          "kind": {
+            "type": "string",
+            "enum": ["solar", "internal", "hvac"],
+            "description": "solar: signal [W/m²] × gain [m²] (e.g. SHGC × window area); internal/hvac: signal [W] × gain [-] (dimensionless scale factor)."
+          },
           "signal": {
             "type": "string",
-            "description": "Signal name from simulation inputs [W/m²].",
-            "examples": ["open_meteo/shortwave_radiation", "poa/roof", "poa/window_south"]
+            "description": "Signal name from simulation inputs. Unit depends on kind: W/m² for solar, W for internal/hvac.",
+            "examples": ["open_meteo/shortwave_radiation", "poa/roof", "poa/window_south", "occupancy_W", "hvac_W"]
           },
           "gain": {
             "type": "number",
-            "description": "Effective area or gain coefficient [m²]. Heat input = gain × signal.",
+            "description": "Gain coefficient. For solar: effective aperture area [m²] (≈ SHGC × A_window). For internal/hvac: dimensionless scale factor. Heat input = gain × signal.",
             "exclusiveMinimum": 0,
             "examples": [1.2, 8.0]
           }
