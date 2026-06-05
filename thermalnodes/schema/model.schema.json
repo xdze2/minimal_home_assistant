@@ -1,60 +1,46 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12",
   "$id": "thermalnodes/model",
-  "title": "ThermalModel",
-  "description": "A thermal RC network: room nodes, boundary nodes, resistive edges, and heat sources. Assembles to a linear ODE C·dT/dt = -L·T + B·u(t).",
+  "title": "ThermalRCModel",
+  "description": "A lumped thermal RC network. Masses are capacitances (integrated temperatures), boundaries are fixed/prescribed temperatures, resistances connect them, sources inject heat. Assembles to C·dT/dt = -L·T + B·u(t).",
   "type": "object",
-  "required": ["schema_version", "id", "name", "nodes", "boundaries", "edges"],
+  "required": ["schema_version", "id", "name", "masses", "boundaries", "resistances"],
   "additionalProperties": false,
   "properties": {
 
-    "schema_version": { "type": "string", "const": "0.1", "description": "Schema version — bump when making breaking changes." },
-    "id": { "type": "string", "examples": ["chambre_1r1c"] },
+    "schema_version": { "type": "string", "const": "0.2", "description": "Schema version — bump when making breaking changes." },
+    "id":   { "type": "string", "examples": ["chambre_1r1c"] },
     "name": { "type": "string", "examples": ["Chambre — modèle 1R1C"] },
     "notes": { "type": "string" },
 
-    "simulation": {
+    "ui_hint": {
       "type": "object",
-      "description": "Default simulation window and timestep.",
+      "description": "Default simulation window shown in the UI. Not part of the RC topology — solver run parameters live separately.",
       "additionalProperties": false,
       "properties": {
-        "start": { "type": "string", "format": "date", "examples": ["2026-07-01"] },
-        "end":   { "type": "string", "format": "date", "examples": ["2026-07-15"] },
-        "dt_minutes": {
-          "type": "integer",
-          "description": "Output timestep in minutes.",
-          "default": 15,
-          "minimum": 1
-        }
+        "start":      { "type": "string", "format": "date", "examples": ["2026-07-01"] },
+        "end":        { "type": "string", "format": "date", "examples": ["2026-07-15"] },
+        "dt_minutes": { "type": "integer", "default": 15, "minimum": 1 }
       }
     },
 
-    "nodes": {
+    "masses": {
       "type": "array",
-      "description": "Room air nodes — each has a thermal capacitance and an initial temperature.",
+      "description": "Lumped thermal masses — nodes whose temperature is a state variable (capacitance C).",
       "minItems": 1,
       "items": {
         "type": "object",
         "required": ["id", "C"],
         "additionalProperties": false,
         "properties": {
-          "id": {
-            "type": "string",
-            "description": "Node identifier, referenced by edges and sources.",
-            "examples": ["chambre_air", "salon_air", "ceiling_mass"]
-          },
-          "label": { "type": "string", "description": "Display label in the UI." },
+          "id":    { "type": "string", "examples": ["chambre", "mur_sud"] },
+          "label": { "type": "string" },
           "C": {
-            "description": "Thermal capacitance [J/K]. Either a fixed value or derived from an assembly.",
+            "description": "Thermal capacitance [J/K]. Direct value or derived from an assembly + area.",
             "oneOf": [
-              {
-                "type": "number",
-                "exclusiveMinimum": 0,
-                "description": "Direct value [J/K]."
-              },
+              { "type": "number", "exclusiveMinimum": 0 },
               {
                 "type": "object",
-                "description": "Derived from an assembly and area.",
                 "required": ["assembly_id", "area"],
                 "additionalProperties": false,
                 "properties": {
@@ -64,20 +50,8 @@
               }
             ]
           },
-          "kind": {
-            "type": "string",
-            "enum": ["air", "mass"],
-            "default": "air",
-            "description": "air = zone air node; mass = internal thermal mass (wall core, slab, furniture)."
-          },
-          "T_initial": {
-            "type": "number",
-            "description": "Initial temperature [°C]. Defaults to first value of T_series if omitted.",
-            "examples": [20.0]
-          },
           "ui_position": {
             "type": "object",
-            "description": "Canvas position for the Svelteflow editor.",
             "additionalProperties": false,
             "properties": {
               "x": { "type": "number" },
@@ -90,30 +64,19 @@
 
     "boundaries": {
       "type": "array",
-      "description": "Fixed-temperature boundary nodes (exterior, deep soil). Not solved — they are forcing inputs.",
+      "description": "Fixed-temperature nodes — prescribed forcing inputs, not integrated. Exterior air, deep soil, etc.",
       "items": {
         "type": "object",
         "required": ["id", "T_source"],
         "additionalProperties": false,
         "properties": {
-          "id": {
-            "type": "string",
-            "examples": ["exterior", "sol_profond"]
-          },
+          "id":    { "type": "string", "examples": ["exterior", "sol_profond"] },
           "label": { "type": "string" },
           "T_source": {
-            "description": "Temperature forcing: a timeseries signal name or a fixed value.",
+            "description": "Temperature forcing: a named input signal or a fixed value [°C].",
             "oneOf": [
-              {
-                "type": "string",
-                "description": "Signal name from the simulation inputs (e.g. open_meteo/temperature_2m).",
-                "examples": ["open_meteo/temperature_2m"]
-              },
-              {
-                "type": "number",
-                "description": "Fixed temperature [°C] (e.g. 12.0 for deep soil).",
-                "examples": [12.0]
-              }
+              { "type": "string", "examples": ["open_meteo/temperature_2m"] },
+              { "type": "number", "examples": [12.0] }
             ]
           },
           "ui_position": {
@@ -128,33 +91,28 @@
       }
     },
 
-    "edges": {
+    "resistances": {
       "type": "array",
-      "description": "Thermal resistances connecting two nodes (room↔room, room↔boundary).",
+      "description": "Thermal resistances connecting two nodes (mass↔mass or mass↔boundary).",
       "items": {
         "type": "object",
         "required": ["id", "from", "to", "R"],
         "additionalProperties": false,
         "properties": {
-          "id": { "type": "string", "examples": ["wall_south", "roof", "floor_slab"] },
+          "id":    { "type": "string", "examples": ["mur_sud", "plancher"] },
           "label": { "type": "string" },
-          "from": { "type": "string", "description": "Source node id." },
-          "to":   { "type": "string", "description": "Target node id." },
+          "from":  { "type": "string", "description": "Source node id (mass or boundary)." },
+          "to":    { "type": "string", "description": "Target node id (mass or boundary)." },
           "R": {
-            "description": "Thermal resistance [K/W]. Either a fixed value or derived from a construction + area.",
+            "description": "Thermal resistance [K/W]. Direct value or derived from a construction + area.",
             "oneOf": [
-              {
-                "type": "number",
-                "exclusiveMinimum": 0,
-                "description": "Direct value [K/W]."
-              },
+              { "type": "number", "exclusiveMinimum": 0 },
               {
                 "type": "object",
-                "description": "Derived: R = (R_si + sum(e/λ) + R_se) / area. R_si and R_se come from the construction.",
                 "required": ["construction_id", "area"],
                 "additionalProperties": false,
                 "properties": {
-                  "construction_id": { "type": "string", "description": "References a construction by its id." },
+                  "construction_id": { "type": "string" },
                   "area": { "type": "number", "exclusiveMinimum": 0, "description": "Surface area [m²]." }
                 }
               }
@@ -164,82 +122,19 @@
       }
     },
 
-    "solar_surfaces": {
+    "sources": {
       "type": "array",
-      "description": "Oriented surfaces used to derive plane-of-array (POA) irradiance from weather inputs. Each surface produces a named signal (its id) that heat_sources can reference.",
-      "items": {
-        "type": "object",
-        "required": ["id", "tilt", "azimuth"],
-        "additionalProperties": false,
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "Signal name produced by this surface, referenced in heat_sources as signal. Convention: poa/<name>.",
-            "examples": ["poa/wall_south", "poa/roof", "poa/window_west"]
-          },
-          "label": { "type": "string" },
-          "tilt": {
-            "type": "number",
-            "description": "Surface tilt from horizontal [°]. 0 = horizontal (roof), 90 = vertical (wall).",
-            "minimum": 0,
-            "maximum": 90,
-            "examples": [90, 30, 0]
-          },
-          "azimuth": {
-            "type": "number",
-            "description": "Surface azimuth [°], meteorological convention: 0/360 = North, 90 = East, 180 = South, 270 = West.",
-            "minimum": 0,
-            "exclusiveMaximum": 360,
-            "examples": [180, 90, 270]
-          },
-          "albedo": {
-            "type": "number",
-            "description": "Ground albedo used for the reflected irradiance component. Default 0.2 (typical ground).",
-            "default": 0.2,
-            "minimum": 0,
-            "maximum": 1
-          },
-          "shading_factor": {
-            "type": "number",
-            "description": "Scalar shading factor applied to beam irradiance [0–1]. 1.0 = unobstructed, 0.0 = fully shaded. MVP placeholder — will be replaced by a horizon profile in a future schema version.",
-            "default": 1.0,
-            "minimum": 0,
-            "maximum": 1
-          }
-        }
-      }
-    },
-
-    "heat_sources": {
-      "type": "array",
-      "description": "Time-varying heat inputs into a node (solar gain, internal gains, HVAC).",
+      "description": "Heat inputs into a mass node: Q = gain × signal(t). Signal unit and gain unit must be consistent (e.g. W/m² × m², or W × dimensionless).",
       "items": {
         "type": "object",
         "required": ["id", "node", "signal", "gain"],
         "additionalProperties": false,
         "properties": {
-          "id": { "type": "string", "examples": ["solar_window_south", "solar_roof"] },
-          "label": { "type": "string" },
-          "node": {
-            "type": "string",
-            "description": "Target node id that receives the heat input."
-          },
-          "kind": {
-            "type": "string",
-            "enum": ["solar", "internal", "hvac"],
-            "description": "solar: signal [W/m²] × gain [m²] (e.g. SHGC × window area); internal/hvac: signal [W] × gain [-] (dimensionless scale factor)."
-          },
-          "signal": {
-            "type": "string",
-            "description": "Signal name from simulation inputs. Unit depends on kind: W/m² for solar, W for internal/hvac.",
-            "examples": ["open_meteo/shortwave_radiation", "poa/roof", "poa/window_south", "occupancy_W", "hvac_W"]
-          },
-          "gain": {
-            "type": "number",
-            "description": "Gain coefficient. For solar: effective aperture area [m²] (≈ SHGC × A_window). For internal/hvac: dimensionless scale factor. Heat input = gain × signal.",
-            "exclusiveMinimum": 0,
-            "examples": [1.2, 8.0]
-          }
+          "id":     { "type": "string", "examples": ["apport_fenetre_sud"] },
+          "label":  { "type": "string" },
+          "node":   { "type": "string", "description": "Target mass node id." },
+          "signal": { "type": "string", "description": "Named input signal.", "examples": ["poa/window_south", "occupancy_W"] },
+          "gain":   { "type": "number", "exclusiveMinimum": 0, "description": "Gain coefficient. Q = gain × signal.", "examples": [1.2, 8.0] }
         }
       }
     }

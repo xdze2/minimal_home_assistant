@@ -2,37 +2,45 @@
 	import { SvelteFlow, Background, Controls, MiniMap } from '@xyflow/svelte';
 	import '@xyflow/svelte/dist/style.css';
 
-	import RoomNode from '$lib/nodes/RoomNode.svelte';
+	import MassNode from '$lib/nodes/MassNode.svelte';
 	import BoundaryNode from '$lib/nodes/BoundaryNode.svelte';
-	import HeatSourceNode from '$lib/nodes/HeatSourceNode.svelte';
+	import SourceNode from '$lib/nodes/SourceNode.svelte';
 	import { modelToFlow } from '$lib/modelToFlow.js';
-
-	import model from '@data/examples/chambre_1r1c.json';
+	import { MODELS } from '$lib/models.js';
 
 	const nodeTypes = {
-		room: RoomNode,
+		mass: MassNode,
 		boundary: BoundaryNode,
-		heatsource: HeatSourceNode
+		source: SourceNode
 	};
 
-	const { nodes: initialNodes, edges: initialEdges } = modelToFlow(model);
+	let selectedId = $state(MODELS[0].id);
 
-	let nodes = $state(initialNodes);
-	let edges = $state(initialEdges);
+	const selected = $derived(MODELS.find((m) => m.id === selectedId));
+	const flow = $derived(modelToFlow(selected.model));
 </script>
 
 <div class="shell">
 	<header>
-		<span class="title">{model.name}</span>
-		<span class="meta">{model.id} · schema {model.schema_version}</span>
+		<select bind:value={selectedId}>
+			{#each MODELS as m}
+				<option value={m.id}>{m.label}</option>
+			{/each}
+		</select>
+		<span class="meta">{selected.model.id} · schema {selected.model.schema_version}</span>
+		{#if selected.model.notes}
+			<span class="notes">{selected.model.notes}</span>
+		{/if}
 	</header>
 
 	<div class="canvas">
-		<SvelteFlow {nodes} {edges} {nodeTypes} fitView>
-			<Background />
-			<Controls />
-			<MiniMap />
-		</SvelteFlow>
+		{#key selectedId}
+			<SvelteFlow nodes={flow.nodes} edges={flow.edges} {nodeTypes} fitView>
+				<Background />
+				<Controls />
+				<MiniMap />
+			</SvelteFlow>
+		{/key}
 	</div>
 </div>
 
@@ -59,14 +67,30 @@
 		flex-shrink: 0;
 	}
 
-	.title {
-		font-size: 16px;
+	select {
+		background: #334155;
+		color: #f1f5f9;
+		border: 1px solid #475569;
+		border-radius: 4px;
+		padding: 4px 8px;
+		font-size: 14px;
 		font-weight: 600;
+		cursor: pointer;
 	}
 
 	.meta {
 		font-size: 12px;
 		opacity: 0.5;
+	}
+
+	.notes {
+		font-size: 11px;
+		opacity: 0.4;
+		font-style: italic;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		max-width: 600px;
 	}
 
 	.canvas {

@@ -1,9 +1,9 @@
 {
   "$schema": "../../schema/model.schema.json",
   "schema_version": "0.2",
-  "id": "chambre_1r1c",
-  "name": "Chambre — modèle 1R1C",
-  "notes": "Modèle minimal : une masse (l'air de la chambre), une résistance vers l'extérieur, un apport solaire. Temps caractéristique τ = R·C ≈ 10 h.",
+  "id": "chambre_2r2c",
+  "name": "Chambre — modèle 2R2C (masse du mur)",
+  "notes": "Mur en pierre modélisé en 2R1C : la masse thermique du mur est une masse intermédiaire entre l'extérieur et l'air de la chambre. C_mur = ρ·cp·e·A = 2200×900×0.40×12 ≈ 9.5 MJ/K.",
 
   "ui_hint": {
     "start": "2026-07-01",
@@ -13,10 +13,16 @@
 
   "masses": [
     {
+      "id": "mur_sud",
+      "label": "Masse mur sud",
+      "C": 9504000,
+      "ui_position": { "x": 200, "y": 260 }
+    },
+    {
       "id": "chambre",
       "label": "Chambre",
       "C": 8640000,
-      "ui_position": { "x": 200, "y": 300 }
+      "ui_position": { "x": 200, "y": 440 }
     }
   ],
 
@@ -31,14 +37,18 @@
 
   "resistances": [
     {
-      "id": "mur_sud",
-      "label": "Mur sud",
+      "id": "R_ext",
+      "label": "R ext (R_se + demi-mur)",
       "from": "exterior",
+      "to": "mur_sud",
+      "R": 0.0178
+    },
+    {
+      "id": "R_int",
+      "label": "R int (demi-mur + R_si)",
+      "from": "mur_sud",
       "to": "chambre",
-      "R": {
-        "construction_id": "wall_vertical_pierre_40cm",
-        "area": 12.0
-      }
+      "R": 0.0234
     }
   ],
 

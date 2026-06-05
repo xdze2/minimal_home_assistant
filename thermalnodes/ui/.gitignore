@@ -1,5 +1,8 @@
 node_modules
 
+# Override root repo's lib/ rule (Python packaging artifact)
+!src/lib/
+
 # Output
 .output
 .vercel
