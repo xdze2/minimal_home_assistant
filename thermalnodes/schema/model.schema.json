@@ -134,7 +134,7 @@
           "from": { "type": "string", "description": "Source node id." },
           "to":   { "type": "string", "description": "Target node id." },
           "R": {
-            "description": "Thermal resistance [K/W]. Either a fixed value or derived from assembly + area.",
+            "description": "Thermal resistance [K/W]. Either a fixed value or derived from a construction + area.",
             "oneOf": [
               {
                 "type": "number",
@@ -143,11 +143,11 @@
               },
               {
                 "type": "object",
-                "description": "Derived: R = (R_si + sum(e/λ) + R_se) / area",
-                "required": ["assembly_id", "area"],
+                "description": "Derived: R = (R_si + sum(e/λ) + R_se) / area. R_si and R_se come from the construction.",
+                "required": ["construction_id", "area"],
                 "additionalProperties": false,
                 "properties": {
-                  "assembly_id": { "type": "string" },
+                  "construction_id": { "type": "string", "description": "References a construction by its id." },
                   "area": { "type": "number", "exclusiveMinimum": 0, "description": "Surface area [m²]." }
                 }
               }

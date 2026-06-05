@@ -15,8 +15,8 @@ See README.md for project description and stack overview.
 
 Validate examples against the schemas:
 ```bash
-pip install check-jsonschema
-check-jsonschema --schemafile schema/model.schema.json examples/chambre_1r1c.json
+uv add check-jsonschema
+uv run check-jsonschema --schemafile schema/model.schema.json examples/chambre_1r1c.json
 ```
 
 ---
@@ -31,7 +31,7 @@ Small hand-curated library for common French old-building materials.
 - [ ] `materials/wood_frame.json` — λ=0.13, ρ=500, cp=1600
 - [ ] `materials/plaster.json` — λ=0.57, ρ=1200, cp=1000
 - [ ] `materials/air_gap.json` — λ=0.18 (unventilated, ISO 6946), ρ=1.2, cp=1005
-- [ ] `materials/glass_wool_100mm.json` — λ=0.035, ρ=15, cp=840
+- [ ] `materials/glass_wool.json` — λ=0.035, ρ=15, cp=840 (thickness is set per assembly layer)
 
 - [ ] `assemblies/wall_pierre_40cm.json`
 - [ ] `assemblies/wall_brique_22cm.json`
@@ -39,9 +39,26 @@ Small hand-curated library for common French old-building materials.
 - [ ] `assemblies/dalle_beton_sol.json` (slab on grade)
 - [ ] `assemblies/fenetre_double_vitrage.json` — no layers, direct U=1.4 W/m²K (glass is opaque to IR, different physics)
 
+### Construction library (assembly + orientation + surface films)
+
+Sits between assembly and model edges. R_si / R_se defaults from ISO 6946 by orientation.
+
+- [ ] `constructions/wall_vertical_pierre_40cm.json` — assembly: wall_pierre_40cm, orientation: vertical
+- [ ] `constructions/wall_vertical_brique_22cm.json`
+- [ ] `constructions/roof_horizontal_up_beton.json` — orientation: horizontal_up (R_si=0.10)
+- [ ] `constructions/floor_horizontal_down_dalle.json` — orientation: horizontal_down (R_si=0.17)
+- [ ] `constructions/window_vertical_double.json`
+
 ---
 
 ## Step 3 — Python solver
+
+Use `uv` for all Python package management (consistent with parent miniha project):
+```bash
+uv add scipy fastapi uvicorn
+uv run pytest
+uv run uvicorn api.main:app --reload
+```
 
 `solver/assemble.py`
 - [ ] Load and resolve a model JSON: replace `{assembly_id, area}` references with computed R or C values
@@ -101,6 +118,22 @@ Small hand-curated library for common French old-building materials.
 - [ ] "Open in Falstad" button — generate Falstad URL from netlist for circuit debugging
 
 ---
+
+## Schema hierarchy
+
+```
+material  →  assembly  →  construction  →  edge (in model)
+(λ,ρ,cp)    (layer stack)  (assembly +      (construction_id +
+                            orientation +    area + from/to)
+                            R_si, R_se)
+```
+
+- **material**: bulk physical constants only, no geometry
+- **assembly**: ordered layer stack, purely `sum(e/λ)` — no surface films, no area
+- **construction**: assembly + orientation + R_si/R_se (ISO 6946 defaults by orientation).
+  This is what an edge references.
+- **edge**: construction_id + area → R [K/W] = (R_si + sum(e/λ) + R_se) / area
+- Node C derivation uses `assembly_id` directly (areal mass is orientation-independent)
 
 ## Decisions made
 
