@@ -2,7 +2,7 @@
 
 See README.md for project description and stack overview.
 
-## Status: schema + data library + Svelte graph editor done; solver assembly done
+## Status: graph editor + solver assembly + FastAPI backend (mock) + data exploration UI done
 
 ---
 
@@ -19,19 +19,20 @@ thermalnodes/
       chambre_2r2c.json          2 mass, 5 resistance, 1 boundary, 1 source
   solver/
     assemble.py                  graph → AssembledSystem (done)
-    simulate.py                  IVP + ZOH (TODO step 3b)
+    simulate.py                  SimResult + simulate_mock() (done); IVP + ZOH TODO
     inputs.py                    stub inputs generator (TODO step 3c, optional)
     tests/
       test_assemble.py           assembly unit tests (passing)
   api/
     config.py                    env-based config (MINIHA_INFLUX_* vars, same as miniha)
     influx.py                    InfluxDB client + parse_signal + list_signals + fetch_series
-    main.py                      FastAPI app: GET /signals, GET /series
+    main.py                      FastAPI app: GET /signals, GET /series, POST /simulate (mock)
   ui/
     src/
-      routes/+page.svelte        app shell — model picker, load/save JSON
+      routes/+page.svelte        app shell — left nav, page switcher
       lib/GraphView.svelte       SvelteFlow canvas
       lib/PropertiesPanel.svelte node/edge inspector + add/delete; signal autocomplete
+      lib/DataExplorer.svelte    data exploration tab (signal list + uPlot preview)
       lib/modelToFlow.js         model JSON → SvelteFlow nodes/edges
     vite.config.js               @data alias → thermalnodes/data/
 
@@ -70,15 +71,13 @@ zigbee2mqtt/temperature?name=salon # with tag filter
 poa/irradiance?face=SE
 ```
 
-This string is stored verbatim in the model JSON:
-- boundary node: `"T_source": "open_meteo/temperature_2m"`
-- source node:   `"signal": "poa/irradiance?face=SE"`
+Signal names are **no longer stored in the model JSON**. They live in the simulation
+config (`inputs: { node_id → signal_name }`), keeping model topology decoupled from
+data sources. The existing example files still carry `T_source` / `signal` fields as
+hints, but the solver and API ignore them.
 
-The API parses it with `parse_signal()` in `api/influx.py`. All data is resampled to
-15 min uniform grid.
-
-**TODO**: standardise signal names across the three example files (currently inconsistent
-— see step 3c).
+**TODO**: clean up example files to remove or document the legacy `T_source` / `signal`
+fields once the sim-config UI is in place.
 
 ---
 
@@ -101,90 +100,50 @@ class AssembledSystem:
     A: np.ndarray           # [n_mass × n_mass]   continuous-time
     B_boundary: np.ndarray  # [n_mass × n_boundary]
     B_source: np.ndarray    # [n_mass × n_source]
-    mass_ids: list[str]      # node ids in row/col order
+    mass_ids: list[str]
     boundary_ids: list[str]
     source_ids: list[str]
 ```
 
-**Gap:** `AssembledSystem` stores node *ids* but not the signal names from the schema
-(`boundary.T_source`, `source.signal`). The IVP solver needs these to index into
-`inputs`. Fix in step 3b: add `boundary_signals` and `source_signals` parallel lists
-(see step 3b notes).
-
 Verified: τ for `chambre_1r1c` matches R·C; eigenvalues for `chambre_v1` give
 τ_fast ≈ 7 h, τ_slow ≈ 38 h (ratio > 5×).
 
-### 3c — Stub inputs for demo (`solver/inputs.py`) — DO THIS FIRST
+### 3b — Forward simulation (`solver/simulate.py`) — mock done; real solver TODO
 
-**Signal name convention** — settle this before writing the IVP solver.
-Current examples are inconsistent:
+`SimResult` and `simulate_mock()` are implemented. Mock returns sinusoidal
+temperatures (daily ±3 °C + slow 10-day drift, per-mass phase offset) without
+using the model matrices — sufficient to develop and test the UI end-to-end.
 
-| file             | boundary T_source             | source signal         |
-|------------------|-------------------------------|-----------------------|
-| chambre_1r1c     | `open_meteo/temperature_2m`   | `poa/window_south`    |
-| chambre_2r2c     | `open_meteo/temperature_2m`   | `poa/window_south`    |
-| chambre_v1       | `outdoor_temp`                | `poa/window_SE`, `poa/window_NE` |
+**Real solver** (implement after UI is working):
 
-Decision needed: standardise on `open_meteo/temperature_2m` (or a simpler name like
-`T_ext`) across all examples before writing `make_stub_inputs`.
-`make_stub_inputs` must produce keys that match the signal names in the examples.
-
-- [ ] Decide and apply a consistent signal name scheme to all three example files.
-- [ ] `make_stub_inputs(start, end, dt_minutes) -> dict[str, tuple[np.ndarray, np.ndarray]]`
-  - Returns `{signal_name: (t_seconds_array, values_array)}`.
-  - Synthesises plausible outdoor temperature (sinusoidal daily + seasonal offset)
-    and solar irradiance (clear-sky flat-plate model).
-  - Covers at least 2 months; no InfluxDB / Open-Meteo dependency.
-  - Must cover all signal names referenced by `chambre_v1.json` and `chambre_1r1c.json`.
-- [ ] **Verify**: print min/max/mean of each signal; check T_ext range ≈ 0–25 °C,
-      solar ≥ 0 and peaks ≈ 600–900 W/m².
-
-### 3b — Forward simulation (`solver/simulate.py`)
-
-**Pre-requisite:** fix `AssembledSystem` to carry signal names:
-
-```python
-@dataclass
-class AssembledSystem:
-    ...
-    boundary_signals: list[str]   # parallel to boundary_ids; values of node.T_source
-    source_signals:   list[str]   # parallel to source_ids;   values of node.signal
-```
-
-Add extraction in `assemble()`:
-```python
-boundary_signals = [nodes[nid]["T_source"] for nid in boundary_ids]
-source_signals   = [nodes[nid]["signal"]   for nid in source_ids]
-```
+- [ ] `simulate_ivp(system, inputs, t_eval) -> SimResult`
+  - `inputs`: `dict[str, tuple[np.ndarray, np.ndarray]]` — `{signal_name: (t_sec, values)}`
+    where keys match `inputs` from the sim config, mapped to node order via
+    `system.boundary_ids` / `system.source_ids`.
+  - Builds `u(t)` by interpolating each signal via `scipy.interpolate.interp1d`.
+  - Calls `solve_ivp(fun, t_span, y0, method='BDF', t_eval=t_eval)`.
+  - Returns `SimResult(t, temps)` where `temps: dict[mass_id, np.ndarray]`.
+- [ ] `simulate_zoh(system, inputs_uniform, dt) -> SimResult`
+  - `inputs_uniform`: same dict but values on a uniform grid of step `dt` seconds.
+  - Precomputes `Ad = expm(A·dt)`, `Bd = inv(A) @ (Ad − I) @ B_full`.
+  - Returns same `SimResult` format. Reference: `miniha/th_models/fit_2r2c.py`.
+- [ ] **Verify** (unit test): `chambre_1r1c.json`, step T_ext 0→10 °C, zero solar,
+      IVP and ZOH both match `T(t) = 10·(1 − exp(−t/τ))` to < 0.01 °C at t=τ.
+- [ ] **Verify** (unit test): `chambre_v1.json`, T_ext=0, zero solar, T0=[20,20],
+      both methods → T=0 with two exponential modes; τ values match eigenvalues of A.
 
 **Integrator choice:**
 
 - `scipy.integrate.solve_ivp(method='BDF')` — handles stiffness from the ~30× C
   ratio (mur_SE ≈ 8 MJ/K vs chambre ≈ 270 kJ/K). Good for exploration.
 - **ZOH (matrix exponential)** — exact for piecewise-constant inputs on a uniform
-  grid: `x[k+1] = Ad @ x[k] + Bd @ u[k]` where `Ad = expm(A·dt)`,
-  `Bd = A⁻¹·(Ad − I)·B`. O(n³) once to precompute, O(n²) per step. Required for
-  optimisation / MCMC (step 6). Reference impl: `miniha/th_models/fit_2r2c.py`.
+  grid: `x[k+1] = Ad @ x[k] + Bd @ u[k]`. O(n³) once to precompute, O(n²) per step.
+  Required for optimisation / MCMC (step 6).
 
-Inputs format for both:
-```python
-# inputs dict keys = signal names (must match boundary_signals / source_signals)
-inputs: dict[str, tuple[np.ndarray, np.ndarray]]  # (t_seconds, values)
-```
+### 3c — Stub inputs for offline demo (`solver/inputs.py`) — optional
 
-- [ ] `simulate_ivp(system, inputs, t_eval) -> SimResult`
-  - Builds `u(t)` by interpolating each signal via `scipy.interpolate.interp1d`.
-  - Column order: `[boundary_signals..., source_signals...]` → `u` vector.
-  - Calls `solve_ivp(fun, t_span, y0, method='BDF', t_eval=t_eval)`.
-  - Returns `SimResult(t, temps)` where `temps: dict[mass_id, np.ndarray]`.
-- [ ] `simulate_zoh(system, inputs_uniform, dt) -> SimResult`
-  - `inputs_uniform`: same dict but values on a uniform grid of step `dt` seconds.
-  - Precomputes `Ad = expm(A·dt)`, `Bd = inv(A) @ (Ad − I) @ B_full`.
-  - Returns same `SimResult` format.
-- [ ] **Verify** (unit test): `chambre_1r1c.json`, step T_ext 0→10 °C, zero solar,
-      IVP and ZOH both match `T(t) = 10·(1 − exp(−t/τ))` to < 0.01 °C at t=τ.
-- [ ] **Verify** (unit test): `chambre_v1.json`, T_ext=0, zero solar, T0=[20,20],
-      both methods → T=0 with two exponential modes; τ values match eigenvalues of A.
+May not be needed now that the UI uses a sim-config with explicit signal→InfluxDB
+mapping. Keep as a fallback for unit tests or offline runs.
 
 ---
 
@@ -192,17 +151,15 @@ inputs: dict[str, tuple[np.ndarray, np.ndarray]]  # (t_seconds, values)
 
 Run: `uv run uvicorn thermalnodes.api.main:app --reload --port 8001`
 
-The Svelte UI is blocked on this for real simulation and for saving models server-side.
-
 ### Done
 - [x] `GET /signals` — lists all `measurement/field?tag=val` from InfluxDB
 - [x] `GET /series?signal=...&start=...&end=` — fetch + resample to 15 min
+- [x] `POST /simulate` — body: `{model, start, end, inputs: {node_id → signal}}`,
+      currently runs `simulate_mock`; swap for `simulate_ivp` once real solver is done
 - [x] CORS for Svelte dev server (localhost:5173 and :4173)
 
 ### TODO
-- [ ] `POST /simulate` — body: `{model: {...}, start: str, end: str}`,
-      fetches inputs from InfluxDB internally, runs `simulate_ivp`,
-      returns `{t: [...], nodes: {mass_id: [...]}}`
+- [ ] Wire `POST /simulate` to InfluxDB: fetch each signal in `inputs`, pass to real solver
 - [ ] `POST /model/save` — persist model JSON to `data/user/` (separate from examples)
 - [ ] `GET /model/list` — list available model files (examples + user)
 - [ ] `GET /model/{id}` — return model JSON
@@ -212,7 +169,7 @@ The Svelte UI is blocked on this for real simulation and for saving models serve
 
 ## Step 5 — Svelte UI (`ui/`)
 
-Stack: SvelteKit + `@xyflow/svelte`.
+Stack: SvelteKit + `@xyflow/svelte` + uPlot.
 
 ### Graph editor (done)
 
@@ -226,14 +183,37 @@ Stack: SvelteKit + `@xyflow/svelte`.
 - [x] Draw edge by dragging between handles; delete with Delete/Backspace
 - [x] Signal name autocomplete on boundary/source inputs (via `GET /signals`; shows ⚠ if API unreachable)
 
-### Simulation panel (blocked on step 4 backend)
+### Data exploration tab (done)
 
-- [ ] Install uPlot
-- [ ] Date range picker (start / end)
-- [ ] "Simulate" button → `POST /simulate`
-- [ ] uPlot: temperature timeseries per mass node + outdoor temperature overlay
+- [x] Signal list panel from `GET /signals`, filterable
+- [x] uPlot time-series preview for selected signal via `GET /series`
+- [x] Date range pickers (default: last 7 days)
+- [x] Metadata row: date range, sample count, gap count, min/max/mean
 
-### Server-backed model persistence (blocked on step 4 backend)
+### Simulation run tab (next)
+
+The sim config decouples model topology from data sources:
+
+```json
+{
+  "model": { "...": "..." },
+  "start": "2024-01-01",
+  "end":   "2024-02-01",
+  "inputs": {
+    "exterior":            "open_meteo/temperature_2m",
+    "apport_fenetre_sud":  "poa/window_south"
+  }
+}
+```
+
+- [ ] Model picker (reuse existing dropdown)
+- [ ] Date range pickers (start / end)
+- [ ] Inputs table: one row per boundary/source node in the selected model,
+      signal autocomplete on each row (reuse signal list from data exploration)
+- [ ] "Run" button → `POST /simulate` with assembled config
+- [ ] uPlot: temperature timeseries per mass node
+
+### Server-backed model persistence (after simulation tab)
 
 - [ ] Replace bundled `MODELS` import with `GET /model/list` + `GET /model/{id}`
 - [ ] "Save to server" button → `POST /model/save`
@@ -243,7 +223,6 @@ Stack: SvelteKit + `@xyflow/svelte`.
 
 - [ ] Construction picker dropdown on edges (populates R from material library)
 - [ ] Material library browser panel
-- [ ] Signal name autocomplete (from backend `/inputs/signals` list)
 
 ---
 
@@ -264,8 +243,8 @@ the critical building block.
 
 - **material**: bulk physical constants (λ, ρ, cp) — reference only, not loaded by solver
 - **model**: R [K/W] and C [J/K] are direct numeric values
-- **boundary node**: `T_source` field = signal name string (or a fixed float)
-- **source node**: `signal` field = signal name string; `gain` = scalar multiplier
+- **boundary node**: `T_source` field — legacy hint only; solver uses sim-config `inputs`
+- **source node**: `signal` field — legacy hint only; solver uses sim-config `inputs`
 - **resistance nodes**: eliminated during assembly — not in state vector
 
 ## Decisions made
@@ -276,6 +255,8 @@ the critical building block.
 - **Boundaries**: fixed-temperature forcing nodes (not solved).
 - **Heat sources**: explicit edge source→mass in graph (dependency is structural, not metadata).
 - **Thick walls / MVP**: 2R1C block (R_ext, mass, R_int). Already in `chambre_v1`.
+- **Sim config**: signal→node binding lives in a separate sim config object, not in the
+  model JSON. Keeps topology reusable across different datasets and time ranges.
 - **Fitting / Bayesian**: Step 6. ZOH chosen from the start to support this.
 - **Streamlit app** (`miniha/th_models/inspector.py`): prototype, reference only.
   Svelte UI (`thermalnodes/ui/`) is the target frontend.

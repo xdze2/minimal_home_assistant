@@ -2,6 +2,7 @@
 	import { MODELS } from '$lib/models.js';
 	import GraphView from '$lib/GraphView.svelte';
 	import PropertiesPanel from '$lib/PropertiesPanel.svelte';
+	import DataExplorer from '$lib/DataExplorer.svelte';
 
 	// ── page navigation ───────────────────────────────────────────────────────
 	let activePage = $state('model');
@@ -157,10 +158,7 @@
 			</div>
 
 		{:else if activePage === 'data'}
-			<div class="placeholder">
-				<h2>Data exploration</h2>
-				<p>Browse and inspect available signals and datasets.</p>
-			</div>
+			<DataExplorer />
 
 		{:else if activePage === 'simulation'}
 			<div class="placeholder">

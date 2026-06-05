@@ -8,8 +8,11 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 from .influx import fetch_series, list_signals
+from ..solver.assemble import assemble
+from ..solver.simulate import simulate_mock
 
 app = FastAPI(title="thermalnodes API")
 
@@ -19,6 +22,41 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class SimulateRequest(BaseModel):
+    model: dict
+    start: str
+    end: str
+    inputs: dict[str, str]  # node_id → signal name
+
+
+@app.post("/simulate")
+def post_simulate(req: SimulateRequest) -> dict:
+    """Run a simulation and return temperature time-series per mass node.
+
+    Returns:
+        { "t": [ISO strings], "nodes": { mass_id: [float, ...] } }
+    """
+    try:
+        system = assemble(req.model)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Model assembly error: {e}") from e
+
+    try:
+        result = simulate_mock(system, req.start, req.end)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Simulation error: {e}") from e
+
+    import datetime
+    t_iso = [
+        datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).isoformat()
+        for ts in result.t
+    ]
+    return {
+        "t": t_iso,
+        "nodes": {mid: list(arr) for mid, arr in result.temps.items()},
+    }
 
 
 @app.get("/signals")
