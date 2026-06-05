@@ -12,6 +12,24 @@
 	 */
 	let { selected, model, onpatch, onadd, ondelete, ondeleteedge } = $props();
 
+	// ── signal autocomplete ───────────────────────────────────────────────────
+	const API = 'http://localhost:8001';
+	let signals = $state([]);
+	let signalsError = $state(false);
+
+	async function loadSignals() {
+		try {
+			const res = await fetch(`${API}/signals`);
+			if (!res.ok) throw new Error(res.statusText);
+			signals = await res.json();
+			signalsError = false;
+		} catch {
+			signalsError = true;
+		}
+	}
+
+	$effect(() => { loadSignals(); });
+
 	const isEdge = $derived(selected?.kind === 'edge');
 
 	const item = $derived.by(() => {
@@ -97,22 +115,25 @@
 
 			{:else if selected.kind === 'boundary'}
 				<label>
-					<span>T_source</span>
+					<span>T_source {#if signalsError}<span class="sig-warn" title="Cannot reach API">⚠</span>{/if}</span>
 					<input
 						type="text"
+						list="signal-list"
 						value={String(item.T_source ?? '')}
 						oninput={(e) => commitTSource(e.target.value)}
-						placeholder="signal_name or 12.0"
+						placeholder="measurement/field?tag=val or 12.0"
 					/>
 				</label>
 
 			{:else if selected.kind === 'source'}
 				<label>
-					<span>signal</span>
+					<span>signal {#if signalsError}<span class="sig-warn" title="Cannot reach API">⚠</span>{/if}</span>
 					<input
 						type="text"
+						list="signal-list"
 						value={item.signal ?? ''}
 						oninput={(e) => commit('signal', e.target.value)}
+						placeholder="measurement/field?tag=val"
 					/>
 				</label>
 				<label>
@@ -156,6 +177,12 @@
 			{/if}
 		</div>
 	{/if}
+
+	<datalist id="signal-list">
+		{#each signals as s}
+			<option value={s}></option>
+		{/each}
+	</datalist>
 
 	<div class="add-section">
 		<p class="section-title">Add node</p>
@@ -356,4 +383,6 @@
 		text-align: left;
 	}
 	button:hover { background: #475569; }
+
+	.sig-warn { color: #f59e0b; font-size: 10px; }
 </style>

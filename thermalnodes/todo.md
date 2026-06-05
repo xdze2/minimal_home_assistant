@@ -2,23 +2,83 @@
 
 See README.md for project description and stack overview.
 
-## Status: schema + data library + Svelte graph viewer done
+## Status: schema + data library + Svelte graph editor done; solver assembly done
 
 ---
 
-## Step 1 — Examples (validate the schema)
+## Key file map
 
-- [x] `data/examples/chambre_1r1c.json` — single room node, one resistance to exterior boundary,
-      one solar heat source.
-- [x] `data/examples/chambre_v1.json` — full chambre: 2 mass nodes (chambre, mur_SE), 5 resistance
-      nodes (R_wall_SE_ext/int, R_roof, R_walls_ins, R_win_SE/NE), 2 source nodes, 1 boundary.
+```
+thermalnodes/
+  schema/                        JSON schemas (v0.3)
+  data/
+    materials/                   7 materials (λ, ρ, cp)
+    examples/
+      chambre_1r1c.json          1 mass, 1 resistance, 1 boundary, 1 source
+      chambre_v1.json            2 mass, 5 resistance, 1 boundary, 2 source
+      chambre_2r2c.json          2 mass, 5 resistance, 1 boundary, 1 source
+  solver/
+    assemble.py                  graph → AssembledSystem (done)
+    simulate.py                  IVP + ZOH (TODO step 3b)
+    inputs.py                    stub inputs generator (TODO step 3c, optional)
+    tests/
+      test_assemble.py           assembly unit tests (passing)
+  api/
+    config.py                    env-based config (MINIHA_INFLUX_* vars, same as miniha)
+    influx.py                    InfluxDB client + parse_signal + list_signals + fetch_series
+    main.py                      FastAPI app: GET /signals, GET /series
+  ui/
+    src/
+      routes/+page.svelte        app shell — model picker, load/save JSON
+      lib/GraphView.svelte       SvelteFlow canvas
+      lib/PropertiesPanel.svelte node/edge inspector + add/delete; signal autocomplete
+      lib/modelToFlow.js         model JSON → SvelteFlow nodes/edges
+    vite.config.js               @data alias → thermalnodes/data/
+
+miniha/
+  th_models/
+    load.py                      InfluxDB loader (production, uses RoomConfig YAML)
+    inspector.py                 Streamlit prototype (reference only)
+    fit_2r2c.py                  ZOH + matrix-exp solver (reference impl for step 3b)
+```
 
 ---
 
-## Step 2 — Material library
+## Step 1 — Examples (done)
 
-- [x] `data/materials/` — 7 materials (stone_calcaire, brick_full, concrete_heavy, wood_frame,
-      plaster, air_gap, glass_wool)
+- [x] `chambre_1r1c.json` — 1 mass, 1 R→exterior boundary, 1 solar source
+- [x] `chambre_v1.json`   — 2 mass (chambre + mur_SE), 5 R, 1 boundary, 2 solar sources
+- [x] `chambre_2r2c.json` — 2 mass (chambre + mur), 5 R, 1 boundary, 1 solar source
+
+---
+
+## Step 2 — Material library (done)
+
+- [x] `data/materials/` — 7 materials (stone_calcaire, brick_full, concrete_heavy,
+      wood_frame, plaster, air_gap, glass_wool)
+
+---
+
+## Signal name convention
+
+All inputs come from InfluxDB. Format: `measurement/field?tag_key=tag_value[&tag2=val2]`
+
+Examples:
+```
+open_meteo/temperature_2m          # no tags
+zigbee2mqtt/temperature?name=salon # with tag filter
+poa/irradiance?face=SE
+```
+
+This string is stored verbatim in the model JSON:
+- boundary node: `"T_source": "open_meteo/temperature_2m"`
+- source node:   `"signal": "poa/irradiance?face=SE"`
+
+The API parses it with `parse_signal()` in `api/influx.py`. All data is resampled to
+15 min uniform grid.
+
+**TODO**: standardise signal names across the three example files (currently inconsistent
+— see step 3c).
 
 ---
 
@@ -31,173 +91,191 @@ uv add scipy numpy pytest
 uv run pytest thermalnodes/solver/tests/
 ```
 
-### 3a — Graph → state-space assembly (`solver/assemble.py`)
+### 3a — Graph → state-space assembly (`solver/assemble.py`) — DONE
 
-The schema stores resistance as _nodes_ connected by plain edges (schema v0.3).
-Assembly eliminates resistance nodes by condensing the conductance network:
-for each resistance node (exactly 2 edges), replace with a direct conductance
-G = 1/R between its two neighbours.
+`assemble(model) -> AssembledSystem` where:
 
-- [x] `assemble(model) -> AssembledSystem`
-  - Parse node kinds: `mass` (state), `boundary` (forced), `resistance` (wire),
-    `source` (heat injection).
-  - Build conductance adjacency: for each resistance node between nodes A and B,
-    add G = 1/R to the weighted graph between A and B. Series resistances
-    (R node → R node) fold transitively (sum of R values before inverting).
-  - Build state-space matrices for mass nodes only:
-    - `A` [n×n]: graph Laplacian weighted by G, scaled by C⁻¹
-      `A[i,i] = -sum_j(G_ij) / C_i`, `A[i,j] = G_ij / C_i`
-    - `B_boundary` [n×n_b]: coupling to boundary nodes
-      `B[i,k] = G_{i,boundary_k} / C_i`
-    - `B_source` [n×n_s]: heat source injection
-      `B[i,s] = gain_s / C_i` if source s is wired to mass i
-  - Returns: `AssembledSystem(A, B_boundary, B_source, mass_ids, boundary_ids, source_ids)`
-- [x] **Verify**: for `chambre_1r1c.json` → 1×1 A matrix, τ = -1/A[0,0] matches R·C.
-- [x] **Verify**: for `chambre_v1.json` → 2×2 A matrix (chambre + mur_SE).
-      Check: eigenvalues give two τ values consistent with expected fast (~7 h) and
-      slow (~38 h) modes, well-separated (ratio > 5×). Note: τ_slow ≈ 38 h (not
-      ~112 h) because parallel paths through roof/windows/insulated walls also drain
-      the wall node.
+```python
+@dataclass
+class AssembledSystem:
+    A: np.ndarray           # [n_mass × n_mass]   continuous-time
+    B_boundary: np.ndarray  # [n_mass × n_boundary]
+    B_source: np.ndarray    # [n_mass × n_source]
+    mass_ids: list[str]      # node ids in row/col order
+    boundary_ids: list[str]
+    source_ids: list[str]
+```
+
+**Gap:** `AssembledSystem` stores node *ids* but not the signal names from the schema
+(`boundary.T_source`, `source.signal`). The IVP solver needs these to index into
+`inputs`. Fix in step 3b: add `boundary_signals` and `source_signals` parallel lists
+(see step 3b notes).
+
+Verified: τ for `chambre_1r1c` matches R·C; eigenvalues for `chambre_v1` give
+τ_fast ≈ 7 h, τ_slow ≈ 38 h (ratio > 5×).
+
+### 3c — Stub inputs for demo (`solver/inputs.py`) — DO THIS FIRST
+
+**Signal name convention** — settle this before writing the IVP solver.
+Current examples are inconsistent:
+
+| file             | boundary T_source             | source signal         |
+|------------------|-------------------------------|-----------------------|
+| chambre_1r1c     | `open_meteo/temperature_2m`   | `poa/window_south`    |
+| chambre_2r2c     | `open_meteo/temperature_2m`   | `poa/window_south`    |
+| chambre_v1       | `outdoor_temp`                | `poa/window_SE`, `poa/window_NE` |
+
+Decision needed: standardise on `open_meteo/temperature_2m` (or a simpler name like
+`T_ext`) across all examples before writing `make_stub_inputs`.
+`make_stub_inputs` must produce keys that match the signal names in the examples.
+
+- [ ] Decide and apply a consistent signal name scheme to all three example files.
+- [ ] `make_stub_inputs(start, end, dt_minutes) -> dict[str, tuple[np.ndarray, np.ndarray]]`
+  - Returns `{signal_name: (t_seconds_array, values_array)}`.
+  - Synthesises plausible outdoor temperature (sinusoidal daily + seasonal offset)
+    and solar irradiance (clear-sky flat-plate model).
+  - Covers at least 2 months; no InfluxDB / Open-Meteo dependency.
+  - Must cover all signal names referenced by `chambre_v1.json` and `chambre_1r1c.json`.
+- [ ] **Verify**: print min/max/mean of each signal; check T_ext range ≈ 0–25 °C,
+      solar ≥ 0 and peaks ≈ 600–900 W/m².
 
 ### 3b — Forward simulation (`solver/simulate.py`)
 
+**Pre-requisite:** fix `AssembledSystem` to carry signal names:
+
+```python
+@dataclass
+class AssembledSystem:
+    ...
+    boundary_signals: list[str]   # parallel to boundary_ids; values of node.T_source
+    source_signals:   list[str]   # parallel to source_ids;   values of node.signal
+```
+
+Add extraction in `assemble()`:
+```python
+boundary_signals = [nodes[nid]["T_source"] for nid in boundary_ids]
+source_signals   = [nodes[nid]["signal"]   for nid in source_ids]
+```
+
 **Integrator choice:**
 
-- `scipy.integrate.solve_ivp(method='BDF')` — general purpose, handles stiffness
-  from the large C ratio (mur_SE ≈ 8 MJ/K vs chambre ≈ 270 kJ/K, ~30× stiffness).
-  Good for exploratory use and non-uniform input signals.
-- **ZOH (matrix exponential)** — exact solution for piecewise-constant inputs on
-  a uniform grid: `x[k+1] = expm(A·dt)·x[k] + A⁻¹·(expm(A·dt)-I)·B·u[k]`.
-  Preferred for optimisation / MCMC because it is O(n³) once per dt change
-  (precompute `expm(A·dt)` and `A⁻¹·(expm(A·dt)-I)·B`), then O(n²) per step.
-  No step-size tuning, differentiable w.r.t. parameters via `jax.scipy.linalg.expm`
-  or finite differences.
+- `scipy.integrate.solve_ivp(method='BDF')` — handles stiffness from the ~30× C
+  ratio (mur_SE ≈ 8 MJ/K vs chambre ≈ 270 kJ/K). Good for exploration.
+- **ZOH (matrix exponential)** — exact for piecewise-constant inputs on a uniform
+  grid: `x[k+1] = Ad @ x[k] + Bd @ u[k]` where `Ad = expm(A·dt)`,
+  `Bd = A⁻¹·(Ad − I)·B`. O(n³) once to precompute, O(n²) per step. Required for
+  optimisation / MCMC (step 6). Reference impl: `miniha/th_models/fit_2r2c.py`.
 
-Implement both; use BDF for first correctness tests, ZOH for optimisation.
+Inputs format for both:
+```python
+# inputs dict keys = signal names (must match boundary_signals / source_signals)
+inputs: dict[str, tuple[np.ndarray, np.ndarray]]  # (t_seconds, values)
+```
 
 - [ ] `simulate_ivp(system, inputs, t_eval) -> SimResult`
-  - `inputs`: `dict[signal_name, (t_array, values_array)]` — interpolated at
-    ODE evaluation times via `scipy.interpolate.interp1d`.
-  - Calls `solve_ivp(fun, t_span, y0, method='BDF', t_eval=t_eval, ...)`.
-  - Returns `SimResult(t, temps)` where `temps` is `dict[mass_id, array]`.
+  - Builds `u(t)` by interpolating each signal via `scipy.interpolate.interp1d`.
+  - Column order: `[boundary_signals..., source_signals...]` → `u` vector.
+  - Calls `solve_ivp(fun, t_span, y0, method='BDF', t_eval=t_eval)`.
+  - Returns `SimResult(t, temps)` where `temps: dict[mass_id, np.ndarray]`.
 - [ ] `simulate_zoh(system, inputs_uniform, dt) -> SimResult`
-  - `inputs_uniform`: `dict[signal_name, array]` on a uniform grid of step `dt`.
-  - Precomputes `Ad = expm(A·dt)`, `Bd = A⁻¹·(Ad - I)·B`.
-  - Loops: `x[k+1] = Ad @ x[k] + Bd @ u[k]`.
-- [ ] **Verify** (unit test): `chambre_1r1c.json`, step change T_ext 0→10°C, zero solar,
-      IVP and ZOH both match `T(t) = 10·(1 - exp(-t/τ))` to < 0.01 °C at t=τ.
-- [ ] **Verify** (unit test): `chambre_v1.json`, constant T_ext=0, zero solar, T0=[20,20],
-      both methods converge to T=0 with two exponential modes; check τ values match
-      eigenvalues of A.
-
-### 3c — Stub inputs for demo (`solver/inputs.py`)
-
-- [ ] `make_stub_inputs(start, end, dt_minutes) -> dict[signal_name, (t, values)]`
-  - Synthesises 2 months of plausible outdoor temperature (sinusoidal daily + seasonal)
-    and solar irradiance (clear-sky model, flat-plate).
-  - Used as a self-contained demo without Open-Meteo dependency.
-- [ ] **Verify**: run `simulate_ivp` on `chambre_v1.json` with stub inputs for
-      2026-03-29 to 2026-05-29; plot chambre and mur_SE temperatures; visually
-      check chambre lags exterior by ~τ_fast, mur_SE by ~τ_slow.
+  - `inputs_uniform`: same dict but values on a uniform grid of step `dt` seconds.
+  - Precomputes `Ad = expm(A·dt)`, `Bd = inv(A) @ (Ad − I) @ B_full`.
+  - Returns same `SimResult` format.
+- [ ] **Verify** (unit test): `chambre_1r1c.json`, step T_ext 0→10 °C, zero solar,
+      IVP and ZOH both match `T(t) = 10·(1 − exp(−t/τ))` to < 0.01 °C at t=τ.
+- [ ] **Verify** (unit test): `chambre_v1.json`, T_ext=0, zero solar, T0=[20,20],
+      both methods → T=0 with two exponential modes; τ values match eigenvalues of A.
 
 ---
 
-## Step 4 — FastAPI backend
+## Step 4 — FastAPI backend (`api/main.py`)
 
-`api/main.py`
+Run: `uv run uvicorn thermalnodes.api.main:app --reload --port 8001`
 
-- [ ] `POST /simulate` — body: `{model: {...}, inputs: {...}}`, returns `{t: [...], nodes: {id: [...]}}`
+The Svelte UI is blocked on this for real simulation and for saving models server-side.
+
+### Done
+- [x] `GET /signals` — lists all `measurement/field?tag=val` from InfluxDB
+- [x] `GET /series?signal=...&start=...&end=` — fetch + resample to 15 min
+- [x] CORS for Svelte dev server (localhost:5173 and :4173)
+
+### TODO
+- [ ] `POST /simulate` — body: `{model: {...}, start: str, end: str}`,
+      fetches inputs from InfluxDB internally, runs `simulate_ivp`,
+      returns `{t: [...], nodes: {mass_id: [...]}}`
+- [ ] `POST /model/save` — persist model JSON to `data/user/` (separate from examples)
+- [ ] `GET /model/list` — list available model files (examples + user)
+- [ ] `GET /model/{id}` — return model JSON
 - [ ] `GET /materials` — list available material ids + names
-- [ ] CORS enabled (Svelte dev server on different port)
-- [ ] Serve stub inputs (synthesised CSV) for demo
 
 ---
 
-## Step 5 — Svelte UI
+## Step 5 — Svelte UI (`ui/`)
 
-`ui/` — SvelteKit + `@xyflow/svelte`.
+Stack: SvelteKit + `@xyflow/svelte`.
 
-### Graph viewer (done)
+### Graph editor (done)
 
-- [x] Scaffold SvelteKit project, install `@xyflow/svelte`
-- [x] Node types: Room (air/mass), Boundary, HeatSource — custom Svelte components
+- [x] Scaffold SvelteKit, install `@xyflow/svelte`
+- [x] Node types: mass (Room), boundary, source, resistance — custom Svelte components
 - [x] Resistance edges + animated heat-flow arrows
-- [x] `modelToFlow.js` — converts model JSON → Svelteflow nodes/edges
-- [x] Loads `chambre_1r1c.json` and renders it with fitView, Controls, MiniMap
+- [x] `modelToFlow.js` — model JSON → SvelteFlow nodes/edges
+- [x] Model picker (dropdown), load JSON from file, save JSON to file
+- [x] Properties panel: edit label, R, C, T_source, signal, gain; delete node/edge
+- [x] Add node from palette (mass, boundary, source, resistance)
+- [x] Draw edge by dragging between handles; delete with Delete/Backspace
+- [x] Signal name autocomplete on boundary/source inputs (via `GET /signals`; shows ⚠ if API unreachable)
 
-### Graph editor (next)
-
-- [ ] Click node/edge → side panel showing properties
-- [ ] Edit label, numeric R/C values in the side panel
-- [ ] Add node from palette (Room, Boundary, HeatSource)
-- [ ] Draw edge by dragging between handles
-- [ ] Delete selected node/edge (keyboard Delete)
-- [ ] Serialize canvas state → model JSON
-- [ ] Load model JSON from file (drag-and-drop or file picker)
-
-### Simulation panel
+### Simulation panel (blocked on step 4 backend)
 
 - [ ] Install uPlot
 - [ ] Date range picker (start / end)
-- [ ] "Simulate" button → POST /simulate
+- [ ] "Simulate" button → `POST /simulate`
 - [ ] uPlot: temperature timeseries per mass node + outdoor temperature overlay
+
+### Server-backed model persistence (blocked on step 4 backend)
+
+- [ ] Replace bundled `MODELS` import with `GET /model/list` + `GET /model/{id}`
+- [ ] "Save to server" button → `POST /model/save`
+- [ ] Reload model list after save
 
 ### Nice to have (post-MVP)
 
-- [ ] Construction picker dropdown on edges (populates R from `/assembly/{id}/compute`)
+- [ ] Construction picker dropdown on edges (populates R from material library)
 - [ ] Material library browser panel
-- [ ] Export model JSON button
+- [ ] Signal name autocomplete (from backend `/inputs/signals` list)
 
 ---
 
 ## Step 6 — Parameter optimisation and Bayesian MCMC (parent project)
 
-These live in `miniha/` and consume `thermalnodes` models as topology descriptions.
-The ZOH simulator (Step 3b) is the key building block.
+Lives in `miniha/`, consumes `thermalnodes` models as topology. ZOH (step 3b) is
+the critical building block.
 
-- [ ] Wrap `simulate_zoh` as a callable `f(params) -> T_chambre_array` for a fixed
-      model topology; params = log-space {R values, C values, gain values}.
-- [ ] Scipy optimisation: `least_squares(f(params) - T_obs, ...)` — output-error NLS.
-      Warm-start from `assemble` nominal values.
-- [ ] MCMC: `blackjax` or `emcee` sampler on the same log-likelihood.
-      Prior: log-normal on each R and C (±50% of nominal), flat on gains.
-      **Why ZOH is critical here**: each likelihood evaluation integrates N timesteps;
-      BDF would be 10–100× slower per call.
+- [ ] Wrap `simulate_zoh` as `f(params) -> T_chambre_array` for fixed topology;
+      params = log-space {R values, C values, gain values}.
+- [ ] `scipy.optimize.least_squares` output-error NLS; warm-start from nominal values.
+- [ ] MCMC: `blackjax` or `emcee` on the same log-likelihood.
+      Prior: log-normal ±50% of nominal on each R and C, flat on gains.
 
 ---
 
 ## Schema
 
-- **material**: bulk physical constants (λ, ρ, cp) — used for reference, not loaded by solver
-- **model**: R and C are direct numeric values [K/W] and [J/K] — compute them from material
-  properties outside the model file (e.g. R = (R_si + e/λ + R_se) / area)
-- **resistance nodes**: eliminated during assembly — they do not appear in the state vector
+- **material**: bulk physical constants (λ, ρ, cp) — reference only, not loaded by solver
+- **model**: R [K/W] and C [J/K] are direct numeric values
+- **boundary node**: `T_source` field = signal name string (or a fixed float)
+- **source node**: `signal` field = signal name string; `gain` = scalar multiplier
+- **resistance nodes**: eliminated during assembly — not in state vector
 
 ## Decisions made
 
-- **Solver**: two-track: `scipy.integrate.solve_ivp(BDF)` for correctness/exploration,
-  ZOH (matrix exponential, `scipy.linalg.expm`) for optimisation/MCMC.
-  RK4 is not used: too slow for the ~30× stiffness ratio in `chambre_v1`.
+- **Solver**: two-track: `solve_ivp(BDF)` for correctness, ZOH for optimisation/MCMC.
 - **Node vocabulary**: physical (Room, Wall, Boundary) not circuit primitives (R, C, V).
-  Each physical block maps to circuit primitives under the hood.
-- **R and C**: direct numeric values only. Compute from material properties before writing the model.
-- **Boundaries**: fixed-temperature nodes (exterior air, deep soil at 12°C). Not solved,
-  used as forcing inputs only.
-- **Heat sources**: arrow from HeatSourceNode → Room node in the graph (not just side-panel
-  metadata), to make the signal→node dependency explicit.
-- **Thick walls / MVP**: a wall is a 2R1C block (R_ext, mass, R_int). Already in chambre_v1.
-- **Fitting / Bayesian inference**: planned in Step 6. Solver design (ZOH) is chosen to
-  support this from the start.
-
----
-
-## Context for next session
-
-- Schema files: `thermalnodes/schema/`
-- Data library: `thermalnodes/data/` (materials, examples)
-- UI entry point: `thermalnodes/ui/src/routes/+page.svelte`
-- `@data` alias in `ui/vite.config.js` resolves to `thermalnodes/data/` — import any JSON directly
-- Next solver task: implement `solver/assemble.py` (Step 3a)
-- Parent project `miniha` has existing ZOH + matrix-exp solver in `miniha/th_models/fit_2r2c.py` —
-  reuse the `_build_AB`, ZOH logic; don't couple code directly
-- For the MVP demo use synthesised stub inputs — avoid InfluxDB / Open-Meteo dependency
+- **R and C**: direct numeric values only; compute from material properties externally.
+- **Boundaries**: fixed-temperature forcing nodes (not solved).
+- **Heat sources**: explicit edge source→mass in graph (dependency is structural, not metadata).
+- **Thick walls / MVP**: 2R1C block (R_ext, mass, R_int). Already in `chambre_v1`.
+- **Fitting / Bayesian**: Step 6. ZOH chosen from the start to support this.
+- **Streamlit app** (`miniha/th_models/inspector.py`): prototype, reference only.
+  Svelte UI (`thermalnodes/ui/`) is the target frontend.
