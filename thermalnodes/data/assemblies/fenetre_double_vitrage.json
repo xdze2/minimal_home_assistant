@@ -1,9 +1,0 @@
-{
-  "$schema": "../../schema/assembly.schema.json",
-  "id": "fenetre_double_vitrage",
-  "name": "Fenêtre double vitrage standard",
-  "layers": [
-    { "material_id": "glass_wool", "thickness": 0.001 }
-  ],
-  "notes": "ATTENTION: le double vitrage ne se modélise pas bien par une pile de couches (physique IR différente). Cette entrée est un placeholder — la construction correspondante surcharge R_si et R_se pour aboutir à U=1.4 W/(m²·K) total. Ne pas utiliser les layers pour calculer U ou C ici."
-}

@@ -1,8 +1,0 @@
-{
-  "$schema": "../../schema/construction.schema.json",
-  "id": "floor_horizontal_down_dalle",
-  "name": "Plancher bas dalle béton 15 cm (flux vers le bas / terre-plein)",
-  "assembly_id": "dalle_beton_sol",
-  "orientation": "horizontal_down",
-  "notes": "Flux descendant (vers sol froid). R_si=0.17 (ISO 6946 horizontal_down), R_se=0.04. R_total ≈ 0.285 m²·K/W côté dalle — compléter avec une résistance de sol vers boundary sol_profond."
-}

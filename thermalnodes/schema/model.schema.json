@@ -36,19 +36,9 @@
           "id":    { "type": "string", "examples": ["chambre", "mur_sud"] },
           "label": { "type": "string" },
           "C": {
-            "description": "Thermal capacitance [J/K]. Direct value or derived from an assembly + area.",
-            "oneOf": [
-              { "type": "number", "exclusiveMinimum": 0 },
-              {
-                "type": "object",
-                "required": ["assembly_id", "area"],
-                "additionalProperties": false,
-                "properties": {
-                  "assembly_id": { "type": "string" },
-                  "area": { "type": "number", "exclusiveMinimum": 0, "description": "Surface area [m²]." }
-                }
-              }
-            ]
+            "description": "Thermal capacitance [J/K].",
+            "type": "number",
+            "exclusiveMinimum": 0
           },
           "ui_position": {
             "type": "object",
@@ -104,19 +94,9 @@
           "from":  { "type": "string", "description": "Source node id (mass or boundary)." },
           "to":    { "type": "string", "description": "Target node id (mass or boundary)." },
           "R": {
-            "description": "Thermal resistance [K/W]. Direct value or derived from a construction + area.",
-            "oneOf": [
-              { "type": "number", "exclusiveMinimum": 0 },
-              {
-                "type": "object",
-                "required": ["construction_id", "area"],
-                "additionalProperties": false,
-                "properties": {
-                  "construction_id": { "type": "string" },
-                  "area": { "type": "number", "exclusiveMinimum": 0, "description": "Surface area [m²]." }
-                }
-              }
-            ]
+            "description": "Thermal resistance [K/W].",
+            "type": "number",
+            "exclusiveMinimum": 0
           }
         }
       }

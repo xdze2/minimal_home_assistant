@@ -35,10 +35,7 @@
       "label": "Mur sud",
       "from": "exterior",
       "to": "chambre",
-      "R": {
-        "construction_id": "wall_vertical_pierre_40cm",
-        "area": 12.0
-      }
+      "R": 0.034
     }
   ],
 

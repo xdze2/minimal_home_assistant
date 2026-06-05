@@ -1,8 +1,0 @@
-{
-  "$schema": "../../schema/construction.schema.json",
-  "id": "wall_vertical_pierre_40cm",
-  "name": "Mur vertical pierre de taille 40 cm",
-  "assembly_id": "wall_pierre_40cm",
-  "orientation": "vertical",
-  "notes": "Films ISO 6946 par défaut: R_si=0.13, R_se=0.04. R_total ≈ 0.41 m²·K/W → U ≈ 2.4 W/(m²·K)."
-}

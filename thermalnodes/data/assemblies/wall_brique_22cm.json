@@ -1,9 +1,0 @@
-{
-  "$schema": "../../schema/assembly.schema.json",
-  "id": "wall_brique_22cm",
-  "name": "Mur en brique pleine 22 cm",
-  "layers": [
-    { "material_id": "brick_full", "thickness": 0.22 }
-  ],
-  "notes": "Mur monolithique brique pleine. R_mur ≈ 0.275 m²·K/W (hors films)."
-}

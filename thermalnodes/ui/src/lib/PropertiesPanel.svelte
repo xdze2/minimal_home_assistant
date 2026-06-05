@@ -38,7 +38,6 @@
 		onpatch(selected.kind, selected.id, { T_source: isNaN(num) ? value : num });
 	}
 
-	const rIsObject = $derived(item && selected?.kind === 'resistance' && typeof item.R === 'object');
 </script>
 
 <aside class="panel">
@@ -68,16 +67,12 @@
 			{#if selected.kind === 'mass'}
 				<label>
 					<span>C (J/K)</span>
-					{#if typeof item.C === 'number'}
-						<input
-							type="number"
-							value={item.C}
-							min="1"
-							oninput={(e) => commitC(e.target.value)}
-						/>
-					{:else}
-						<input type="text" value={`assembly: ${item.C.assembly_id} · ${item.C.area}m²`} disabled />
-					{/if}
+					<input
+						type="number"
+						value={item.C}
+						min="1"
+						oninput={(e) => commitC(e.target.value)}
+					/>
 				</label>
 
 			{:else if selected.kind === 'boundary'}
@@ -137,36 +132,16 @@
 					</select>
 				</label>
 
-				{#if rIsObject}
-					<label>
-						<span>construction</span>
-						<input type="text" value={item.R.construction_id} disabled />
-					</label>
-					<label>
-						<span>area (m²)</span>
-						<input
-							type="number"
-							value={item.R.area}
-							min="0.1"
-							step="0.1"
-							oninput={(e) => {
-								const area = parseFloat(e.target.value);
-								if (!isNaN(area)) onpatch(selected.kind, selected.id, { R: { ...item.R, area } });
-							}}
-						/>
-					</label>
-				{:else}
-					<label>
-						<span>R (K/W)</span>
-						<input
-							type="number"
-							value={typeof item.R === 'number' ? item.R : ''}
-							min="0.001"
-							step="0.01"
-							oninput={(e) => commitR(e.target.value)}
-						/>
-					</label>
-				{/if}
+				<label>
+					<span>R (K/W)</span>
+					<input
+						type="number"
+						value={item.R}
+						min="0.001"
+						step="0.01"
+						oninput={(e) => commitR(e.target.value)}
+					/>
+				</label>
 			{/if}
 		</div>
 	{/if}

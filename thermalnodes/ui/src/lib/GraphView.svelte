@@ -72,8 +72,7 @@
 
 	// ── resistance label ─────────────────────────────────────────────────────
 	function rLabel(r) {
-		if (typeof r.R === 'number') return `R=${r.R} K/W`;
-		return `${r.R.construction_id} · ${r.R.area}m²`;
+		return `R=${r.R} K/W`;
 	}
 
 	// ── select helpers ───────────────────────────────────────────────────────
@@ -174,7 +173,7 @@
 				/>
 				<text x={NODE_W/2} y={NODE_H/2 - 4} text-anchor="middle" class="node-label" fill="#e0e7ff">{n.label ?? n.id}</text>
 				<text x={NODE_W/2} y={NODE_H/2 + 10} text-anchor="middle" class="node-sub" fill="#818cf8">
-					{typeof n.C === 'number' ? `C = ${n.C.toExponential(1)} J/K` : `C: ${n.C.assembly_id}`}
+					{`C = ${n.C.toExponential(1)} J/K`}
 				</text>
 
 			{:else if n._kind === 'boundary'}

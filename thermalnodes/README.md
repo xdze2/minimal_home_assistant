@@ -60,13 +60,9 @@ uv run check-jsonschema --schemafile schema/model.schema.json data/examples/cham
 thermalnodes/
   schema/
     material.schema.json      # physical constants for one material
-    assembly.schema.json      # layer stack → U-value, areal mass
-    construction.schema.json  # assembly + orientation + surface films
     model.schema.json         # full topology: nodes, edges, boundaries, sources
   data/
     materials/                # curated material library (λ, ρ, cp)
-    assemblies/               # layer stacks (wall, roof, floor, window)
-    constructions/            # assembly + orientation + R_si/R_se
     examples/
       chambre_1r1c.json       # single room, 1 resistance, 1 solar source
   solver/

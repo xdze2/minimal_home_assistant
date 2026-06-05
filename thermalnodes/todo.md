@@ -19,13 +19,10 @@ See README.md for project description and stack overview.
 
 ---
 
-## Step 2 — Material + assembly library
+## Step 2 — Material library
 
 - [x] `data/materials/` — 7 materials (stone_calcaire, brick_full, concrete_heavy, wood_frame,
       plaster, air_gap, glass_wool)
-- [x] `data/assemblies/` — 5 assemblies (wall_pierre_40cm, wall_brique_22cm,
-      roof_beton_sous_tuile, dalle_beton_sol, fenetre_double_vitrage)
-- [x] `data/constructions/` — 5 constructions with ISO 6946 surface films
 
 ---
 
@@ -39,8 +36,6 @@ uv run uvicorn api.main:app --reload
 ```
 
 `solver/assemble.py`
-- [ ] Load and resolve a model JSON: replace `{assembly_id, area}` / `{construction_id, area}`
-      references with computed R or C values (load referenced assembly + material files)
 - [ ] `assemble(model) -> (A, B, node_ids)` — build state-space matrices:
       - A [NxN]: weighted graph Laplacian × C⁻¹
       - B [NxM]: input matrix for boundary temps + heat sources
@@ -101,29 +96,18 @@ uv run uvicorn api.main:app --reload
 
 ---
 
-## Schema hierarchy
+## Schema
 
-```
-material  →  assembly  →  construction  →  edge (in model)
-(λ,ρ,cp)    (layer stack)  (assembly +      (construction_id +
-                            orientation +    area + from/to)
-                            R_si, R_se)
-```
-
-- **material**: bulk physical constants only, no geometry
-- **assembly**: ordered layer stack, purely `sum(e/λ)` — no surface films, no area
-- **construction**: assembly + orientation + R_si/R_se (ISO 6946 defaults by orientation).
-  This is what an edge references.
-- **edge**: construction_id + area → R [K/W] = (R_si + sum(e/λ) + R_se) / area
-- Node C derivation uses `assembly_id` directly (areal mass is orientation-independent)
+- **material**: bulk physical constants (λ, ρ, cp) — used for reference, not loaded by solver
+- **model**: R and C are direct numeric values [K/W] and [J/K] — compute them from material
+  properties outside the model file (e.g. R = (R_si + e/λ + R_se) / area)
 
 ## Decisions made
 
 - **Solver**: `scipy.integrate.solve_ivp` (BDF method for stiffness). Not ngspice.
 - **Node vocabulary**: physical (Room, Wall, Boundary) not circuit primitives (R, C, V).
   Each physical block maps to circuit primitives under the hood.
-- **R and C**: accept either a direct numeric value or `{assembly_id, area}` — derived from
-  material stack at solve time. Both paths supported by the schema.
+- **R and C**: direct numeric values only. Compute from material properties before writing the model.
 - **Boundaries**: fixed-temperature nodes (exterior air, deep soil at 12°C). Not solved,
   used as forcing inputs only.
 - **Heat sources**: arrow from HeatSourceNode → Room node in the graph (not just side-panel
@@ -138,7 +122,7 @@ material  →  assembly  →  construction  →  edge (in model)
 ## Context for next session
 
 - Schema files: `thermalnodes/schema/`
-- Data library: `thermalnodes/data/` (materials, assemblies, constructions, examples)
+- Data library: `thermalnodes/data/` (materials, examples)
 - UI entry point: `thermalnodes/ui/src/routes/+page.svelte`
 - `@data` alias in `ui/vite.config.js` resolves to `thermalnodes/data/` — import any JSON directly
 - Next UI task: side panel for editing selected node/edge properties (Step 5 graph editor)
