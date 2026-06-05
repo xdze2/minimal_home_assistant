@@ -1,0 +1,119 @@
+{
+  "$schema": "../../schema/model.schema.json",
+  "schema_version": "0.3",
+  "id": "chambre_v1",
+  "name": "Chambre — modèle RC physique",
+  "notes": "Room 5×5m, H=3m, below the roof. Floor separates from the room below (temperature unknown) — omitted from model. Topology: exterior boundary → R_wall_SE_ext → mur_SE mass → R_wall_SE_int → chambre mass. Roof, insulated walls and windows are parallel paths between chambre and exterior. Solar gains from SE window (SHGC≈0.50 with partial shutter) and NE windows (SHGC≈0.67).\n\nMaterial basis:\n  Roof:          20cm glass wool (λ=0.035), R=5.71 m²K/W → R_roof=0.235 K/W over 25m²\n  Wall SE:       40cm brick pleine (λ=0.8), A=13.5m², 2R1C split at mid-thickness\n                 C_mur_SE = ρ·cp·e·A = 1800×840×0.40×13.5 = 8.16 MJ/K\n  Window SE:     1.0×1.5m, U=2.8 W/m²K → R=0.238 K/W\n  Other walls:   3 sides insulated inside: 20cm brick + 10cm glass wool, A=44.4m²\n  Windows NE:    2×(0.5×0.6m), U=2.8 W/m²K → R=0.595 K/W\n  Air+furniture: 75m³ air × 3 (furniture factor) = 271 kJ/K",
+
+  "ui_hint": {
+    "start": "2026-03-29",
+    "end": "2026-05-29",
+    "dt_minutes": 15
+  },
+
+  "nodes": [
+    {
+      "id": "exterior",
+      "kind": "boundary",
+      "label": "Extérieur",
+      "T_source": "outdoor_temp",
+      "ui_position": { "x": 80, "y": 240 }
+    },
+    {
+      "id": "R_wall_SE_ext",
+      "kind": "resistance",
+      "label": "R mur SE ext (R_se + demi-brique)",
+      "R": 0.02148,
+      "ui_position": { "x": 280, "y": 240 }
+    },
+    {
+      "id": "mur_SE",
+      "kind": "mass",
+      "label": "Masse mur SE (brique 40cm)",
+      "C": 8164800,
+      "ui_position": { "x": 480, "y": 240 }
+    },
+    {
+      "id": "R_wall_SE_int",
+      "kind": "resistance",
+      "label": "R mur SE int (demi-brique + R_si)",
+      "R": 0.02815,
+      "ui_position": { "x": 680, "y": 240 }
+    },
+
+    {
+      "id": "R_roof",
+      "kind": "resistance",
+      "label": "R toiture (20cm laine de verre)",
+      "R": 0.2354,
+      "ui_position": { "x": 480, "y": 80 }
+    },
+    {
+      "id": "R_walls_ins",
+      "kind": "resistance",
+      "label": "R murs isolés (brique + 10cm LV intérieur)",
+      "R": 0.07381,
+      "ui_position": { "x": 480, "y": 400 }
+    },
+    {
+      "id": "R_win_SE",
+      "kind": "resistance",
+      "label": "R fenêtre SE (DV ancien 1.0×1.5m)",
+      "R": 0.2381,
+      "ui_position": { "x": 280, "y": 80 }
+    },
+    {
+      "id": "R_win_NE",
+      "kind": "resistance",
+      "label": "R fenêtres NE (2×DV ancien 0.5×0.6m)",
+      "R": 0.5952,
+      "ui_position": { "x": 280, "y": 400 }
+    },
+    {
+      "id": "chambre",
+      "kind": "mass",
+      "label": "Chambre (air + mobilier)",
+      "C": 271350,
+      "ui_position": { "x": 880, "y": 240 }
+    },
+
+    {
+      "id": "apport_win_SE",
+      "kind": "source",
+      "label": "Apport solaire fenêtre SE (SHGC≈0.50)",
+      "signal": "poa/window_SE",
+      "gain": 0.75,
+      "ui_position": { "x": 880, "y": 80 }
+    },
+    {
+      "id": "apport_win_NE",
+      "kind": "source",
+      "label": "Apport solaire fenêtres NE (SHGC≈0.67)",
+      "signal": "poa/window_NE",
+      "gain": 0.402,
+      "ui_position": { "x": 880, "y": 360 }
+    }
+  ],
+
+  "edges": [
+    { "from": "exterior",       "to": "R_wall_SE_ext" },
+    { "from": "R_wall_SE_ext",  "to": "mur_SE" },
+    { "from": "mur_SE",         "to": "R_wall_SE_int" },
+    { "from": "R_wall_SE_int",  "to": "chambre" },
+
+    { "from": "exterior",       "to": "R_roof" },
+    { "from": "R_roof",         "to": "chambre" },
+
+    { "from": "exterior",       "to": "R_walls_ins" },
+    { "from": "R_walls_ins",    "to": "chambre" },
+
+    { "from": "exterior",       "to": "R_win_SE" },
+    { "from": "R_win_SE",       "to": "chambre" },
+
+    { "from": "exterior",       "to": "R_win_NE" },
+    { "from": "R_win_NE",       "to": "chambre" },
+
+    { "from": "apport_win_SE",  "to": "chambre" },
+    { "from": "apport_win_NE",  "to": "chambre" }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schema/material.schema.json",
+  "id": "double_glazing_old",
+  "name": "Double vitrage ancien",
+  "lambda": 1.0,
+  "rho": 2500,
+  "cp": 750,
+  "source": "EN 673:2011; U-value 2.8 W/(m²·K) per EN ISO 10077-1",
+  "notes": "Representative of old double glazing (pre-2000, air-filled, no low-e coating). U≈2.8 W/(m²·K) total including standard surface resistances (R_se=0.04, R_si=0.13 m²K/W). SHGC≈0.67. lambda/rho/cp are for the glass panes; use U-value directly for resistance calculations."
+}
