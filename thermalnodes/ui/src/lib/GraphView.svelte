@@ -38,7 +38,7 @@
 	// ── layout ───────────────────────────────────────────────────────────────
 	const layout = $derived.by(() => {
 		const g = new dagre.graphlib.Graph();
-		g.setGraph({ rankdir: 'LR', nodesep: 60, ranksep: 100 });
+		g.setGraph({ rankdir: 'TB', nodesep: 60, ranksep: 100 });
 		g.setDefaultEdgeLabel(() => ({}));
 
 		for (const n of model.nodes ?? []) {
