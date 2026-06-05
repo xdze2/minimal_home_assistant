@@ -1,6 +1,6 @@
 {
   "$schema": "../../schema/model.schema.json",
-  "schema_version": "0.2",
+  "schema_version": "0.3",
   "id": "chambre_1r1c",
   "name": "Chambre — modèle 1R1C",
   "notes": "Modèle minimal : une masse (l'air de la chambre), une résistance vers l'extérieur, un apport solaire. Temps caractéristique τ = R·C ≈ 10 h.",
@@ -11,41 +11,41 @@
     "dt_minutes": 15
   },
 
-  "masses": [
-    {
-      "id": "chambre",
-      "label": "Chambre",
-      "C": 8640000,
-      "ui_position": { "x": 200, "y": 300 }
-    }
-  ],
-
-  "boundaries": [
+  "nodes": [
     {
       "id": "exterior",
+      "kind": "boundary",
       "label": "Extérieur",
       "T_source": "open_meteo/temperature_2m",
-      "ui_position": { "x": 200, "y": 80 }
-    }
-  ],
-
-  "resistances": [
+      "ui_position": { "x": 80, "y": 200 }
+    },
     {
       "id": "mur_sud",
+      "kind": "resistance",
       "label": "Mur sud",
-      "from": "exterior",
-      "to": "chambre",
-      "R": 0.034
+      "R": 0.034,
+      "ui_position": { "x": 300, "y": 200 }
+    },
+    {
+      "id": "chambre",
+      "kind": "mass",
+      "label": "Chambre",
+      "C": 8640000,
+      "ui_position": { "x": 520, "y": 200 }
+    },
+    {
+      "id": "apport_fenetre_sud",
+      "kind": "source",
+      "label": "Apport solaire fenêtre sud",
+      "signal": "poa/window_south",
+      "gain": 1.2,
+      "ui_position": { "x": 520, "y": 360 }
     }
   ],
 
-  "sources": [
-    {
-      "id": "apport_fenetre_sud",
-      "label": "Apport solaire fenêtre sud",
-      "node": "chambre",
-      "signal": "poa/window_south",
-      "gain": 1.2
-    }
+  "edges": [
+    { "from": "exterior",            "to": "mur_sud" },
+    { "from": "mur_sud",             "to": "chambre" },
+    { "from": "apport_fenetre_sud",  "to": "chambre" }
   ]
 }

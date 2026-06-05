@@ -22,17 +22,9 @@
 	// ── selection ─────────────────────────────────────────────────────────────
 	let selected = $state(null); // { kind: 'mass'|'boundary'|'source'|'resistance', id: string }
 
-	// ── patch: edit a node/edge field in-place ────────────────────────────────
+	// ── patch: edit a node field in-place ────────────────────────────────────
 	function onpatch(kind, id, patch) {
-		if (kind === 'mass') {
-			model = { ...model, masses: model.masses.map((n) => n.id === id ? { ...n, ...patch } : n) };
-		} else if (kind === 'boundary') {
-			model = { ...model, boundaries: model.boundaries.map((n) => n.id === id ? { ...n, ...patch } : n) };
-		} else if (kind === 'source') {
-			model = { ...model, sources: (model.sources ?? []).map((s) => s.id === id ? { ...s, ...patch } : s) };
-		} else if (kind === 'resistance') {
-			model = { ...model, resistances: (model.resistances ?? []).map((r) => r.id === id ? { ...r, ...patch } : r) };
-		}
+		model = { ...model, nodes: model.nodes.map((n) => n.id === id && n.kind === kind ? { ...n, ...patch } : n) };
 	}
 
 	// ── add a new item ────────────────────────────────────────────────────────
@@ -40,42 +32,27 @@
 
 	function onadd(kind) {
 		const uid = `${kind}_${++idCounter}`;
+		let newNode;
 		if (kind === 'mass') {
-			model = { ...model, masses: [...(model.masses ?? []), { id: uid, label: 'New mass', C: 1_000_000 }] };
+			newNode = { id: uid, kind: 'mass', label: 'New mass', C: 1_000_000 };
 		} else if (kind === 'boundary') {
-			model = { ...model, boundaries: [...(model.boundaries ?? []), { id: uid, label: 'New boundary', T_source: 'signal_name' }] };
+			newNode = { id: uid, kind: 'boundary', label: 'New boundary', T_source: 'signal_name' };
 		} else if (kind === 'source') {
-			const firstMass = model.masses?.[0]?.id ?? '';
-			model = { ...model, sources: [...(model.sources ?? []), { id: uid, label: 'New source', node: firstMass, signal: 'signal_name', gain: 1.0 }] };
+			newNode = { id: uid, kind: 'source', label: 'New source', signal: 'signal_name', gain: 1.0 };
 		} else if (kind === 'resistance') {
-			const ids = [...(model.masses ?? []), ...(model.boundaries ?? [])];
-			const from = ids[0]?.id ?? '';
-			const to = ids[1]?.id ?? from;
-			model = { ...model, resistances: [...(model.resistances ?? []), { id: uid, label: 'New resistance', from, to, R: 1.0 }] };
+			newNode = { id: uid, kind: 'resistance', label: 'New resistance', R: 1.0 };
 		}
+		model = { ...model, nodes: [...(model.nodes ?? []), newNode] };
 		selected = { kind, id: uid };
 	}
 
 	// ── delete ────────────────────────────────────────────────────────────────
 	function ondelete(kind, id) {
-		if (kind === 'mass') {
-			model = {
-				...model,
-				masses: model.masses.filter((n) => n.id !== id),
-				resistances: (model.resistances ?? []).filter((r) => r.from !== id && r.to !== id),
-				sources: (model.sources ?? []).filter((s) => s.node !== id)
-			};
-		} else if (kind === 'boundary') {
-			model = {
-				...model,
-				boundaries: model.boundaries.filter((n) => n.id !== id),
-				resistances: (model.resistances ?? []).filter((r) => r.from !== id && r.to !== id)
-			};
-		} else if (kind === 'source') {
-			model = { ...model, sources: (model.sources ?? []).filter((s) => s.id !== id) };
-		} else if (kind === 'resistance') {
-			model = { ...model, resistances: (model.resistances ?? []).filter((r) => r.id !== id) };
-		}
+		model = {
+			...model,
+			nodes: model.nodes.filter((n) => !(n.id === id && n.kind === kind)),
+			edges: (model.edges ?? []).filter((e) => e.from !== id && e.to !== id)
+		};
 		selected = null;
 	}
 

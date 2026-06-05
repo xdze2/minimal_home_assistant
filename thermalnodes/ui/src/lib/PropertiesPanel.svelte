@@ -11,13 +11,11 @@
 
 	const item = $derived.by(() => {
 		if (!selected) return null;
-		const { kind, id } = selected;
-		if (kind === 'mass') return (model.masses ?? []).find((n) => n.id === id) ?? null;
-		if (kind === 'boundary') return (model.boundaries ?? []).find((n) => n.id === id) ?? null;
-		if (kind === 'source') return (model.sources ?? []).find((n) => n.id === id) ?? null;
-		if (kind === 'resistance') return (model.resistances ?? []).find((r) => r.id === id) ?? null;
-		return null;
+		return (model.nodes ?? []).find((n) => n.id === selected.id && n.kind === selected.kind) ?? null;
 	});
+
+	/** mass nodes available for dropdowns */
+	const massNodes = $derived((model.nodes ?? []).filter((n) => n.kind === 'mass'));
 
 	function commit(field, value) {
 		onpatch(selected.kind, selected.id, { [field]: value });
@@ -37,12 +35,11 @@
 		const num = parseFloat(value);
 		onpatch(selected.kind, selected.id, { T_source: isNaN(num) ? value : num });
 	}
-
 </script>
 
 <aside class="panel">
 	{#if !selected || !item}
-		<p class="hint">Click a node or edge to edit its properties.</p>
+		<p class="hint">Click a node to edit its properties.</p>
 	{:else}
 		<div class="header">
 			<span class="kind-badge kind-{selected.kind}">{selected.kind}</span>
@@ -105,33 +102,8 @@
 						oninput={(e) => commit('gain', parseFloat(e.target.value) || 1)}
 					/>
 				</label>
-				<label>
-					<span>target mass</span>
-					<select value={item.node ?? ''} onchange={(e) => commit('node', e.target.value)}>
-						{#each model.masses ?? [] as m}
-							<option value={m.id}>{m.label ?? m.id}</option>
-						{/each}
-					</select>
-				</label>
 
 			{:else if selected.kind === 'resistance'}
-				<label>
-					<span>from</span>
-					<select value={item.from ?? ''} onchange={(e) => commit('from', e.target.value)}>
-						{#each [...(model.masses ?? []), ...(model.boundaries ?? [])] as n}
-							<option value={n.id}>{n.label ?? n.id}</option>
-						{/each}
-					</select>
-				</label>
-				<label>
-					<span>to</span>
-					<select value={item.to ?? ''} onchange={(e) => commit('to', e.target.value)}>
-						{#each [...(model.masses ?? []), ...(model.boundaries ?? [])] as n}
-							<option value={n.id}>{n.label ?? n.id}</option>
-						{/each}
-					</select>
-				</label>
-
 				<label>
 					<span>R (K/W)</span>
 					<input
@@ -144,6 +116,19 @@
 				</label>
 			{/if}
 		</div>
+
+		{#if selected.kind === 'resistance' || selected.kind === 'source'}
+			<div class="wires-section">
+				<p class="section-title">Wires (edges)</p>
+				{#each (model.edges ?? []).filter((e) => e.from === selected.id || e.to === selected.id) as e}
+					<div class="wire-row">
+						<span class="wire-end">{e.from}</span>
+						<span class="wire-arrow">→</span>
+						<span class="wire-end">{e.to}</span>
+					</div>
+				{/each}
+			</div>
+		{/if}
 	{/if}
 
 	<div class="add-section">
@@ -247,6 +232,24 @@
 		opacity: 0.4;
 		cursor: not-allowed;
 	}
+
+	.wires-section {
+		padding: 8px 14px 12px;
+		border-top: 1px solid #334155;
+	}
+
+	.wire-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 11px;
+		font-family: monospace;
+		color: #94a3b8;
+		padding: 2px 0;
+	}
+
+	.wire-end { color: #cbd5e1; }
+	.wire-arrow { color: #475569; }
 
 	.add-section {
 		padding: 12px 14px;

@@ -14,21 +14,12 @@
 		g.setGraph({ rankdir: 'LR', nodesep: 60, ranksep: 100 });
 		g.setDefaultEdgeLabel(() => ({}));
 
-		const allNodes = [
-			...(model.masses ?? []).map((n) => ({ ...n, _kind: 'mass' })),
-			...(model.boundaries ?? []).map((n) => ({ ...n, _kind: 'boundary' })),
-			...(model.sources ?? []).map((n) => ({ ...n, _kind: 'source', id: `_src_${n.id}` }))
-		];
-
-		for (const n of allNodes) {
+		for (const n of model.nodes ?? []) {
 			g.setNode(n.id, { width: NODE_W, height: NODE_H });
 		}
 
-		for (const r of model.resistances ?? []) {
-			g.setEdge(r.from, r.to, { id: r.id });
-		}
-		for (const s of model.sources ?? []) {
-			g.setEdge(`_src_${s.id}`, s.node, { id: `_srce_${s.id}` });
+		for (const e of model.edges ?? []) {
+			g.setEdge(e.from, e.to);
 		}
 
 		dagre.layout(g);
@@ -38,7 +29,6 @@
 			positions[id] = g.node(id);
 		}
 
-		// compute SVG viewBox from node positions
 		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 		for (const p of Object.values(positions)) {
 			minX = Math.min(minX, p.x - NODE_W / 2);
@@ -51,7 +41,7 @@
 		const vbW = maxX - minX + MARGIN * 2;
 		const vbH = maxY - minY + MARGIN * 2;
 
-		return { positions, allNodes, viewBox: `${vbX} ${vbY} ${vbW} ${vbH}` };
+		return { positions, viewBox: `${vbX} ${vbY} ${vbW} ${vbH}` };
 	});
 
 	// ── edge path helper ─────────────────────────────────────────────────────
@@ -61,18 +51,6 @@
 		if (!f || !t) return '';
 		const mx = (f.x + t.x) / 2;
 		return `M ${f.x} ${f.y} C ${mx} ${f.y}, ${mx} ${t.y}, ${t.x} ${t.y}`;
-	}
-
-	function edgeMid(fromId, toId) {
-		const f = layout.positions[fromId];
-		const t = layout.positions[toId];
-		if (!f || !t) return { x: 0, y: 0 };
-		return { x: (f.x + t.x) / 2, y: (f.y + t.y) / 2 };
-	}
-
-	// ── resistance label ─────────────────────────────────────────────────────
-	function rLabel(r) {
-		return `R=${r.R} K/W`;
 	}
 
 	// ── select helpers ───────────────────────────────────────────────────────
@@ -90,81 +68,33 @@
 	viewBox={layout.viewBox}
 	xmlns="http://www.w3.org/2000/svg"
 >
-	<defs>
-		<marker id="arrow-r" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-			<path d="M0,0 L0,6 L8,3 z" fill="#6366f1" />
-		</marker>
-		<marker id="arrow-s" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-			<path d="M0,0 L0,6 L8,3 z" fill="#f59e0b" />
-		</marker>
-		<marker id="arrow-r-sel" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto">
-			<path d="M0,0 L0,6 L8,3 z" fill="#818cf8" />
-		</marker>
-	</defs>
-
-	<!-- resistance edges -->
-	{#each model.resistances ?? [] as r}
-		{@const mid = edgeMid(r.from, r.to)}
-		{@const sel_r = isSelected('resistance', r.id)}
+	<!-- wire edges -->
+	{#each model.edges ?? [] as e}
 		<path
-			d={edgePath(r.from, r.to)}
+			d={edgePath(e.from, e.to)}
 			fill="none"
-			stroke={sel_r ? '#818cf8' : '#6366f1'}
-			stroke-width={sel_r ? 3 : 2}
-			marker-end={sel_r ? 'url(#arrow-r-sel)' : 'url(#arrow-r)'}
-		/>
-		<!-- clickable hit area -->
-		<path
-			d={edgePath(r.from, r.to)}
-			fill="none"
-			stroke="transparent"
-			stroke-width="14"
-			style="cursor:pointer"
-			onclick={() => sel('resistance', r.id)}
-			role="button"
-			tabindex="0"
-			aria-label={r.label ?? r.id}
-			onkeydown={(e) => e.key === 'Enter' && sel('resistance', r.id)}
-		/>
-		<text
-			x={mid.x}
-			y={mid.y - 8}
-			text-anchor="middle"
-			class="edge-label"
-			fill={sel_r ? '#818cf8' : '#94a3b8'}
-		>{r.label ?? rLabel(r)}</text>
-	{/each}
-
-	<!-- source edges (animated via stroke-dasharray trick) -->
-	{#each model.sources ?? [] as s}
-		{@const fromId = `_src_${s.id}`}
-		<path
-			d={edgePath(fromId, s.node)}
-			fill="none"
-			stroke="#f59e0b"
+			stroke="#334155"
 			stroke-width="2"
-			stroke-dasharray="6 3"
-			marker-end="url(#arrow-s)"
 		/>
 	{/each}
 
 	<!-- nodes -->
-	{#each layout.allNodes as n}
+	{#each model.nodes ?? [] as n}
 		{@const p = layout.positions[n.id]}
 		{@const x = p?.x - NODE_W / 2}
 		{@const y = p?.y - NODE_H / 2}
-		{@const selNode = isSelected(n._kind === 'source' ? 'source' : n._kind, n._kind === 'source' ? n.id.slice(5) : n.id)}
+		{@const selNode = isSelected(n.kind, n.id)}
 
 		<g
 			transform={`translate(${x},${y})`}
 			style="cursor:pointer"
-			onclick={() => sel(n._kind === 'source' ? 'source' : n._kind, n._kind === 'source' ? n.id.slice(5) : n.id)}
+			onclick={() => sel(n.kind, n.id)}
 			role="button"
 			tabindex="0"
 			aria-label={n.label ?? n.id}
-			onkeydown={(e) => e.key === 'Enter' && sel(n._kind === 'source' ? 'source' : n._kind, n._kind === 'source' ? n.id.slice(5) : n.id)}
+			onkeydown={(e) => e.key === 'Enter' && sel(n.kind, n.id)}
 		>
-			{#if n._kind === 'mass'}
+			{#if n.kind === 'mass'}
 				<rect
 					width={NODE_W} height={NODE_H} rx="8"
 					fill={selNode ? '#312e81' : '#1e1b4b'}
@@ -176,7 +106,7 @@
 					{`C = ${n.C.toExponential(1)} J/K`}
 				</text>
 
-			{:else if n._kind === 'boundary'}
+			{:else if n.kind === 'boundary'}
 				<rect
 					width={NODE_W} height={NODE_H} rx="4"
 					fill={selNode ? '#1c1917' : '#0c0a09'}
@@ -189,7 +119,39 @@
 					{typeof n.T_source === 'number' ? `${n.T_source} °C` : n.T_source}
 				</text>
 
-			{:else if n._kind === 'source'}
+			{:else if n.kind === 'resistance'}
+				<!-- Zigzag resistor symbol centered in the node box -->
+				<rect
+					width={NODE_W} height={NODE_H} rx="4"
+					fill={selNode ? '#1e1a2e' : '#0f0d1a'}
+					stroke={selNode ? '#818cf8' : '#6366f1'}
+					stroke-width={selNode ? 2.5 : 1.5}
+				/>
+				{@const zx = NODE_W / 2}
+				{@const zy = NODE_H / 2 - 2}
+				{@const zw = 36}
+				{@const zh = 8}
+				<!-- zigzag: 5 teeth -->
+				<polyline
+					points={`
+						${zx - zw/2},${zy}
+						${zx - zw/2 + zw/10},${zy - zh}
+						${zx - zw/2 + 3*zw/10},${zy + zh}
+						${zx - zw/2 + 5*zw/10},${zy - zh}
+						${zx - zw/2 + 7*zw/10},${zy + zh}
+						${zx - zw/2 + 9*zw/10},${zy - zh}
+						${zx + zw/2},${zy}
+					`.trim()}
+					fill="none"
+					stroke={selNode ? '#818cf8' : '#6366f1'}
+					stroke-width="1.5"
+					stroke-linejoin="round"
+				/>
+				<text x={NODE_W/2} y={NODE_H/2 + 14} text-anchor="middle" class="node-sub" fill={selNode ? '#818cf8' : '#6366f1'}>
+					{n.label ?? n.id} — {n.R} K/W
+				</text>
+
+			{:else if n.kind === 'source'}
 				<rect
 					width={NODE_W} height={NODE_H} rx="22"
 					fill={selNode ? '#451a03' : '#27130a'}
@@ -221,12 +183,6 @@
 	}
 
 	.node-sub {
-		font-size: 10px;
-		font-family: monospace;
-		pointer-events: none;
-	}
-
-	.edge-label {
 		font-size: 10px;
 		font-family: monospace;
 		pointer-events: none;
