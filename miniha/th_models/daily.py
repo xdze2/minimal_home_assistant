@@ -19,12 +19,14 @@ def _fmt_day_fr(d: date) -> str:
 
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.subplots as sp
 import streamlit as st
 
 from dataclasses import replace
 
 from miniha.th_models.config import Window, discover_configs, load_room_config
 from miniha.th_models.load import load_room
+from miniha.th_models.fit import FitResult, fit_thermal, prepare
 
 USER_MODELS_DIR = Path(__file__).resolve().parents[2] / "user_models"
 
@@ -63,10 +65,36 @@ def _slice(s: pd.Series, t0: pd.Timestamp, t1: pd.Timestamp) -> pd.Series:
     return s.loc[(s.index >= t0) & (s.index <= t1)]
 
 
-def _plot_card(indoor: pd.Series, outdoor: pd.Series, solar: pd.Series,
-               day_start, day_end) -> go.Figure:
-    fig = go.Figure()
+_FILL_COLORS = {
+    "royalblue": "rgba(65,105,225,0.25)",
+    "tomato":    "rgba(255,99,71,0.25)",
+    "goldenrod": "rgba(218,165,32,0.25)",
+}
 
+
+def _area(x, y, color: str, name: str) -> go.Scatter:
+    return go.Scatter(
+        x=x, y=y, mode="lines", name=name,
+        line=dict(color=color, width=1),
+        fill="tozeroy",
+        fillcolor=_FILL_COLORS.get(color, color),
+    )
+
+
+def _plot_room(
+    indoor: pd.Series,
+    outdoor: pd.Series,
+    solar: pd.Series,
+    fit: FitResult | None,
+) -> go.Figure:
+    fig = sp.make_subplots(
+        rows=4, cols=1,
+        shared_xaxes=True,
+        row_heights=[0.4, 0.2, 0.2, 0.2],
+        vertical_spacing=0.03,
+    )
+
+    # ── row 1: temperatures + solar heatmap ──────────────────────────────────
     candidates = [s for s in (indoor, outdoor) if not s.empty]
     if candidates:
         y_lo = float(min(s.min() for s in candidates))
@@ -83,17 +111,18 @@ def _plot_card(indoor: pd.Series, outdoor: pd.Series, solar: pd.Series,
             x=solar.index, y=[y_lo, y_hi], z=[solar_z, solar_z],
             colorscale=[(0.0, "white"), (1.0, "goldenrod")],
             zmin=0, zmax=max(float(solar_z.max()), 1.0),
-            showscale=True, colorbar=dict(title="W/m²", thickness=10),
-            hoverinfo="skip", name="solar",
-        ))
+            showscale=False, hoverinfo="skip", name="solar",
+        ), row=1, col=1)
 
     if not indoor.empty:
         fig.add_trace(go.Scattergl(x=indoor.index, y=indoor.values, mode="lines",
-                                   name="indoor", line=dict(color="royalblue")))
+                                   name="indoor", line=dict(color="royalblue")),
+                      row=1, col=1)
     if not outdoor.empty:
         fig.add_trace(go.Scattergl(x=outdoor.index, y=outdoor.values, mode="lines",
                                    name="outdoor",
-                                   line=dict(color="rgba(220,20,60,0.45)", width=4)))
+                                   line=dict(color="rgba(220,20,60,0.55)", width=3)),
+                      row=1, col=1)
 
     tz = "Europe/Paris"
     midnight_index = None
@@ -109,10 +138,56 @@ def _plot_card(indoor: pd.Series, outdoor: pd.Series, solar: pd.Series,
         for ts in pd.date_range(start_day, end_day, freq="D", tz=tz):
             fig.add_vline(x=ts, line=dict(color="black", width=1))
 
-    fig.update_yaxes(title_text="°C", range=[y_lo, y_hi])
+    fig.update_yaxes(title_text="°C", range=[y_lo, y_hi], row=1, col=1)
+
+    # ── compute 30-min grid series ────────────────────────────────────────────
+    T30_in = indoor.resample("30min").mean() if not indoor.empty else pd.Series(dtype=float)
+
+    def _interp_to(s: pd.Series, grid: pd.Series) -> pd.Series:
+        return (s.reindex(s.index.union(grid.index))
+                 .interpolate(method="time")
+                 .reindex(grid.index))
+
+    # ── row 2: dT/dt ──────────────────────────────────────────────────────────
+    if not T30_in.empty:
+        dT_dt = T30_in.diff() / 0.5  # °C/h
+        fig.add_trace(_area(dT_dt.index, dT_dt.values, "royalblue", "dT/dt (°C/h)"),
+                      row=2, col=1)
+    fig.update_yaxes(title_text="°C/h", row=2, col=1)
+
+    # ── row 3: conduction (T_ext − T_int) / τ ────────────────────────────────
+    if fit is not None and not outdoor.empty and not T30_in.empty:
+        T30_out = _interp_to(outdoor, T30_in)
+        cond = (T30_out - T30_in) / fit.tau_hours
+        fig.add_trace(_area(cond.index, cond.values, "tomato", "(T_ext−T_int)/τ (°C/h)"),
+                      row=3, col=1)
+    elif not outdoor.empty and not indoor.empty:
+        delta = _interp_to(outdoor, T30_in) - T30_in
+        fig.add_trace(_area(delta.index, delta.values, "tomato", "T_ext−T_int (°C)"),
+                      row=3, col=1)
+    fig.update_yaxes(title_text="°C/h", row=3, col=1)
+
+    # ── row 4: solar gain α·I / τ ─────────────────────────────────────────────
+    if fit is not None and not solar.empty and not T30_in.empty:
+        T30_sol = _interp_to(solar, T30_in).clip(lower=0)
+        solar_gain = fit.g_solar * T30_sol / fit.tau_hours
+        fig.add_trace(_area(solar_gain.index, solar_gain.values, "goldenrod", "α·I_rad/τ (°C/h)"),
+                      row=4, col=1)
+    elif not solar.empty:
+        fig.add_trace(_area(solar.index, solar.values, "goldenrod", "I_rad (W/m²)"),
+                      row=4, col=1)
+    fig.update_yaxes(title_text="°C/h", row=4, col=1)
+
+    tau_label = f"τ={fit.tau_hours:.1f}h  g={fit.g_solar:.4f}°C/(W/m²)" if fit else "no fit"
     fig.update_layout(
-        height=340, margin=dict(l=40, r=20, t=24, b=20),
-        legend=dict(orientation="h", yanchor="bottom", y=1.0, xanchor="right", x=1.0),
+        height=560,
+        margin=dict(l=50, r=20, t=30, b=20),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1.0),
+        annotations=[dict(
+            text=tau_label, xref="paper", yref="paper",
+            x=0.0, y=-0.02, showarrow=False,
+            font=dict(size=11), xanchor="left", yanchor="top",
+        )],
     )
     return fig
 
@@ -134,8 +209,16 @@ def _render_card(cfg_path: Path, day: date, n_days: int) -> None:
     outdoor = _slice(_to_series(cached.get("outdoor_temp", [])), day_start, day_end)
     solar = _slice(_to_series(cached.get("shortwave_radiation", [])), day_start, day_end)
 
-    st.plotly_chart(_plot_card(indoor, outdoor, solar, day_start, day_end),
-                    use_container_width=True, key=f"{cfg_path.name}_card")
+    fit: FitResult | None = None
+    try:
+        df_fit = prepare(indoor, outdoor, solar)
+        if len(df_fit) >= 4:
+            fit = fit_thermal(df_fit)
+    except Exception:
+        pass
+
+    st.plotly_chart(_plot_room(indoor, outdoor, solar, fit),
+                    use_container_width=True, key=f"{cfg_path.name}_room")
 
 
 def _default_day(configs: list[Path]) -> date:
