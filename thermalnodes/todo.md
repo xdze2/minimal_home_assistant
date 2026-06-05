@@ -114,12 +114,23 @@ Verified: τ for `chambre_1r1c` matches R·C; eigenvalues for `chambre_v1` give
 temperatures (daily ±3 °C + slow 10-day drift, per-mass phase offset) without
 using the model matrices — sufficient to develop and test the UI end-to-end.
 
+**Simulation is split into three stages** (each independently testable):
+
+1. **`prepare_inputs(sim_config, influx_client) -> dict[str, (t, values)]`** —
+   fetches each signal from InfluxDB, resamples to a uniform grid. Slow, I/O-bound.
+   Exposed via `POST /simulate/inputs` so the UI can show input signals before solving.
+2. **`assemble(model) -> AssembledSystem`** — already in `assemble.py`.
+3. **`simulate_ivp(system, inputs, t_eval) -> SimResult`** — pure numerics, no I/O.
+
 **Real solver** (implement after UI is working):
 
+- [ ] `prepare_inputs(sim_config, influx_client) -> dict[str, tuple[np.ndarray, np.ndarray]]`
+  - Fetches each signal named in `sim_config.inputs` from InfluxDB.
+  - Resamples to a uniform 15-min grid over `[start, end]`.
+  - Returns `{node_id: (t_sec, values)}`.
 - [ ] `simulate_ivp(system, inputs, t_eval) -> SimResult`
-  - `inputs`: `dict[str, tuple[np.ndarray, np.ndarray]]` — `{signal_name: (t_sec, values)}`
-    where keys match `inputs` from the sim config, mapped to node order via
-    `system.boundary_ids` / `system.source_ids`.
+  - `inputs`: `dict[str, tuple[np.ndarray, np.ndarray]]` — `{node_id: (t_sec, values)}`
+    mapped to matrix columns via `system.boundary_ids` / `system.source_ids`.
   - Builds `u(t)` by interpolating each signal via `scipy.interpolate.interp1d`.
   - Calls `solve_ivp(fun, t_span, y0, method='BDF', t_eval=t_eval)`.
   - Returns `SimResult(t, temps)` where `temps: dict[mass_id, np.ndarray]`.
@@ -158,8 +169,14 @@ Run: `uv run uvicorn thermalnodes.api.main:app --reload --port 8001`
       currently runs `simulate_mock`; swap for `simulate_ivp` once real solver is done
 - [x] CORS for Svelte dev server (localhost:5173 and :4173)
 
+### Done
+- [x] `POST /simulate/inputs` — fetch + resample all signals in config; returns
+      `{node_id: {signal, t, values}}` for UI preview before running the solver
+
 ### TODO
-- [ ] Wire `POST /simulate` to InfluxDB: fetch each signal in `inputs`, pass to real solver
+- [ ] `POST /simulate/run` — same body as current `POST /simulate`; calls
+      `prepare_inputs` then `simulate_ivp`; replace/rename existing mock endpoint
+      (cache `prepare_inputs` result keyed by `hash(signals+start+end)` later)
 - [ ] `POST /model/save` — persist model JSON to `data/user/` (separate from examples)
 - [ ] `GET /model/list` — list available model files (examples + user)
 - [ ] `GET /model/{id}` — return model JSON
@@ -212,6 +229,9 @@ The sim config decouples model topology from data sources:
       signal autocomplete on each row (reuse signal list from data exploration)
 - [x] "Run" button → `POST /simulate` with assembled config
 - [x] uPlot: temperature timeseries per mass node (all masses on one shared chart)
+- [x] "Fetch inputs" button → `POST /simulate/inputs`; plots resampled input signals
+      (boundary temperatures, heat sources) above the simulation results chart
+- [ ] (later) skip re-fetch if inputs unchanged — server-side cache, transparent to UI
 
 ### Sim-config save / load (next)
 

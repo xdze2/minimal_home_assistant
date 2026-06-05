@@ -31,6 +31,34 @@ class SimulateRequest(BaseModel):
     inputs: dict[str, str]  # node_id → signal name
 
 
+@app.post("/simulate/inputs")
+def post_simulate_inputs(req: SimulateRequest) -> dict:
+    """Fetch and resample all input signals for a simulation config.
+
+    Returns:
+        { node_id: { "signal": str, "t": [ISO strings], "values": [floats | null] } }
+    """
+    result = {}
+    errors = {}
+    for node_id, signal_name in req.inputs.items():
+        try:
+            s = fetch_series(signal_name, req.start, req.end)
+            result[node_id] = {
+                "signal": signal_name,
+                "t": [ts.isoformat() for ts in s.index],
+                "values": [None if v != v else float(v) for v in s],
+            }
+        except Exception as e:
+            errors[node_id] = str(e)
+
+    if errors:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Failed to fetch some signals", "errors": errors},
+        )
+    return result
+
+
 @app.post("/simulate")
 def post_simulate(req: SimulateRequest) -> dict:
     """Run a simulation and return temperature time-series per mass node.
