@@ -20,7 +20,9 @@
 	const selectedMeta = $derived(MODELS.find((m) => m.id === selectedModelId));
 
 	// ── selection ─────────────────────────────────────────────────────────────
-	let selected = $state(null); // { kind: 'mass'|'boundary'|'source'|'resistance', id: string }
+	// node: { kind: 'mass'|'boundary'|'source'|'resistance', id: string }
+	// edge: { kind: 'edge', from: string, to: string }
+	let selected = $state(null);
 
 	// ── patch: edit a node field in-place ────────────────────────────────────
 	function onpatch(kind, id, patch) {
@@ -56,10 +58,26 @@
 		selected = null;
 	}
 
-	// ── keyboard delete ───────────────────────────────────────────────────────
+	// ── edge operations ───────────────────────────────────────────────────────
+	function onaddedge(from, to) {
+		// prevent duplicate edges
+		const exists = (model.edges ?? []).some((e) => e.from === from && e.to === to);
+		if (!exists && from !== to) {
+			model = { ...model, edges: [...(model.edges ?? []), { from, to }] };
+		}
+	}
+
+	function ondeleteedge(from, to) {
+		model = { ...model, edges: (model.edges ?? []).filter((e) => !(e.from === from && e.to === to)) };
+		selected = null;
+	}
+
+	// ── keyboard shortcuts ────────────────────────────────────────────────────
 	function onKeyDown(e) {
-		if ((e.key === 'Delete' || e.key === 'Backspace') && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'SELECT') {
-			if (selected) ondelete(selected.kind, selected.id);
+		if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'SELECT') return;
+		if (e.key === 'Delete' || e.key === 'Backspace') {
+			if (selected?.kind === 'edge') ondeleteedge(selected.from, selected.to);
+			else if (selected) ondelete(selected.kind, selected.id);
 		}
 	}
 
@@ -113,8 +131,8 @@
 	</header>
 
 	<div class="body">
-		<GraphView {model} {selected} onselect={(s) => (selected = s)} />
-		<PropertiesPanel {model} {selected} {onpatch} {onadd} {ondelete} />
+		<GraphView {model} {selected} onselect={(s) => (selected = s)} {onaddedge} />
+		<PropertiesPanel {model} {selected} {onpatch} {onadd} {ondelete} {ondeleteedge} />
 	</div>
 </div>
 

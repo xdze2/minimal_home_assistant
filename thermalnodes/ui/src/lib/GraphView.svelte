@@ -1,12 +1,39 @@
 <script>
 	import dagre from 'dagre';
 
-	/** @type {{ model: object, selected: {kind:string,id:string}|null, onselect: function }} */
-	let { model, selected, onselect } = $props();
+	/** @type {{ model: object, selected: object|null, onselect: function, onaddedge: function }} */
+	let { model, selected, onselect, onaddedge } = $props();
 
 	const NODE_W = 140;
 	const NODE_H = 44;
 	const MARGIN = 40;
+
+	// ── wiring mode ──────────────────────────────────────────────────────────
+	// wiringFrom: node id that was selected when 'W' was pressed
+	let wiringFrom = $state(null);
+
+	function enterWiring() {
+		if (selected?.kind && selected.kind !== 'edge') wiringFrom = selected.id;
+	}
+
+	function cancelWiring() { wiringFrom = null; }
+
+	function handleNodeClick(kind, id) {
+		if (wiringFrom !== null) {
+			if (id !== wiringFrom) onaddedge(wiringFrom, id);
+			wiringFrom = null;
+		} else {
+			onselect(selected?.kind === kind && selected?.id === id ? null : { kind, id });
+		}
+	}
+
+	function handleKeyDown(e) {
+		if (e.key === 'w' || e.key === 'W') {
+			if (wiringFrom) cancelWiring();
+			else enterWiring();
+		}
+		if (e.key === 'Escape') cancelWiring();
+	}
 
 	// ── layout ───────────────────────────────────────────────────────────────
 	const layout = $derived.by(() => {
@@ -53,126 +80,189 @@
 		return `M ${f.x} ${f.y} C ${mx} ${f.y}, ${mx} ${t.y}, ${t.x} ${t.y}`;
 	}
 
-	// ── select helpers ───────────────────────────────────────────────────────
-	function isSelected(kind, id) {
-		return selected?.kind === kind && selected?.id === id;
+	function isEdgeSelected(e) {
+		return selected?.kind === 'edge' && selected.from === e.from && selected.to === e.to;
 	}
 
-	function sel(kind, id) {
-		onselect(isSelected(kind, id) ? null : { kind, id });
+	function selEdge(e) {
+		if (isEdgeSelected(e)) onselect(null);
+		else onselect({ kind: 'edge', from: e.from, to: e.to });
 	}
 </script>
 
-<svg
-	class="graph"
-	viewBox={layout.viewBox}
-	xmlns="http://www.w3.org/2000/svg"
->
-	<!-- wire edges -->
-	{#each model.edges ?? [] as e}
-		<path
-			d={edgePath(e.from, e.to)}
-			fill="none"
-			stroke="#334155"
-			stroke-width="2"
-		/>
-	{/each}
+<svelte:window onkeydown={handleKeyDown} />
 
-	<!-- nodes -->
-	{#each model.nodes ?? [] as n}
-		{@const p = layout.positions[n.id]}
-		{@const x = p?.x - NODE_W / 2}
-		{@const y = p?.y - NODE_H / 2}
-		{@const selNode = isSelected(n.kind, n.id)}
+<div class="graph-wrap" class:wiring={wiringFrom !== null}>
+	{#if wiringFrom !== null}
+		<div class="wiring-banner">
+			Wiring from <strong>{wiringFrom}</strong> — click target node &nbsp;·&nbsp; <kbd>Esc</kbd> to cancel
+		</div>
+	{/if}
 
-		<g
-			transform={`translate(${x},${y})`}
-			style="cursor:pointer"
-			onclick={() => sel(n.kind, n.id)}
-			role="button"
-			tabindex="0"
-			aria-label={n.label ?? n.id}
-			onkeydown={(e) => e.key === 'Enter' && sel(n.kind, n.id)}
-		>
-			{#if n.kind === 'mass'}
-				<rect
-					width={NODE_W} height={NODE_H} rx="8"
-					fill={selNode ? '#312e81' : '#1e1b4b'}
-					stroke={selNode ? '#818cf8' : '#6366f1'}
-					stroke-width={selNode ? 2.5 : 1.5}
-				/>
-				<text x={NODE_W/2} y={NODE_H/2 - 4} text-anchor="middle" class="node-label" fill="#e0e7ff">{n.label ?? n.id}</text>
-				<text x={NODE_W/2} y={NODE_H/2 + 10} text-anchor="middle" class="node-sub" fill="#818cf8">
-					{`C = ${n.C.toExponential(1)} J/K`}
-				</text>
+	<svg
+		class="graph"
+		viewBox={layout.viewBox}
+		xmlns="http://www.w3.org/2000/svg"
+	>
+		<!-- wire edges -->
+		{#each model.edges ?? [] as e}
+			{@const sel = isEdgeSelected(e)}
+			<!-- visible stroke -->
+			<path
+				d={edgePath(e.from, e.to)}
+				fill="none"
+				stroke={sel ? '#f59e0b' : '#334155'}
+				stroke-width={sel ? 2.5 : 2}
+			/>
+			<!-- fat invisible hit area -->
+			<path
+				d={edgePath(e.from, e.to)}
+				fill="none"
+				stroke="transparent"
+				stroke-width="14"
+				style="cursor:pointer"
+				onclick={() => selEdge(e)}
+				role="button"
+				tabindex="0"
+				aria-label={`wire ${e.from} → ${e.to}`}
+				onkeydown={(ev) => ev.key === 'Enter' && selEdge(e)}
+			/>
+		{/each}
 
-			{:else if n.kind === 'boundary'}
-				<rect
-					width={NODE_W} height={NODE_H} rx="4"
-					fill={selNode ? '#1c1917' : '#0c0a09'}
-					stroke={selNode ? '#a3e635' : '#65a30d'}
-					stroke-width={selNode ? 2.5 : 1.5}
-					stroke-dasharray="6 3"
-				/>
-				<text x={NODE_W/2} y={NODE_H/2 - 4} text-anchor="middle" class="node-label" fill="#d9f99d">{n.label ?? n.id}</text>
-				<text x={NODE_W/2} y={NODE_H/2 + 10} text-anchor="middle" class="node-sub" fill="#84cc16">
-					{typeof n.T_source === 'number' ? `${n.T_source} °C` : n.T_source}
-				</text>
+		<!-- nodes -->
+		{#each model.nodes ?? [] as n}
+			{@const p = layout.positions[n.id]}
+			{@const x = p?.x - NODE_W / 2}
+			{@const y = p?.y - NODE_H / 2}
+			{@const selNode = selected?.kind === n.kind && selected?.id === n.id}
+			{@const isWiringSource = wiringFrom === n.id}
+			{@const isWiringTarget = wiringFrom !== null && wiringFrom !== n.id}
 
-			{:else if n.kind === 'resistance'}
-				<!-- Zigzag resistor symbol centered in the node box -->
-				<rect
-					width={NODE_W} height={NODE_H} rx="4"
-					fill={selNode ? '#1e1a2e' : '#0f0d1a'}
-					stroke={selNode ? '#818cf8' : '#6366f1'}
-					stroke-width={selNode ? 2.5 : 1.5}
-				/>
-				{@const zx = NODE_W / 2}
-				{@const zy = NODE_H / 2 - 2}
-				{@const zw = 36}
-				{@const zh = 8}
-				<!-- zigzag: 5 teeth -->
-				<polyline
-					points={`
-						${zx - zw/2},${zy}
-						${zx - zw/2 + zw/10},${zy - zh}
-						${zx - zw/2 + 3*zw/10},${zy + zh}
-						${zx - zw/2 + 5*zw/10},${zy - zh}
-						${zx - zw/2 + 7*zw/10},${zy + zh}
-						${zx - zw/2 + 9*zw/10},${zy - zh}
-						${zx + zw/2},${zy}
-					`.trim()}
-					fill="none"
-					stroke={selNode ? '#818cf8' : '#6366f1'}
-					stroke-width="1.5"
-					stroke-linejoin="round"
-				/>
-				<text x={NODE_W/2} y={NODE_H/2 + 14} text-anchor="middle" class="node-sub" fill={selNode ? '#818cf8' : '#6366f1'}>
-					{n.label ?? n.id} — {n.R} K/W
-				</text>
+			<g
+				transform={`translate(${x},${y})`}
+				style="cursor:{wiringFrom !== null && wiringFrom !== n.id ? 'crosshair' : 'pointer'}"
+				onclick={() => handleNodeClick(n.kind, n.id)}
+				role="button"
+				tabindex="0"
+				aria-label={n.label ?? n.id}
+				onkeydown={(e) => e.key === 'Enter' && handleNodeClick(n.kind, n.id)}
+			>
+				{#if n.kind === 'mass'}
+					<rect
+						width={NODE_W} height={NODE_H} rx="8"
+						fill={isWiringSource ? '#3b1f00' : selNode ? '#312e81' : '#1e1b4b'}
+						stroke={isWiringSource ? '#f59e0b' : selNode ? '#818cf8' : isWiringTarget ? '#475569' : '#6366f1'}
+						stroke-width={isWiringSource || selNode ? 2.5 : 1.5}
+						stroke-dasharray={isWiringSource ? '5 3' : 'none'}
+					/>
+					<text x={NODE_W/2} y={NODE_H/2 - 4} text-anchor="middle" class="node-label" fill="#e0e7ff">{n.label ?? n.id}</text>
+					<text x={NODE_W/2} y={NODE_H/2 + 10} text-anchor="middle" class="node-sub" fill="#818cf8">
+						{`C = ${n.C.toExponential(1)} J/K`}
+					</text>
 
-			{:else if n.kind === 'source'}
-				<rect
-					width={NODE_W} height={NODE_H} rx="22"
-					fill={selNode ? '#451a03' : '#27130a'}
-					stroke={selNode ? '#fbbf24' : '#f59e0b'}
-					stroke-width={selNode ? 2.5 : 1.5}
-				/>
-				<text x={NODE_W/2} y={NODE_H/2 - 4} text-anchor="middle" class="node-label" fill="#fef3c7">{n.label ?? n.id}</text>
-				<text x={NODE_W/2} y={NODE_H/2 + 10} text-anchor="middle" class="node-sub" fill="#fbbf24">
-					×{n.gain}
-				</text>
-			{/if}
-		</g>
-	{/each}
-</svg>
+				{:else if n.kind === 'boundary'}
+					<rect
+						width={NODE_W} height={NODE_H} rx="4"
+						fill={isWiringSource ? '#3b1f00' : selNode ? '#1c1917' : '#0c0a09'}
+						stroke={isWiringSource ? '#f59e0b' : selNode ? '#a3e635' : isWiringTarget ? '#475569' : '#65a30d'}
+						stroke-width={isWiringSource || selNode ? 2.5 : 1.5}
+						stroke-dasharray={isWiringSource ? '5 3' : '6 3'}
+					/>
+					<text x={NODE_W/2} y={NODE_H/2 - 4} text-anchor="middle" class="node-label" fill="#d9f99d">{n.label ?? n.id}</text>
+					<text x={NODE_W/2} y={NODE_H/2 + 10} text-anchor="middle" class="node-sub" fill="#84cc16">
+						{typeof n.T_source === 'number' ? `${n.T_source} °C` : n.T_source}
+					</text>
+
+				{:else if n.kind === 'resistance'}
+					<rect
+						width={NODE_W} height={NODE_H} rx="4"
+						fill={isWiringSource ? '#3b1f00' : selNode ? '#1e1a2e' : '#0f0d1a'}
+						stroke={isWiringSource ? '#f59e0b' : selNode ? '#818cf8' : isWiringTarget ? '#475569' : '#6366f1'}
+						stroke-width={isWiringSource || selNode ? 2.5 : 1.5}
+						stroke-dasharray={isWiringSource ? '5 3' : 'none'}
+					/>
+					{@const zx = NODE_W / 2}
+					{@const zy = NODE_H / 2 - 2}
+					{@const zw = 36}
+					{@const zh = 8}
+					<polyline
+						points={`
+							${zx - zw/2},${zy}
+							${zx - zw/2 + zw/10},${zy - zh}
+							${zx - zw/2 + 3*zw/10},${zy + zh}
+							${zx - zw/2 + 5*zw/10},${zy - zh}
+							${zx - zw/2 + 7*zw/10},${zy + zh}
+							${zx - zw/2 + 9*zw/10},${zy - zh}
+							${zx + zw/2},${zy}
+						`.trim()}
+						fill="none"
+						stroke={isWiringSource ? '#f59e0b' : selNode ? '#818cf8' : '#6366f1'}
+						stroke-width="1.5"
+						stroke-linejoin="round"
+					/>
+					<text x={NODE_W/2} y={NODE_H/2 + 14} text-anchor="middle" class="node-sub" fill={selNode ? '#818cf8' : '#6366f1'}>
+						{n.label ?? n.id} — {n.R} K/W
+					</text>
+
+				{:else if n.kind === 'source'}
+					<rect
+						width={NODE_W} height={NODE_H} rx="22"
+						fill={isWiringSource ? '#3b1f00' : selNode ? '#451a03' : '#27130a'}
+						stroke={isWiringSource ? '#f59e0b' : selNode ? '#fbbf24' : isWiringTarget ? '#475569' : '#f59e0b'}
+						stroke-width={isWiringSource || selNode ? 2.5 : 1.5}
+						stroke-dasharray={isWiringSource ? '5 3' : 'none'}
+					/>
+					<text x={NODE_W/2} y={NODE_H/2 - 4} text-anchor="middle" class="node-label" fill="#fef3c7">{n.label ?? n.id}</text>
+					<text x={NODE_W/2} y={NODE_H/2 + 10} text-anchor="middle" class="node-sub" fill="#fbbf24">
+						×{n.gain}
+					</text>
+				{/if}
+			</g>
+		{/each}
+	</svg>
+</div>
 
 <style>
+	.graph-wrap {
+		flex: 1;
+		position: relative;
+		min-width: 0;
+	}
+
 	.graph {
 		width: 100%;
 		height: 100%;
 		display: block;
 		background: #0f172a;
+	}
+
+	.wiring .graph {
+		cursor: crosshair;
+	}
+
+	.wiring-banner {
+		position: absolute;
+		top: 12px;
+		left: 50%;
+		transform: translateX(-50%);
+		background: #78350f;
+		color: #fef3c7;
+		border: 1px solid #f59e0b;
+		border-radius: 6px;
+		padding: 5px 14px;
+		font-size: 12px;
+		font-family: monospace;
+		pointer-events: none;
+		z-index: 10;
+		white-space: nowrap;
+	}
+
+	.wiring-banner kbd {
+		background: #451a03;
+		border: 1px solid #92400e;
+		border-radius: 3px;
+		padding: 1px 5px;
+		font-family: monospace;
 	}
 
 	.node-label {

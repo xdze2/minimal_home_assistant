@@ -1,21 +1,23 @@
 <script>
 	/**
 	 * Props:
-	 *   selected: { kind: 'mass'|'boundary'|'source'|'resistance', id: string } | null
+	 *   selected: { kind: 'mass'|'boundary'|'source'|'resistance', id: string }
+	 *           | { kind: 'edge', from: string, to: string }
+	 *           | null
 	 *   model: the full model object (read-only here)
 	 *   onpatch: (kind, id, patch) => void
 	 *   onadd: (kind) => void
 	 *   ondelete: (kind, id) => void
+	 *   ondeleteedge: (from, to) => void
 	 */
-	let { selected, model, onpatch, onadd, ondelete } = $props();
+	let { selected, model, onpatch, onadd, ondelete, ondeleteedge } = $props();
+
+	const isEdge = $derived(selected?.kind === 'edge');
 
 	const item = $derived.by(() => {
-		if (!selected) return null;
+		if (!selected || isEdge) return null;
 		return (model.nodes ?? []).find((n) => n.id === selected.id && n.kind === selected.kind) ?? null;
 	});
-
-	/** mass nodes available for dropdowns */
-	const massNodes = $derived((model.nodes ?? []).filter((n) => n.kind === 'mass'));
 
 	function commit(field, value) {
 		onpatch(selected.kind, selected.id, { [field]: value });
@@ -35,12 +37,33 @@
 		const num = parseFloat(value);
 		onpatch(selected.kind, selected.id, { T_source: isNaN(num) ? value : num });
 	}
+
+	function nodeName(id) {
+		return (model.nodes ?? []).find((n) => n.id === id)?.label ?? id;
+	}
 </script>
 
 <aside class="panel">
-	{#if !selected || !item}
-		<p class="hint">Click a node to edit its properties.</p>
-	{:else}
+	{#if !selected}
+		<p class="hint">Click a node or wire to inspect it.<br/>Select a node then press <kbd>W</kbd> to wire.</p>
+
+	{:else if isEdge}
+		<!-- ── edge selected ── -->
+		<div class="header">
+			<span class="kind-badge kind-edge">wire</span>
+			<button class="del-btn" onclick={() => ondeleteedge(selected.from, selected.to)}>Delete</button>
+		</div>
+		<div class="fields">
+			<div class="edge-display">
+				<span class="edge-node">{nodeName(selected.from)}</span>
+				<span class="edge-arrow">→</span>
+				<span class="edge-node">{nodeName(selected.to)}</span>
+			</div>
+			<p class="edge-ids">{selected.from} → {selected.to}</p>
+		</div>
+
+	{:else if item}
+		<!-- ── node selected ── -->
 		<div class="header">
 			<span class="kind-badge kind-{selected.kind}">{selected.kind}</span>
 			<button class="del-btn" onclick={() => ondelete(selected.kind, selected.id)}>Delete</button>
@@ -117,22 +140,25 @@
 			{/if}
 		</div>
 
-		{#if selected.kind === 'resistance' || selected.kind === 'source'}
-			<div class="wires-section">
-				<p class="section-title">Wires (edges)</p>
-				{#each (model.edges ?? []).filter((e) => e.from === selected.id || e.to === selected.id) as e}
-					<div class="wire-row">
-						<span class="wire-end">{e.from}</span>
-						<span class="wire-arrow">→</span>
-						<span class="wire-end">{e.to}</span>
-					</div>
-				{/each}
-			</div>
-		{/if}
+		<!-- wires connected to this node -->
+		<div class="wires-section">
+			<p class="section-title">Connected wires</p>
+			{#each (model.edges ?? []).filter((e) => e.from === selected.id || e.to === selected.id) as e}
+				<div class="wire-row">
+					<span class="wire-end">{e.from}</span>
+					<span class="wire-arrow">→</span>
+					<span class="wire-end">{e.to}</span>
+					<button class="wire-del" onclick={() => ondeleteedge(e.from, e.to)} title="Delete wire">×</button>
+				</div>
+			{/each}
+			{#if (model.edges ?? []).filter((e) => e.from === selected.id || e.to === selected.id).length === 0}
+				<p class="no-wires">no wires — press <kbd>W</kbd> to add</p>
+			{/if}
+		</div>
 	{/if}
 
 	<div class="add-section">
-		<p class="section-title">Add</p>
+		<p class="section-title">Add node</p>
 		<button onclick={() => onadd('mass')}>+ Mass</button>
 		<button onclick={() => onadd('boundary')}>+ Boundary</button>
 		<button onclick={() => onadd('source')}>+ Source</button>
@@ -158,6 +184,17 @@
 		color: #64748b;
 		margin: 0;
 		flex: 1;
+		line-height: 1.6;
+	}
+
+	.hint kbd {
+		background: #334155;
+		border: 1px solid #475569;
+		border-radius: 3px;
+		padding: 1px 5px;
+		font-family: monospace;
+		font-size: 11px;
+		color: #94a3b8;
 	}
 
 	.header {
@@ -180,6 +217,7 @@
 	.kind-boundary   { background: #14532d; color: #86efac; }
 	.kind-source     { background: #451a03; color: #fcd34d; }
 	.kind-resistance { background: #1e1b4b; color: #818cf8; }
+	.kind-edge       { background: #422006; color: #fde68a; }
 
 	.del-btn {
 		background: transparent;
@@ -197,8 +235,21 @@
 		flex-direction: column;
 		gap: 10px;
 		padding: 12px 14px;
-		flex: 1;
 	}
+
+	/* edge display */
+	.edge-display {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		background: #0f172a;
+		border: 1px solid #334155;
+		border-radius: 4px;
+		padding: 8px 10px;
+	}
+	.edge-node { font-size: 12px; font-family: monospace; color: #e2e8f0; }
+	.edge-arrow { color: #f59e0b; font-size: 14px; }
+	.edge-ids { font-size: 10px; font-family: monospace; color: #475569; margin: 0; }
 
 	label {
 		display: flex;
@@ -241,15 +292,41 @@
 	.wire-row {
 		display: flex;
 		align-items: center;
-		gap: 6px;
+		gap: 5px;
 		font-size: 11px;
 		font-family: monospace;
 		color: #94a3b8;
-		padding: 2px 0;
+		padding: 3px 0;
 	}
 
-	.wire-end { color: #cbd5e1; }
-	.wire-arrow { color: #475569; }
+	.wire-end { color: #cbd5e1; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+	.wire-arrow { color: #475569; flex-shrink: 0; }
+
+	.wire-del {
+		background: transparent;
+		border: none;
+		color: #64748b;
+		font-size: 14px;
+		line-height: 1;
+		cursor: pointer;
+		padding: 0 2px;
+		flex-shrink: 0;
+	}
+	.wire-del:hover { color: #ef4444; }
+
+	.no-wires {
+		font-size: 11px;
+		color: #475569;
+		font-family: monospace;
+		margin: 4px 0 0;
+	}
+	.no-wires kbd {
+		background: #1e293b;
+		border: 1px solid #334155;
+		border-radius: 3px;
+		padding: 0px 4px;
+		font-family: monospace;
+	}
 
 	.add-section {
 		padding: 12px 14px;
