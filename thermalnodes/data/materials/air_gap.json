@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schema/material.schema.json",
+  "id": "air_gap",
+  "name": "Lame d'air non ventilée",
+  "lambda": 0.18,
+  "rho": 1.2,
+  "cp": 1005,
+  "source": "ISO 6946:2017 Annex B (unventilated air layer equivalent conductivity)",
+  "notes": "Equivalent lambda for a typical 20–40 mm unventilated air layer. Not a true conductivity — do not use for very thin (<5 mm) or very thick (>300 mm) gaps."
+}

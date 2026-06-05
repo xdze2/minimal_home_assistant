@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schema/construction.schema.json",
+  "id": "window_vertical_double",
+  "name": "Fenêtre double vitrage vertical (U=1.4 W/(m²·K))",
+  "assembly_id": "fenetre_double_vitrage",
+  "orientation": "vertical",
+  "R_si": 0.13,
+  "R_se": 0.57,
+  "notes": "R_se surchargé pour que R_si + R_vitrage + R_se ≈ 1/1.4 = 0.714 m²·K/W, conforme à un Uw=1.4 W/(m²·K) typique double vitrage standard. Le layer glass_wool dans l'assembly est un placeholder — la résistance vient de R_se ici."
+}

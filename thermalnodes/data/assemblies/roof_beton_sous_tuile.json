@@ -1,0 +1,9 @@
+{
+  "$schema": "../../schema/assembly.schema.json",
+  "id": "roof_beton_sous_tuile",
+  "name": "Toiture béton 20 cm sous tuile (sans isolant)",
+  "layers": [
+    { "material_id": "concrete_heavy", "thickness": 0.20 }
+  ],
+  "notes": "Dalle béton 20 cm, sans isolation. Typique toiture-terrasse ou plancher haut non isolé. R ≈ 0.10 m²·K/W (hors films)."
+}

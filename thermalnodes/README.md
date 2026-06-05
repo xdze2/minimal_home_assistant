@@ -31,6 +31,29 @@ is a linear ODE solved by `scipy.integrate.solve_ivp`.
 | UI | Svelte + Svelteflow (node-graph canvas) |
 | Plots | uPlot |
 
+## Usage
+
+### UI (graph editor)
+
+```bash
+cd ui
+npm install       # first time only
+npm run dev       # dev server at http://localhost:5173
+```
+
+### API (Python solver) — not yet implemented
+
+```bash
+uv run uvicorn api.main:app --reload   # http://localhost:8000
+```
+
+### Validate a model against the schema
+
+```bash
+uv add check-jsonschema
+uv run check-jsonschema --schemafile schema/model.schema.json data/examples/chambre_1r1c.json
+```
+
 ## Project structure
 
 ```
@@ -38,17 +61,26 @@ thermalnodes/
   schema/
     material.schema.json      # physical constants for one material
     assembly.schema.json      # layer stack → U-value, areal mass
+    construction.schema.json  # assembly + orientation + surface films
     model.schema.json         # full topology: nodes, edges, boundaries, sources
-  examples/
-    chambre_1r1c.json         # single room, 1 resistance, 1 capacitance
-    chambre_2r2c.json         # room + ceiling mass node
+  data/
+    materials/                # curated material library (λ, ρ, cp)
+    assemblies/               # layer stacks (wall, roof, floor, window)
+    constructions/            # assembly + orientation + R_si/R_se
+    examples/
+      chambre_1r1c.json       # single room, 1 resistance, 1 solar source
   solver/
     assemble.py               # graph → (A, B) state-space matrices
     simulate.py               # solve_ivp wrapper → timeseries
   api/
     main.py                   # FastAPI /simulate endpoint
   ui/
-    ...                       # Svelte app
+    src/
+      lib/
+        modelToFlow.js        # model JSON → Svelteflow nodes/edges
+        nodes/                # RoomNode, BoundaryNode, HeatSourceNode
+      routes/
+        +page.svelte          # main canvas page
 ```
 
 ## MVP scope

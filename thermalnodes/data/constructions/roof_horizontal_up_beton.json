@@ -1,0 +1,8 @@
+{
+  "$schema": "../../schema/construction.schema.json",
+  "id": "roof_horizontal_up_beton",
+  "name": "Toiture horizontale béton 20 cm (flux vers le haut)",
+  "assembly_id": "roof_beton_sous_tuile",
+  "orientation": "horizontal_up",
+  "notes": "Flux ascendant (vers extérieur chaud ou vers ciel). R_si=0.10 (ISO 6946 horizontal_up), R_se=0.04. R_total ≈ 0.24 m²·K/W → U ≈ 4.2 W/(m²·K)."
+}

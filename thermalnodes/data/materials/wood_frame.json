@@ -1,0 +1,9 @@
+{
+  "$schema": "../../schema/material.schema.json",
+  "id": "wood_frame",
+  "name": "Bois de charpente (résineux)",
+  "lambda": 0.13,
+  "rho": 500,
+  "cp": 1600,
+  "source": "ISO 10456:2007 Table 1"
+}

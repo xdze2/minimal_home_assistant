@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schema/material.schema.json",
+  "id": "glass_wool",
+  "name": "Laine de verre",
+  "lambda": 0.035,
+  "rho": 15,
+  "cp": 840,
+  "source": "ISO 10456:2007 Table 1",
+  "notes": "Thickness set per assembly layer; this entry gives bulk constants only."
+}

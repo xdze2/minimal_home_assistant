@@ -1,0 +1,9 @@
+{
+  "$schema": "../../schema/assembly.schema.json",
+  "id": "dalle_beton_sol",
+  "name": "Dalle béton sur terre-plein 15 cm",
+  "layers": [
+    { "material_id": "concrete_heavy", "thickness": 0.15 }
+  ],
+  "notes": "Dalle béton en contact avec le sol. La résistance vers le sol profond dépend du sol (typiquement R_sol ≈ 0.5–2 m²·K/W selon EN ISO 13370); à modéliser comme edge séparé vers boundary sol_profond."
+}

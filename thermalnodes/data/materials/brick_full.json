@@ -1,0 +1,9 @@
+{
+  "$schema": "../../schema/material.schema.json",
+  "id": "brick_full",
+  "name": "Brique pleine",
+  "lambda": 0.8,
+  "rho": 1800,
+  "cp": 840,
+  "source": "ISO 10456:2007 Table 1"
+}

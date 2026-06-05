@@ -1,0 +1,9 @@
+{
+  "$schema": "../../schema/material.schema.json",
+  "id": "plaster",
+  "name": "Plâtre",
+  "lambda": 0.57,
+  "rho": 1200,
+  "cp": 1000,
+  "source": "ISO 10456:2007 Table 1"
+}

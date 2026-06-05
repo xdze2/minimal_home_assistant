@@ -1,0 +1,68 @@
+{
+  "$schema": "../../schema/model.schema.json",
+  "schema_version": "0.1",
+  "id": "chambre_1r1c",
+  "name": "Chambre — modèle 1R1C",
+  "notes": "Modèle minimal : une pièce, un mur vers l'extérieur, un apport solaire par la fenêtre sud. Temps caractéristique τ = R·C ≈ 10 h.",
+
+  "simulation": {
+    "start": "2026-07-01",
+    "end": "2026-07-15",
+    "dt_minutes": 15
+  },
+
+  "nodes": [
+    {
+      "id": "chambre_air",
+      "label": "Chambre",
+      "kind": "air",
+      "C": 8640000,
+      "T_initial": 22.0,
+      "ui_position": { "x": 400, "y": 200 }
+    }
+  ],
+
+  "boundaries": [
+    {
+      "id": "exterior",
+      "label": "Extérieur",
+      "T_source": "open_meteo/temperature_2m",
+      "ui_position": { "x": 80, "y": 200 }
+    }
+  ],
+
+  "edges": [
+    {
+      "id": "wall_south",
+      "label": "Mur sud",
+      "from": "exterior",
+      "to": "chambre_air",
+      "R": {
+        "construction_id": "wall_vertical_pierre_40cm",
+        "area": 12.0
+      }
+    }
+  ],
+
+  "solar_surfaces": [
+    {
+      "id": "poa/window_south",
+      "label": "Fenêtre sud",
+      "tilt": 90,
+      "azimuth": 180,
+      "albedo": 0.2,
+      "shading_factor": 1.0
+    }
+  ],
+
+  "heat_sources": [
+    {
+      "id": "solar_window_south",
+      "label": "Apport solaire fenêtre sud",
+      "kind": "solar",
+      "node": "chambre_air",
+      "signal": "poa/window_south",
+      "gain": 1.2
+    }
+  ]
+}

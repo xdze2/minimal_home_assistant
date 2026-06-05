@@ -1,0 +1,9 @@
+{
+  "$schema": "../../schema/material.schema.json",
+  "id": "stone_calcaire",
+  "name": "Calcaire (pierre de taille)",
+  "lambda": 1.7,
+  "rho": 2200,
+  "cp": 900,
+  "source": "ISO 10456:2007 Table 1"
+}

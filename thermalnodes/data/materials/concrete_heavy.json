@@ -1,0 +1,9 @@
+{
+  "$schema": "../../schema/material.schema.json",
+  "id": "concrete_heavy",
+  "name": "Béton lourd",
+  "lambda": 2.0,
+  "rho": 2400,
+  "cp": 880,
+  "source": "ISO 10456:2007 Table 1"
+}

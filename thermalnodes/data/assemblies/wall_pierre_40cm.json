@@ -1,0 +1,9 @@
+{
+  "$schema": "../../schema/assembly.schema.json",
+  "id": "wall_pierre_40cm",
+  "name": "Mur en pierre de taille 40 cm",
+  "layers": [
+    { "material_id": "stone_calcaire", "thickness": 0.40 }
+  ],
+  "notes": "Mur monolithique calcaire, typique vieille bâtiment français. R_mur ≈ 0.235 m²·K/W (hors films). U ≈ 3.0 W/(m²·K) avec films ISO 6946 vertical."
+}

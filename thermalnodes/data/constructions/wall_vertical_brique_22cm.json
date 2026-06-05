@@ -1,0 +1,8 @@
+{
+  "$schema": "../../schema/construction.schema.json",
+  "id": "wall_vertical_brique_22cm",
+  "name": "Mur vertical brique pleine 22 cm",
+  "assembly_id": "wall_brique_22cm",
+  "orientation": "vertical",
+  "notes": "R_total ≈ 0.445 m²·K/W → U ≈ 2.25 W/(m²·K)."
+}
