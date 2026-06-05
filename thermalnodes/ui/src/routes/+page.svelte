@@ -3,6 +3,7 @@
 	import GraphView from '$lib/GraphView.svelte';
 	import PropertiesPanel from '$lib/PropertiesPanel.svelte';
 	import DataExplorer from '$lib/DataExplorer.svelte';
+	import SimulationRun from '$lib/SimulationRun.svelte';
 
 	// ── page navigation ───────────────────────────────────────────────────────
 	let activePage = $state('model');
@@ -161,10 +162,7 @@
 			<DataExplorer />
 
 		{:else if activePage === 'simulation'}
-			<div class="placeholder">
-				<h2>Simulation run</h2>
-				<p>Configure and launch simulation runs.</p>
-			</div>
+			<SimulationRun />
 		{/if}
 	</div>
 </div>

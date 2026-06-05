@@ -2,7 +2,7 @@
 
 See README.md for project description and stack overview.
 
-## Status: graph editor + solver assembly + FastAPI backend (mock) + data exploration UI done
+## Status: graph editor + solver assembly + FastAPI backend (mock) + data exploration UI + simulation run tab done
 
 ---
 
@@ -190,7 +190,7 @@ Stack: SvelteKit + `@xyflow/svelte` + uPlot.
 - [x] Date range pickers (default: last 7 days)
 - [x] Metadata row: date range, sample count, gap count, min/max/mean
 
-### Simulation run tab (next)
+### Simulation run tab (done)
 
 The sim config decouples model topology from data sources:
 
@@ -206,12 +206,22 @@ The sim config decouples model topology from data sources:
 }
 ```
 
-- [ ] Model picker (reuse existing dropdown)
-- [ ] Date range pickers (start / end)
-- [ ] Inputs table: one row per boundary/source node in the selected model,
+- [x] Model picker (reuse existing dropdown)
+- [x] Date range pickers (start / end)
+- [x] Inputs table: one row per boundary/source node in the selected model,
       signal autocomplete on each row (reuse signal list from data exploration)
-- [ ] "Run" button → `POST /simulate` with assembled config
-- [ ] uPlot: temperature timeseries per mass node
+- [x] "Run" button → `POST /simulate` with assembled config
+- [x] uPlot: temperature timeseries per mass node (all masses on one shared chart)
+
+### Sim-config save / load (next)
+
+Allow saving and reloading a full simulation config (`model + start/end + inputs`) so
+runs can be reproduced without re-entering signal names each time.
+
+- [ ] "Save config" button in the simulation run tab → downloads a JSON file
+      `{ model_id, start, end, inputs }` (store model by id, not inline, to keep it compact)
+- [ ] "Load config" file picker → restores model selection, date range, and inputs map
+- [ ] (later) server-side persistence via `POST /simconfig/save` + `GET /simconfig/list`
 
 ### Server-backed model persistence (after simulation tab)
 
