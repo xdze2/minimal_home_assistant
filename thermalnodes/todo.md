@@ -2,7 +2,7 @@
 
 See README.md for project description and stack overview.
 
-## Status: graph editor + solver assembly + FastAPI backend (mock) + data exploration UI + simulation run tab done
+## Status: graph editor + solver assembly + FastAPI backend (real IVP solver) + data exploration UI + simulation run tab done
 
 ---
 
@@ -124,24 +124,23 @@ using the model matrices — sufficient to develop and test the UI end-to-end.
 
 **Real solver** (implement after UI is working):
 
-- [ ] `prepare_inputs(sim_config, influx_client) -> dict[str, tuple[np.ndarray, np.ndarray]]`
-  - Fetches each signal named in `sim_config.inputs` from InfluxDB.
-  - Resamples to a uniform 15-min grid over `[start, end]`.
-  - Returns `{node_id: (t_sec, values)}`.
-- [ ] `simulate_ivp(system, inputs, t_eval) -> SimResult`
+- [x] `simulate_ivp(system, inputs, start, end, y0=None) -> SimResult`
   - `inputs`: `dict[str, tuple[np.ndarray, np.ndarray]]` — `{node_id: (t_sec, values)}`
     mapped to matrix columns via `system.boundary_ids` / `system.source_ids`.
-  - Builds `u(t)` by interpolating each signal via `scipy.interpolate.interp1d`.
+  - Builds `u(t)` by ZOH-interpolating each signal via `scipy.interpolate.interp1d`.
   - Calls `solve_ivp(fun, t_span, y0, method='BDF', t_eval=t_eval)`.
-  - Returns `SimResult(t, temps)` where `temps: dict[mass_id, np.ndarray]`.
+  - `y0` defaults to first boundary value (warm start); can be overridden.
+  - `SimResult` carries solver metadata: `solver`, `elapsed_s`, `n_steps`, `n_rhs_evals`,
+    `success`, `message`.
+- [x] **Verify** (unit test): `chambre_1r1c.json`, step T_ext 0→10 °C, zero solar,
+      IVP matches `T(t) = 10·(1 − exp(−t/τ))` to < 0.01 °C at t=τ. ✓
+- [x] **Verify** (unit test): `chambre_v1.json`, T_ext=0, zero solar, T0=20 °C,
+      IVP → T < 0.5 °C after 5τ_slow; metadata fields present. ✓
 - [ ] `simulate_zoh(system, inputs_uniform, dt) -> SimResult`
   - `inputs_uniform`: same dict but values on a uniform grid of step `dt` seconds.
   - Precomputes `Ad = expm(A·dt)`, `Bd = inv(A) @ (Ad − I) @ B_full`.
   - Returns same `SimResult` format. Reference: `miniha/th_models/fit_2r2c.py`.
-- [ ] **Verify** (unit test): `chambre_1r1c.json`, step T_ext 0→10 °C, zero solar,
-      IVP and ZOH both match `T(t) = 10·(1 − exp(−t/τ))` to < 0.01 °C at t=τ.
-- [ ] **Verify** (unit test): `chambre_v1.json`, T_ext=0, zero solar, T0=[20,20],
-      both methods → T=0 with two exponential modes; τ values match eigenvalues of A.
+- [ ] **Verify** ZOH against IVP: same step-response test, both agree to < 0.01 °C.
 
 **Integrator choice:**
 
@@ -165,18 +164,15 @@ Run: `uv run uvicorn thermalnodes.api.main:app --reload --port 8001`
 ### Done
 - [x] `GET /signals` — lists all `measurement/field?tag=val` from InfluxDB
 - [x] `GET /series?signal=...&start=...&end=` — fetch + resample to 15 min
-- [x] `POST /simulate` — body: `{model, start, end, inputs: {node_id → signal}}`,
-      currently runs `simulate_mock`; swap for `simulate_ivp` once real solver is done
+- [x] `POST /simulate` — mock endpoint (kept for offline use)
 - [x] CORS for Svelte dev server (localhost:5173 and :4173)
-
-### Done
 - [x] `POST /simulate/inputs` — fetch + resample all signals in config; returns
       `{node_id: {signal, t, values}}` for UI preview before running the solver
+- [x] `POST /simulate/run` — fetches inputs from InfluxDB, calls `simulate_ivp`;
+      returns `{t, nodes, meta}` where `meta` carries solver stats
+      (elapsed_s, n_rhs_evals, success, message)
 
 ### TODO
-- [ ] `POST /simulate/run` — same body as current `POST /simulate`; calls
-      `prepare_inputs` then `simulate_ivp`; replace/rename existing mock endpoint
-      (cache `prepare_inputs` result keyed by `hash(signals+start+end)` later)
 - [ ] `POST /model/save` — persist model JSON to `data/user/` (separate from examples)
 - [ ] `GET /model/list` — list available model files (examples + user)
 - [ ] `GET /model/{id}` — return model JSON

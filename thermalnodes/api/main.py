@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from .influx import fetch_series, list_signals
 from ..solver.assemble import assemble
-from ..solver.simulate import simulate_mock
+from ..solver.simulate import simulate_ivp, simulate_mock
 
 app = FastAPI(title="thermalnodes API")
 
@@ -57,6 +57,68 @@ def post_simulate_inputs(req: SimulateRequest) -> dict:
             detail={"message": "Failed to fetch some signals", "errors": errors},
         )
     return result
+
+
+@app.post("/simulate/run")
+def post_simulate_run(req: SimulateRequest) -> dict:
+    """Fetch inputs from InfluxDB and run the real IVP solver.
+
+    Returns:
+        {
+            "t": [ISO strings],
+            "nodes": { mass_id: [float, ...] },
+            "meta": { solver, elapsed_s, n_steps, n_rhs_evals, success, message }
+        }
+    """
+    import datetime
+    import numpy as np
+
+    try:
+        system = assemble(req.model)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Model assembly error: {e}") from e
+
+    # Fetch and resample all input signals
+    inputs: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    errors: dict[str, str] = {}
+    for node_id, signal_name in req.inputs.items():
+        try:
+            s = fetch_series(signal_name, req.start, req.end)
+            t_sec = s.index.astype("int64") / 1e9
+            inputs[node_id] = (t_sec.to_numpy(), s.to_numpy(dtype=float))
+        except Exception as e:
+            errors[node_id] = str(e)
+
+    if errors:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Failed to fetch some signals", "errors": errors},
+        )
+
+    try:
+        result = simulate_ivp(system, inputs, req.start, req.end)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Simulation error: {e}") from e
+
+    if not result.success:
+        raise HTTPException(status_code=500, detail=f"Solver failed: {result.message}")
+
+    t_iso = [
+        datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).isoformat()
+        for ts in result.t
+    ]
+    return {
+        "t": t_iso,
+        "nodes": {mid: list(arr) for mid, arr in result.temps.items()},
+        "meta": {
+            "solver": result.solver,
+            "elapsed_s": result.elapsed_s,
+            "n_steps": result.n_steps,
+            "n_rhs_evals": result.n_rhs_evals,
+            "success": result.success,
+            "message": result.message,
+        },
+    }
 
 
 @app.post("/simulate")

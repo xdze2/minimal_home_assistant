@@ -110,7 +110,7 @@
 				end:   new Date(range.end).toISOString(),
 				inputs,
 			};
-			const res = await fetch(`${API}/simulate`, {
+			const res = await fetch(`${API}/simulate/run`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(body),
@@ -338,7 +338,7 @@
 			{:else if simResult}
 				<div class="result-header">
 					<span class="result-title">Temperature — mass nodes</span>
-					<span class="result-meta">{Object.keys(simResult.nodes).length} node{Object.keys(simResult.nodes).length !== 1 ? 's' : ''} · {simResult.t.length} steps</span>
+					<span class="result-meta">{Object.keys(simResult.nodes).length} node{Object.keys(simResult.nodes).length !== 1 ? 's' : ''} · {simResult.t.length} steps{simResult.meta ? ` · ${simResult.meta.elapsed_s.toFixed(2)} s · ${simResult.meta.n_rhs_evals} evals` : ''}</span>
 				</div>
 				<div class="chart-wrap" bind:this={chartContainer}></div>
 			{/if}
