@@ -2,7 +2,7 @@
 
 See README.md for project description and stack overview.
 
-## Status: graph editor + solver + FastAPI backend + ZOH solver + study persistence + UI layout refactor (step 5c) done. Stale-result tracking (5d) next.
+## Status: graph editor + solver + FastAPI backend + ZOH solver + study persistence + UI layout refactor (step 5c) + UI polish done. Stale-result tracking (5d) next.
 
 ---
 
@@ -343,7 +343,9 @@ IDs are user-supplied filename stems. Saving with an existing ID overwrites.
 - [x] **Run** — slimmed `SimulationRun.svelte`: action bar (Fetch + Run + solver badge)
       + results charts. No config sidebar — config lives in Inputs.
 - [x] **Fit** — placeholder
-- [x] No top bar — Save pinned at bottom of left nav; study nav only shown when a study is loaded
+- [x] No top bar — Save pinned at bottom of left nav (fixed, not pushed by flex spacer); study nav only shown when a study is loaded
+- [x] Model notes moved to PropertiesPanel (shown when nothing is selected, above the hint)
+- [x] Topology tab-header bar removed — full vertical space given to canvas
 
 #### Step 5d — Stale-result tracking — TODO (pass 2, after layout)
 

@@ -63,6 +63,9 @@
 
 <aside class="panel">
 	{#if !selected}
+		{#if model?.notes}
+			<p class="model-notes">{model.notes}</p>
+		{/if}
 		<p class="hint">Click a node or wire to inspect it.<br/>Select a node then press <kbd>W</kbd> to wire.</p>
 
 	{:else if isEdge}
@@ -203,6 +206,16 @@
 		flex-direction: column;
 		overflow-y: auto;
 		border-left: 1px solid #334155;
+	}
+
+	.model-notes {
+		padding: 12px 14px 0;
+		font-size: 11px;
+		color: #64748b;
+		margin: 0;
+		line-height: 1.5;
+		font-style: italic;
+		border-bottom: 1px solid #1e293b;
 	}
 
 	.hint {

@@ -248,24 +248,30 @@
 
 	<!-- left nav -->
 	<nav class="sidenav">
-		<div class="nav-logo">miniha</div>
+		<div class="nav-top">
+			<div class="nav-logo">miniha</div>
 
-		<button class="nav-item" class:active={activePage === 'home'} onclick={() => (activePage = 'home')}>
-			Home
-		</button>
+			<button class="nav-item" class:active={activePage === 'home'} onclick={() => (activePage = 'home')}>
+				Home
+			</button>
+
+			{#if selectedStudyId}
+				<div class="nav-divider"></div>
+				<div class="nav-study-id">{selectedStudyId}</div>
+				{#each TABS as t}
+					<button
+						class="nav-item nav-tab"
+						class:active={activePage === t.id}
+						onclick={() => (activePage = t.id)}
+					>{t.label}</button>
+				{/each}
+			{/if}
+		</div>
 
 		{#if selectedStudyId}
-			<div class="nav-divider"></div>
-			<div class="nav-study-id">{selectedStudyId}</div>
-			{#each TABS as t}
-				<button
-					class="nav-item nav-tab"
-					class:active={activePage === t.id}
-					onclick={() => (activePage = t.id)}
-				>{t.label}</button>
-			{/each}
-			<div class="nav-spacer"></div>
-			<button class="nav-save" onclick={openSaveDialog}>Save</button>
+			<div class="nav-bottom">
+				<button class="nav-save" onclick={openSaveDialog}>Save</button>
+			</div>
 		{/if}
 	</nav>
 
@@ -334,10 +340,6 @@
 
 		{:else if activePage === 'topology'}
 			{#if model}
-				<div class="tab-header">
-					<span class="meta">{model.id} · schema {model.schema_version}</span>
-					{#if model.notes}<span class="notes">{model.notes}</span>{/if}
-				</div>
 				<div class="body">
 					<GraphView {model} {selected} onselect={(s) => (selected = s)} {onaddedge} />
 					<PropertiesPanel {model} {selected} {onpatch} {onadd} {ondelete} {ondeleteedge} />
@@ -388,9 +390,24 @@
 		border-right: 1px solid #334155;
 		display: flex;
 		flex-direction: column;
-		padding: 12px 0 12px;
-		gap: 2px;
+		padding: 0;
 		overflow: hidden;
+	}
+
+	.nav-top {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		padding: 12px 0 8px;
+		overflow-y: auto;
+		overflow-x: hidden;
+	}
+
+	.nav-bottom {
+		padding: 8px 10px 12px;
+		border-top: 1px solid #334155;
+		flex-shrink: 0;
 	}
 
 	.nav-logo {
@@ -434,10 +451,8 @@
 		white-space: nowrap;
 	}
 
-	.nav-spacer { flex: 1; }
-
 	.nav-save {
-		margin: 0 10px 4px;
+		width: 100%;
 		background: #1e3a5f;
 		color: #93c5fd;
 		border: 1px solid #1e4976;
@@ -448,6 +463,7 @@
 		cursor: pointer;
 		text-align: center;
 		transition: background 0.1s;
+		box-sizing: border-box;
 	}
 	.nav-save:hover { background: #1e4976; }
 
@@ -593,20 +609,6 @@
 		flex: 1;
 		max-width: 300px;
 	}
-
-	/* ── tab header (topology info bar) ── */
-	.tab-header {
-		display: flex;
-		align-items: baseline;
-		gap: 16px;
-		padding: 8px 20px;
-		background: #1e293b;
-		border-bottom: 1px solid #334155;
-		flex-shrink: 0;
-	}
-
-	.meta  { font-size: 12px; color: #94a3b8; }
-	.notes { font-size: 11px; color: #94a3b8; font-style: italic; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 400px; }
 
 	/* ── body / content areas ── */
 	.body {

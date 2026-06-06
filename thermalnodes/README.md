@@ -50,27 +50,28 @@ npm run dev        # http://localhost:5173
 ```
 ┌──────────────┬──────────────────────────────────────────┐
 │ miniha       │                                          │
-│              │                                          │
-│ Home ────────┤   Home: study browser (card grid)        │
-│              │   or active tab content                  │
-│ ─────────    │                                          │
+│ Home         │  Home: study browser (card grid)         │
+│ ──────────── │  or active tab content                   │
 │ study_id     │                                          │
 │   Topology   │                                          │
 │   Inputs     │                                          │
 │   Run        │                                          │
 │   Fit        │                                          │
-│              │                                          │
+│ ──────────── │                                          │
 │  [Save]      │                                          │
 └──────────────┴──────────────────────────────────────────┘
 ```
 
 - **Home** — card grid of all studies (examples + user), click to open, ⎘ to duplicate
-- **Topology** — node-graph editor (`@xyflow/svelte`) + properties panel
+- **Topology** — node-graph editor (`@xyflow/svelte`) + properties panel (right); no top
+  bar — model notes shown in the properties panel when nothing is selected
 - **Inputs** — date range, solver selector, signal assignment per boundary/source node,
   inline uPlot preview per signal
 - **Run** — Fetch inputs + Run simulation buttons, results charts (inputs + temperatures),
   solver metadata
 - **Fit** — placeholder (step 6)
+
+Save is always pinned at the bottom of the left nav, visible regardless of nav height.
 
 ## Study schema
 
