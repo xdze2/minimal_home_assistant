@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from .influx import fetch_series, list_signals
 from ..solver.assemble import assemble
 from ..solver.simulate import simulate_ivp, simulate_zoh, simulate_mock
+from ..solver.fit import build_forward, fit_nls, fit_mcmc
 
 DATA_DIR     = Path(__file__).parent.parent / "data"
 EXAMPLES_DIR = DATA_DIR / "examples"
@@ -222,6 +223,97 @@ def post_simulate(req: SimulateRequest) -> dict:
         "t": t_iso,
         "nodes": {mid: list(arr) for mid, arr in result.temps.items()},
     }
+
+
+# ── fit ───────────────────────────────────────────────────────────────────────
+
+class FitRequest(BaseModel):
+    model: dict
+    start: str
+    end: str
+    inputs: dict[str, str]       # node_id → signal name
+    observations: dict[str, str] # mass_node_id → signal name
+    params: dict[str, dict]      # param_key → {nominal, sigma_log}
+    obs_sigma: float = 0.5
+    method: str = "nls"          # "nls" | "mcmc"
+    dt_minutes: int = 15
+
+
+@app.post("/fit/run")
+def post_fit_run(req: FitRequest) -> dict:
+    """Fetch inputs + observations from InfluxDB, then run NLS or MCMC fit.
+
+    Returns fitted parameter values, uncertainties, and diagnostics.
+    """
+    import numpy as np
+
+    # Fetch input signals
+    inputs: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    errors: dict[str, str] = {}
+    for node_id, signal_name in req.inputs.items():
+        try:
+            s = fetch_series(signal_name, req.start, req.end)
+            t_sec = s.index.astype("int64") / 1e9
+            inputs[node_id] = (t_sec.to_numpy(), s.to_numpy(dtype=float))
+        except Exception as e:
+            errors[node_id] = str(e)
+
+    # Fetch observation signals
+    observations: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for node_id, signal_name in req.observations.items():
+        try:
+            s = fetch_series(signal_name, req.start, req.end)
+            t_sec = s.index.astype("int64") / 1e9
+            observations[node_id] = (t_sec.to_numpy(), s.to_numpy(dtype=float))
+        except Exception as e:
+            errors[node_id] = str(e)
+
+    if errors:
+        raise HTTPException(
+            status_code=400,
+            detail={"message": "Failed to fetch some signals", "errors": errors},
+        )
+
+    fit_config = {
+        "params":    req.params,
+        "obs_sigma": req.obs_sigma,
+        "method":    req.method,
+    }
+
+    try:
+        forward_fn, log_p0, param_keys = build_forward(
+            req.model, inputs, observations, fit_config,
+            req.start, req.end, req.dt_minutes,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Model error: {e}") from e
+
+    try:
+        if req.method == "mcmc":
+            result = fit_mcmc(forward_fn, log_p0, param_keys, fit_config)
+            return {
+                "method":          result.method,
+                "params_nominal":  result.params_nominal,
+                "params_mean":     result.params_mean,
+                "params_std":      result.params_std,
+                "acceptance_rate": result.acceptance_rate,
+                "elapsed_s":       result.elapsed_s,
+            }
+        else:
+            result = fit_nls(forward_fn, log_p0, param_keys, fit_config)
+            return {
+                "method":          result.method,
+                "params_nominal":  result.params_nominal,
+                "params_fitted":   result.params_fitted,
+                "params_std":      result.params_std,
+                "cost":            result.cost,
+                "success":         result.success,
+                "message":         result.message,
+                "elapsed_s":       result.elapsed_s,
+                "n_evals":         result.n_evals,
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Fit error: {e}") from e
 
 
 @app.get("/signals")

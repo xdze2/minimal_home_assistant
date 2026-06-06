@@ -4,6 +4,7 @@
 	import PropertiesPanel from '$lib/PropertiesPanel.svelte';
 	import InputsPanel from '$lib/InputsPanel.svelte';
 	import SimulationRun from '$lib/SimulationRun.svelte';
+	import FitPanel from '$lib/FitPanel.svelte';
 
 	const API = 'http://localhost:8001';
 
@@ -391,10 +392,11 @@
 			{/if}
 
 		{:else if activePage === 'fit'}
-			<div class="placeholder">
-				<h2>Fit</h2>
-				<p>Parameter estimation — coming in step 6.</p>
-			</div>
+			{#if model}
+				<div class="body scrollable">
+					<FitPanel {model} inputs={simInputs} range={simRange} />
+				</div>
+			{/if}
 
 		{:else if activePage === 'debug'}
 			<div class="debug-view">

@@ -2,7 +2,7 @@
 
 See README.md for project description and stack overview.
 
-## Status: graph editor + solver + FastAPI backend + ZOH solver + study persistence + UI layout refactor + UI polish + stale/save cycle done. Next: step 5e / step 6.
+## Status: graph editor + solver + FastAPI backend + ZOH solver + study persistence + UI layout refactor + UI polish + stale/save cycle + fit (NLS/MCMC) done. Next: step 5e / UI polish on Fit tab.
 
 ---
 
@@ -398,8 +398,8 @@ Extends the sim config with two new fields:
 ```json
 {
   "params": {
-    "R_ext":                   { "nominal": 0.0178, "sigma_log": 0.5 },
-    "R_int":                   { "nominal": 0.0234, "sigma_log": 0.5 },
+    "R_ext.R":                 { "nominal": 0.0178, "sigma_log": 0.5 },
+    "R_int.R":                 { "nominal": 0.0234, "sigma_log": 0.5 },
     "mur_sud.C":               { "nominal": 9504000, "sigma_log": 0.5 },
     "chambre.C":               { "nominal": 8640000, "sigma_log": 0.5 },
     "apport_fenetre_sud.gain": { "nominal": 1.2,     "sigma_log": 0.5 }
@@ -416,38 +416,41 @@ Extends the sim config with two new fields:
 - `obs_sigma`: observation noise [°C], assumed Gaussian.
 - `method`: `"nls"` or `"mcmc"`.
 
-### Python (`solver/fit.py`)
+### Python (`solver/fit.py`) — DONE
 
-- [ ] `build_forward(sim_config, fit_config, influx_client) -> Callable[[params_vec], T_pred]`
-  - Fetches inputs + observations once (slow I/O step).
-  - Returns a pure function `params_vec → predicted temperatures array` using ZOH.
-  - Params encoded in log-space; function patches the model dict, re-assembles, re-discretises.
-- [ ] `fit_nls(forward_fn, fit_config) -> FitResult`
-  - `scipy.optimize.least_squares` in log-space; residuals = `(T_pred − T_obs) / obs_sigma`.
-  - Warm-start from nominal values. Returns best-fit params + cost + covariance estimate.
-- [ ] `fit_mcmc(forward_fn, fit_config, n_samples=2000) -> MCMCResult`
-  - Log-posterior = Gaussian log-likelihood + log-normal log-prior per param.
-  - Use `emcee` (no JAX dependency). Warm-start walkers around NLS result.
+- [x] `build_forward(model, inputs, observations, fit_config, start, end, dt_minutes, y0)`
+  - I/O done outside; returns pure `log_params_vec → residuals` closure using ZOH.
+  - Params encoded in log-space; patches model dict, re-assembles, re-discretises per call.
+- [x] `fit_nls(forward_fn, log_p0, param_keys, fit_config) -> FitResult`
+  - `scipy.optimize.least_squares` (LM) in log-space.
+  - Log-normal priors folded in as extra residual terms.
+  - Returns best-fit params + covariance-derived std + cost + n_evals.
+- [x] `fit_mcmc(forward_fn, log_p0, param_keys, fit_config, n_samples) -> MCMCResult`
+  - `emcee` ensemble sampler in log-space; 20% burn-in, auto-thinning by autocorr time.
   - Returns `{ params_mean, params_std, samples (thinned), acceptance_rate }`.
+- [x] Param keys: uniform `node_id.field_name` format (`R_ext.R`, `chambre.C`, `apport.gain`).
+- [x] Unit tests: patch model (5 cases) + NLS synthetic recovery (50% offset → < 5% error).
 
-### API (`api/main.py`)
+### API (`api/main.py`) — DONE
 
-- [ ] `POST /fit/run` — accepts `{ sim_config, fit_config }`, calls `build_forward` then
-      `fit_nls` or `fit_mcmc` based on `fit_config.method`.
-      Returns Pydantic `FitResult` (OpenAPI docs auto-generated).
+- [x] `POST /fit/run` — accepts `{ model, start, end, inputs, observations, params, obs_sigma, method, dt_minutes }`,
+      fetches all signals from InfluxDB, calls `build_forward` + `fit_nls` or `fit_mcmc`.
 
-### UI — Parameter fit tab (new tab)
+### UI — Parameter fit tab — DONE
 
-- [ ] New "Fit" tab in the left nav (after "Simulate")
-- [ ] Sim config section: reuse model picker + date range + inputs table
-- [ ] Observations table: one row per mass node, signal autocomplete
-- [ ] Params table: one row per free parameter — node id, nominal value, sigma_log;
-      pre-populated from model node values, editable
-- [ ] `obs_sigma` field + method selector (`nls` / `mcmc`)
-- [ ] "Run fit" button → `POST /fit/run`
-- [ ] Results panel:
-  - NLS: table of fitted vs nominal param values + % change; residual plot (T_pred vs T_obs)
-  - MCMC: same table with ± uncertainty; marginal histograms per param (or corner plot)
+- [x] `FitPanel.svelte` — Fit tab content:
+  - Observations table: one row per mass node, signal autocomplete
+  - Params table: auto-populated from model (resistance→R, mass→C, source→gain),
+    checkbox to toggle fixed/free, editable nominal + sigma_log
+  - `obs_sigma` field + NLS / MCMC method selector
+  - "Run fit" button → `POST /fit/run`
+  - Results table: fitted vs nominal + ± σ + % change; cost / acceptance rate
+- [x] Fit tab wired in `+page.svelte`; reuses date range + inputs from Inputs tab
+
+### TODO (nice to have)
+
+- [ ] Residual plot: T_pred vs T_obs overlay after NLS fit
+- [ ] MCMC: marginal histograms per param (corner plot)
 
 ---
 
