@@ -38,8 +38,8 @@
 		const end = new Date();
 		const start = new Date(end - 7 * 24 * 3600 * 1000);
 		return {
-			start: start.toISOString().slice(0, 16),
-			end: end.toISOString().slice(0, 16),
+			start: start.toISOString().slice(0, 10),
+			end: end.toISOString().slice(0, 10),
 		};
 	}
 
@@ -59,8 +59,8 @@
 		try {
 			const params = new URLSearchParams({
 				signal,
-				start: new Date(range.start).toISOString(),
-				end:   new Date(range.end).toISOString(),
+				start: range.start,
+				end:   range.end,
 			});
 			const res = await fetch(`${API}/series?${params}`);
 			if (!res.ok) {
@@ -219,8 +219,8 @@
 			<div class="preview-header">
 				<span class="sig-name">{selectedSignal}</span>
 				<div class="range-controls">
-					<label>From <input type="datetime-local" bind:value={range.start} /></label>
-					<label>To   <input type="datetime-local" bind:value={range.end}   /></label>
+					<label>From <input type="date" bind:value={range.start} /></label>
+					<label>To   <input type="date" bind:value={range.end}   /></label>
 					<button onclick={() => fetchSeries(selectedSignal)}>Load</button>
 				</div>
 			</div>
@@ -382,7 +382,7 @@
 		gap: 4px;
 	}
 
-	.range-controls input[type='datetime-local'] {
+	.range-controls input[type='date'] {
 		background: #0f172a;
 		border: 1px solid #334155;
 		border-radius: 4px;

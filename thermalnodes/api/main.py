@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from .influx import fetch_series, list_signals
 from ..solver.assemble import assemble
-from ..solver.simulate import simulate_ivp, simulate_mock
+from ..solver.simulate import simulate_ivp, simulate_zoh, simulate_mock
 
 app = FastAPI(title="thermalnodes API")
 
@@ -29,6 +29,8 @@ class SimulateRequest(BaseModel):
     start: str
     end: str
     inputs: dict[str, str]  # node_id → signal name
+    solver: str = "ivp"     # "ivp" | "zoh"
+    dt_minutes: int = 15    # ZOH time step (ignored for ivp)
 
 
 @app.post("/simulate/inputs")
@@ -96,7 +98,10 @@ def post_simulate_run(req: SimulateRequest) -> dict:
         )
 
     try:
-        result = simulate_ivp(system, inputs, req.start, req.end)
+        if req.solver == "zoh":
+            result = simulate_zoh(system, inputs, req.start, req.end, req.dt_minutes)
+        else:
+            result = simulate_ivp(system, inputs, req.start, req.end)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Simulation error: {e}") from e
 

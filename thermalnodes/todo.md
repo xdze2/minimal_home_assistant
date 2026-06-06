@@ -2,7 +2,7 @@
 
 See README.md for project description and stack overview.
 
-## Status: graph editor + solver assembly + FastAPI backend (real IVP solver) + ZOH solver + data exploration UI + simulation run tab done
+## Status: graph editor + solver assembly + FastAPI backend (real IVP solver + ZOH routing) + ZOH solver + data exploration UI + simulation run tab (with solver selector) done
 
 ---
 
@@ -173,14 +173,10 @@ Run: `uv run uvicorn thermalnodes.api.main:app --reload --port 8001`
 - [x] `POST /simulate/run` — fetches inputs from InfluxDB, calls `simulate_ivp`;
       returns `{t, nodes, meta}` where `meta` carries solver stats
       (elapsed_s, n_rhs_evals, success, message)
+- [x] `POST /simulate/run` — `solver` field (`"ivp"` | `"zoh"`, default `"ivp"`)
 
 ### TODO
-- [ ] `POST /simulate/run` — add `solver` field to request (`"ivp"` | `"zoh"`, default `"ivp"`);
-      route to `simulate_ivp` or `simulate_zoh` accordingly
 - [ ] `POST /fit/run` — accept `{ sim_config, fit_config }`, return fit results (see step 6)
-- [ ] `POST /model/save` — persist model JSON to `data/user/` (separate from examples)
-- [ ] `GET /model/list` — list available model files (examples + user)
-- [ ] `GET /model/{id}` — return model JSON
 - [ ] `GET /materials` — list available material ids + names
 
 ---
@@ -232,25 +228,40 @@ The sim config decouples model topology from data sources:
 - [x] uPlot: temperature timeseries per mass node (all masses on one shared chart)
 - [x] "Fetch inputs" button → `POST /simulate/inputs`; plots resampled input signals
       (boundary temperatures, heat sources) above the simulation results chart
-- [ ] Solver selector: `ivp` (default) / `zoh` radio or dropdown; passed as `solver` field
+- [x] Solver selector: `ivp` (default) / `zoh` radio; passed as `solver` field to `POST /simulate/run`
 - [ ] Metadata display: show `meta` block from response (elapsed_s, n_steps, solver, message)
 - [ ] (later) skip re-fetch if inputs unchanged — server-side cache, transparent to UI
 
-### Sim-config save / load (next)
+### Backend-backed persistence (next — do this first, cleans up the read/write interface)
 
-Allow saving and reloading a full simulation config (`model + start/end + inputs`) so
-runs can be reproduced without re-entering signal names each time.
+Single-user local app, backend always running → all persistent state lives on the server
+under `thermalnodes/data/user/`. No localStorage split, files are human-readable JSON.
 
-- [ ] "Save config" button in the simulation run tab → downloads a JSON file
-      `{ model_id, start, end, inputs }` (store model by id, not inline, to keep it compact)
-- [ ] "Load config" file picker → restores model selection, date range, and inputs map
-- [ ] (later) server-side persistence via `POST /simconfig/save` + `GET /simconfig/list`
+**File layout:**
+```
+thermalnodes/data/
+  examples/          (read-only)
+  user/
+    models/          {id}.json   — model topology
+    configs/         {id}.json   — full run config (model_id + signals + solver + start/end)
+```
 
-### Server-backed model persistence (after simulation tab)
+**Backend API** (`api/main.py`):
+- [ ] `GET  /models` — list all models: examples + user, each with `{id, label, source: "example"|"user"}`
+- [ ] `GET  /models/{id}` — return model JSON
+- [ ] `POST /models` — save model to `data/user/models/{id}.json`, body `{id, model}`
+- [ ] `GET  /configs` — list saved run configs `{id, label}`
+- [ ] `GET  /configs/{id}` — return full config JSON
+- [ ] `POST /configs` — save config to `data/user/configs/{id}.json`, body `{id, label, model_id, start, end, inputs, solver}`
 
-- [ ] Replace bundled `MODELS` import with `GET /model/list` + `GET /model/{id}`
-- [ ] "Save to server" button → `POST /model/save`
-- [ ] Reload model list after save
+IDs are user-supplied filename stems (e.g. `chambre_v1`, `run_jan_2024`). No UUIDs.
+
+**UI** (`SimulationRun.svelte` + graph editor):
+- [ ] Replace bundled `MODELS` import with `GET /models`; model picker shows source badge (example / user)
+- [ ] Graph editor: "Save model" button → `POST /models` (id prompt or derived from label)
+- [ ] Simulate tab: "Save config" button → `POST /configs` with current state (id prompt)
+- [ ] Simulate tab: config picker dropdown → `GET /configs`, selecting one restores
+      model, signals, solver, and start/end
 
 ### Nice to have (post-MVP)
 

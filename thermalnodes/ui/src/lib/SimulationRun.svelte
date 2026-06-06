@@ -46,12 +46,15 @@
 		const end = new Date();
 		const start = new Date(end - 7 * 24 * 3600 * 1000);
 		return {
-			start: start.toISOString().slice(0, 16),
-			end:   end.toISOString().slice(0, 16),
+			start: start.toISOString().slice(0, 10),
+			end:   end.toISOString().slice(0, 10),
 		};
 	}
 
 	let range = $state(defaultDateRange());
+
+	// ── solver selector ───────────────────────────────────────────────────────
+	let solver = $state('ivp');
 
 	// ── inputs map: node_id → signal_name ────────────────────────────────────
 	let inputs = $state({});
@@ -72,8 +75,8 @@
 		try {
 			const body = {
 				model,
-				start: new Date(range.start).toISOString(),
-				end:   new Date(range.end).toISOString(),
+				start: range.start,
+				end:   range.end,
 				inputs,
 			};
 			const res = await fetch(`${API}/simulate/inputs`, {
@@ -106,9 +109,10 @@
 		try {
 			const body = {
 				model,
-				start: new Date(range.start).toISOString(),
-				end:   new Date(range.end).toISOString(),
+				start: range.start,
+				end:   range.end,
 				inputs,
+				solver,
 			};
 			const res = await fetch(`${API}/simulate/run`, {
 				method: 'POST',
@@ -260,12 +264,24 @@
 		<div class="section-header">Date range</div>
 		<label>
 			<span>From</span>
-			<input type="datetime-local" bind:value={range.start} />
+			<input type="date" bind:value={range.start} />
 		</label>
 		<label>
 			<span>To</span>
-			<input type="datetime-local" bind:value={range.end} />
+			<input type="date" bind:value={range.end} />
 		</label>
+
+		<div class="section-header">Solver</div>
+		<div class="solver-radios">
+			<label class="radio-label">
+				<input type="radio" bind:group={solver} value="ivp" />
+				<span>IVP (BDF)</span>
+			</label>
+			<label class="radio-label">
+				<input type="radio" bind:group={solver} value="zoh" />
+				<span>ZOH</span>
+			</label>
+		</div>
 
 		<div class="section-header">
 			Inputs
@@ -407,7 +423,7 @@
 		color: #64748b;
 	}
 
-	input[type='datetime-local'],
+	input[type='date'],
 	input[type='text'] {
 		background: #0f172a;
 		color: #e2e8f0;
@@ -423,6 +439,26 @@
 	input:focus {
 		outline: none;
 		border-color: #6366f1;
+	}
+
+	.solver-radios {
+		display: flex;
+		gap: 14px;
+	}
+
+	.radio-label {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: 5px;
+		cursor: pointer;
+	}
+
+	.radio-label span {
+		font-size: 12px;
+		color: #e2e8f0;
+		text-transform: none;
+		letter-spacing: normal;
 	}
 
 	/* ── inputs table ── */
