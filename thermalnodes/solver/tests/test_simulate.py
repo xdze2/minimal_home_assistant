@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from thermalnodes.solver.assemble import assemble
-from thermalnodes.solver.simulate import simulate_ivp
+from thermalnodes.solver.simulate import simulate_ivp, simulate_zoh
 
 DATA = Path(__file__).parents[2] / "data" / "examples"
 
@@ -118,3 +118,75 @@ class TestIVPV1Decay:
         assert result.elapsed_s > 0
         assert result.n_rhs_evals is not None and result.n_rhs_evals > 0
         assert result.n_steps is not None and result.n_steps > 0
+
+
+class TestZOH1R1C:
+    """chambre_1r1c: ZOH step-response must match analytical T(t)=10·(1−exp(−t/τ))."""
+
+    def setup_method(self):
+        model = load("chambre_1r1c.json")
+        self.sys = assemble(model)
+        R, C = 0.034, 8_640_000
+        self.tau = R * C  # seconds
+
+    def _run(self, t_end_s: float) -> tuple[np.ndarray, np.ndarray]:
+        t0, t1 = 0.0, t_end_s
+        start = "1970-01-01T00:00:00"
+        import datetime
+        end = datetime.datetime.fromtimestamp(t1, datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S")
+
+        inputs = {
+            "exterior":             _constant_input(t0, t1, 10.0),
+            "apport_fenetre_sud":   _constant_input(t0, t1, 0.0),
+        }
+        result = simulate_zoh(self.sys, inputs, start, end, dt_minutes=15,
+                               y0=np.zeros(1))
+        assert result.success, result.message
+        return result.t - result.t[0], result.temps["chambre"]
+
+    def test_step_response_at_tau(self):
+        """At t=τ, T must equal 10·(1−1/e) within 0.01 °C."""
+        t_rel, T = self._run(3 * self.tau)
+        idx = np.argmin(np.abs(t_rel - self.tau))
+        T_expected = 10.0 * (1 - np.exp(-1.0))
+        assert abs(T[idx] - T_expected) < 0.01, (
+            f"T(τ)={T[idx]:.4f} °C, expected {T_expected:.4f} °C"
+        )
+
+    def test_metadata(self):
+        _, _ = self._run(self.tau)
+
+
+class TestZOHvsIVP1R1C:
+    """ZOH and IVP must agree to < 0.01 °C on the same step response."""
+
+    def setup_method(self):
+        model = load("chambre_1r1c.json")
+        self.sys = assemble(model)
+        R, C = 0.034, 8_640_000
+        self.tau = R * C
+
+    def test_zoh_matches_ivp(self):
+        t0, t1 = 0.0, 3 * self.tau
+        start = "1970-01-01T00:00:00"
+        import datetime
+        end = datetime.datetime.fromtimestamp(t1, datetime.UTC).strftime("%Y-%m-%dT%H:%M:%S")
+
+        inputs = {
+            "exterior":           _constant_input(t0, t1, 10.0),
+            "apport_fenetre_sud": _constant_input(t0, t1, 0.0),
+        }
+        y0 = np.zeros(1)
+        res_ivp = simulate_ivp(self.sys, inputs, start, end, dt_minutes=15, y0=y0)
+        res_zoh = simulate_zoh(self.sys, inputs, start, end, dt_minutes=15, y0=y0)
+
+        assert res_ivp.success
+        assert res_zoh.success
+
+        T_ivp = res_ivp.temps["chambre"]
+        T_zoh = res_zoh.temps["chambre"]
+
+        # Align on the shorter grid (ZOH uses arange, IVP may differ by 1 point)
+        n = min(len(T_ivp), len(T_zoh))
+        max_diff = np.max(np.abs(T_ivp[:n] - T_zoh[:n]))
+        assert max_diff < 0.01, f"max |IVP−ZOH| = {max_diff:.4f} °C (tolerance 0.01 °C)"

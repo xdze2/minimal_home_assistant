@@ -2,7 +2,7 @@
 
 See README.md for project description and stack overview.
 
-## Status: graph editor + solver assembly + FastAPI backend (real IVP solver) + data exploration UI + simulation run tab done
+## Status: graph editor + solver assembly + FastAPI backend (real IVP solver) + ZOH solver + data exploration UI + simulation run tab done
 
 ---
 
@@ -136,13 +136,13 @@ using the model matrices — sufficient to develop and test the UI end-to-end.
       IVP matches `T(t) = 10·(1 − exp(−t/τ))` to < 0.01 °C at t=τ. ✓
 - [x] **Verify** (unit test): `chambre_v1.json`, T_ext=0, zero solar, T0=20 °C,
       IVP → T < 0.5 °C after 5τ_slow; metadata fields present. ✓
-- [ ] `simulate_zoh(system, inputs, start, end, dt_minutes) -> SimResult`
+- [x] `simulate_zoh(system, inputs, start, end, dt_minutes) -> SimResult`
   - Use `scipy.signal.cont2discrete((A, B_full, I, 0), dt, method='zoh')` to get `Ad`, `Bd`.
     `B_full` = `[B_boundary | B_source]` concatenated column-wise.
   - Use `scipy.signal.dlsim((Ad, Bd, I, 0, dt), u, x0=y0)` for the time-stepping loop.
     `u` = input matrix, shape `(n_steps, n_boundary + n_source)`, assembled from `inputs` dict.
   - Returns same `SimResult` format (`solver='zoh'`).
-- [ ] **Verify** ZOH against IVP: same step-response test, both agree to < 0.01 °C.
+- [x] **Verify** ZOH against IVP: same step-response test, both agree to < 0.01 °C. ✓
 
 **Integrator choice:**
 
