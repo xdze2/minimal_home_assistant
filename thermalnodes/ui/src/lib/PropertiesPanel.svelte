@@ -208,7 +208,7 @@
 	.hint {
 		padding: 16px;
 		font-size: 12px;
-		color: #64748b;
+		color: #94a3b8;
 		margin: 0;
 		flex: 1;
 		line-height: 1.6;
@@ -276,7 +276,7 @@
 	}
 	.edge-node { font-size: 12px; font-family: monospace; color: #e2e8f0; }
 	.edge-arrow { color: #f59e0b; font-size: 14px; }
-	.edge-ids { font-size: 10px; font-family: monospace; color: #475569; margin: 0; }
+	.edge-ids { font-size: 10px; font-family: monospace; color: #94a3b8; margin: 0; }
 
 	label {
 		display: flex;
@@ -288,7 +288,7 @@
 		font-size: 10px;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
-		color: #64748b;
+		color: #94a3b8;
 	}
 
 	input, select {
@@ -327,12 +327,12 @@
 	}
 
 	.wire-end { color: #cbd5e1; flex: 1; overflow: hidden; text-overflow: ellipsis; }
-	.wire-arrow { color: #475569; flex-shrink: 0; }
+	.wire-arrow { color: #94a3b8; flex-shrink: 0; }
 
 	.wire-del {
 		background: transparent;
 		border: none;
-		color: #64748b;
+		color: #94a3b8;
 		font-size: 14px;
 		line-height: 1;
 		cursor: pointer;
@@ -343,7 +343,7 @@
 
 	.no-wires {
 		font-size: 11px;
-		color: #475569;
+		color: #94a3b8;
 		font-family: monospace;
 		margin: 4px 0 0;
 	}
@@ -368,7 +368,7 @@
 		font-size: 10px;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
-		color: #64748b;
+		color: #94a3b8;
 		margin: 0 0 2px;
 	}
 

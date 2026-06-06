@@ -1,90 +1,131 @@
 # thermalnodes
 
-A fun demo tool for building and simulating thermal RC networks of buildings.
-
-Draw rooms, walls, windows and boundaries on a node-graph canvas — the tool
-assembles the equivalent RC circuit and runs a forward thermal simulation.
+Tool for building and simulating thermal RC networks of buildings, room by room.
+Draw the topology on a node-graph canvas, assign signals from InfluxDB, run the
+forward simulation, and eventually fit model parameters to sensor data.
 
 ## Concept
 
-A building is modelled as an electrical circuit:
+A building room is modelled as an RC circuit:
 
-| Building | Circuit |
-|----------|---------|
-| Room air mass | Capacitor (C) |
-| Wall / insulation | Resistor (R) |
-| Outdoor temperature | Voltage source |
-| Solar gain | Current source |
-| Infinite soil | Fixed voltage source |
+| Building element | Circuit equivalent |
+|---|---|
+| Room air mass | Capacitor C [J/K] |
+| Wall / insulation | Resistor R [K/W] |
+| Outdoor temperature | Fixed-temperature boundary |
+| Solar gain | Heat source (W) |
 
-The user places **physical blocks** (rooms, walls, windows) on a canvas.
-Under the hood each block maps to circuit primitives. The assembled system
-is a linear ODE solved by `scipy.integrate.solve_ivp`.
+The assembled system is a linear ODE: `Ċ·dT/dt = A·T + B·u`.
+Two solvers are available: `solve_ivp(BDF)` for exploration and ZOH (matrix
+exponential) for speed-critical use cases like parameter fitting.
 
 ## Stack
 
 | Layer | Choice |
-|-------|--------|
-| Model format | JSON + JSON Schema |
-| Solver | Python — `scipy.integrate.solve_ivp` (BDF) |
-| API | FastAPI |
-| UI | Svelte + Svelteflow (node-graph canvas) |
-| Plots | uPlot |
+|---|---|
+| Model + study format | JSON |
+| Solver | Python — `scipy` (IVP/BDF + ZOH) |
+| Data source | InfluxDB (via `GET /signals`, `GET /series`) |
+| API | FastAPI (port 8001) |
+| UI | SvelteKit + `@xyflow/svelte` + uPlot |
 
-## Usage
+## Running
 
-### UI (graph editor)
-
-```bash
-cd ui
-npm install       # first time only
-npm run dev       # dev server at http://localhost:5173
-```
-
-### API (Python solver) — not yet implemented
+### API
 
 ```bash
-uv run uvicorn api.main:app --reload   # http://localhost:8000
+uv run uvicorn thermalnodes.api.main:app --reload --port 8001
 ```
 
-### Validate a model against the schema
+### UI
 
 ```bash
-uv add check-jsonschema
-uv run check-jsonschema --schemafile schema/model.schema.json data/examples/chambre_1r1c.json
+cd thermalnodes/ui
+npm install        # first time only
+npm run dev        # http://localhost:5173
 ```
+
+## UI layout
+
+```
+┌──────────────┬──────────────────────────────────────────┐
+│ miniha       │                                          │
+│              │                                          │
+│ Home ────────┤   Home: study browser (card grid)        │
+│              │   or active tab content                  │
+│ ─────────    │                                          │
+│ study_id     │                                          │
+│   Topology   │                                          │
+│   Inputs     │                                          │
+│   Run        │                                          │
+│   Fit        │                                          │
+│              │                                          │
+│  [Save]      │                                          │
+└──────────────┴──────────────────────────────────────────┘
+```
+
+- **Home** — card grid of all studies (examples + user), click to open, ⎘ to duplicate
+- **Topology** — node-graph editor (`@xyflow/svelte`) + properties panel
+- **Inputs** — date range, solver selector, signal assignment per boundary/source node,
+  inline uPlot preview per signal
+- **Run** — Fetch inputs + Run simulation buttons, results charts (inputs + temperatures),
+  solver metadata
+- **Fit** — placeholder (step 6)
+
+## Study schema
+
+Each study is a self-contained JSON file under `data/user/studies/{id}.json`:
+
+```json
+{
+  "id":           "chambre_jan_2024_2r1c",
+  "label":        "Chambre — jan 2024 — 2R1C",
+  "room":         "chambre",
+  "model":        { "...topology..." },
+  "start":        "2024-01-01",
+  "end":          "2024-02-01",
+  "inputs":       { "exterior": "open_meteo/temperature_2m" },
+  "observations": { "chambre": "zigbee2mqtt/temperature?name=chambre" },
+  "solver":       "zoh"
+}
+```
+
+Read-only seed studies live in `data/examples/`.
+
+## Signal name convention
+
+```
+measurement/field               # e.g. open_meteo/temperature_2m
+measurement/field?tag=value     # e.g. zigbee2mqtt/temperature?name=salon
+```
+
+Signals are stored in the study `inputs` map (node id → signal name), not in the
+model topology. This keeps the graph reusable across different time ranges and sensors.
 
 ## Project structure
 
 ```
 thermalnodes/
-  schema/
-    material.schema.json      # physical constants for one material
-    model.schema.json         # full topology: nodes, edges, boundaries, sources
+  schema/                       JSON schemas (v0.3)
   data/
-    materials/                # curated material library (λ, ρ, cp)
-    examples/
-      chambre_1r1c.json       # single room, 1 resistance, 1 solar source
+    house.json                  house metadata + sensor defaults
+    materials/                  7 materials (λ, ρ, cp)
+    examples/                   read-only seed studies
+    user/studies/               {id}.json per user study
   solver/
-    assemble.py               # graph → (A, B) state-space matrices
-    simulate.py               # solve_ivp wrapper → timeseries
+    assemble.py                 graph → AssembledSystem (A, B matrices)
+    simulate.py                 simulate_ivp + simulate_zoh + simulate_mock
+    tests/
   api/
-    main.py                   # FastAPI /simulate endpoint
+    main.py                     FastAPI app (studies, signals, simulate/*)
+    influx.py                   InfluxDB client
+    config.py                   env-based config (MINIHA_INFLUX_* vars)
   ui/
     src/
-      lib/
-        modelToFlow.js        # model JSON → Svelteflow nodes/edges
-        nodes/                # RoomNode, BoundaryNode, HeatSourceNode
-      routes/
-        +page.svelte          # main canvas page
+      routes/+page.svelte       app shell — home view + left nav + tab content
+      lib/GraphView.svelte      SvelteFlow canvas
+      lib/PropertiesPanel.svelte node/edge inspector + add/delete
+      lib/InputsPanel.svelte    date range + solver + signal assignment + preview
+      lib/SimulationRun.svelte  fetch/run buttons + results charts
+      lib/modelToFlow.js        model JSON → SvelteFlow nodes/edges
 ```
-
-## MVP scope
-
-- Forward simulation only (no parameter fitting, no Bayesian inference)
-- Physical node vocabulary: Room, Wall, Window, Boundary, HeatSource
-- Time-varying forcing: outdoor temperature + solar irradiance timeseries
-- Result: indoor temperature timeseries per room node
-
-Fitting and Bayesian inference live in the parent `miniha` project and will
-consume thermalnodes models as their topology description.

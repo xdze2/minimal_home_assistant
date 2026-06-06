@@ -5,53 +5,28 @@
 
 	const API = 'http://localhost:8001';
 
-	// ── props (bound from parent) ─────────────────────────────────────────────
-	let { model, inputs = $bindable({}), range = $bindable({ start: '', end: '' }), solver = $bindable('zoh') } = $props();
-
-	// ── boundary/source nodes from current model ──────────────────────────────
-	const inputNodes = $derived(
-		(model?.nodes ?? []).filter((n) => n.kind === 'boundary' || n.kind === 'source')
-	);
-
-	// ── signal autocomplete ───────────────────────────────────────────────────
-	let signals = $state([]);
-	let signalsError = $state(false);
-
-	async function loadSignals() {
-		try {
-			const res = await fetch(`${API}/signals`);
-			if (!res.ok) throw new Error(res.statusText);
-			signals = await res.json();
-			signalsError = false;
-		} catch {
-			signalsError = true;
-		}
-	}
-
-	// ── inputs map: node_id → signal_name ────────────────────────────────────
-	function setInput(nodeId, value) {
-		inputs = { ...inputs, [nodeId]: value };
-	}
+	// ── props (read-only — config lives in InputsPanel) ───────────────────────
+	let { model, inputs = {}, range = { start: '', end: '' }, solver = 'zoh' } = $props();
 
 	// ── fetch inputs ──────────────────────────────────────────────────────────
 	let fetchLoading = $state(false);
-	let fetchError = $state(null);
-	let fetchResult = $state(null);
+	let fetchError   = $state(null);
+	let fetchResult  = $state(null);
 
 	async function fetchInputs() {
 		fetchLoading = true;
-		fetchError = null;
-		fetchResult = null;
+		fetchError   = null;
+		fetchResult  = null;
 		try {
 			const body = { model, start: range.start, end: range.end, inputs };
-			const res = await fetch(`${API}/simulate/inputs`, {
+			const res  = await fetch(`${API}/simulate/inputs`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(body),
 			});
 			if (!res.ok) {
-				const detail = await res.json().catch(() => ({ detail: res.statusText }));
-				const msg = detail?.detail?.message ?? detail?.detail ?? res.statusText;
+				const d   = await res.json().catch(() => ({ detail: res.statusText }));
+				const msg = d?.detail?.message ?? d?.detail ?? res.statusText;
 				throw new Error(msg);
 			}
 			fetchResult = await res.json();
@@ -64,23 +39,23 @@
 
 	// ── simulation ────────────────────────────────────────────────────────────
 	let simLoading = $state(false);
-	let simError = $state(null);
-	let simResult = $state(null);
+	let simError   = $state(null);
+	let simResult  = $state(null);
 
 	async function runSimulation() {
 		simLoading = true;
-		simError = null;
-		simResult = null;
+		simError   = null;
+		simResult  = null;
 		try {
 			const body = { model, start: range.start, end: range.end, inputs, solver };
-			const res = await fetch(`${API}/simulate/run`, {
+			const res  = await fetch(`${API}/simulate/run`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(body),
 			});
 			if (!res.ok) {
-				const detail = await res.json().catch(() => ({ detail: res.statusText }));
-				throw new Error(detail.detail ?? res.statusText);
+				const d = await res.json().catch(() => ({ detail: res.statusText }));
+				throw new Error(d.detail ?? res.statusText);
 			}
 			simResult = await res.json();
 		} catch (e) {
@@ -95,7 +70,7 @@
 	const INPUT_SERIES_COLORS = ['#4ade80', '#fbbf24', '#f472b6', '#c084fc', '#67e8f9', '#fdba74'];
 
 	let inputsChartContainer = $state(null);
-	let inputsUplot = null;
+	let inputsUplot          = null;
 
 	function destroyInputsChart() {
 		if (inputsUplot) { inputsUplot.destroy(); inputsUplot = null; }
@@ -106,7 +81,7 @@
 		if (!inputsChartContainer || !result) return;
 		const nodeIds = Object.keys(result);
 		if (nodeIds.length === 0) return;
-		const ts = result[nodeIds[0]].t.map((s) => Date.parse(s) / 1000);
+		const ts   = result[nodeIds[0]].t.map((s) => Date.parse(s) / 1000);
 		const data = [ts, ...nodeIds.map((id) => result[id].values.map((v) => (v === null ? NaN : v)))];
 		const series = [{}, ...nodeIds.map((id, i) => ({
 			label: result[id].signal,
@@ -138,7 +113,7 @@
 	});
 
 	let chartContainer = $state(null);
-	let uplot = null;
+	let uplot          = null;
 
 	function destroyChart() {
 		if (uplot) { uplot.destroy(); uplot = null; }
@@ -147,10 +122,10 @@
 	function buildChart(result) {
 		destroyChart();
 		if (!chartContainer || !result) return;
-		const ts = result.t.map((s) => Date.parse(s) / 1000);
+		const ts      = result.t.map((s) => Date.parse(s) / 1000);
 		const massIds = Object.keys(result.nodes);
-		const data = [ts, ...massIds.map((id) => result.nodes[id].map((v) => (v === null ? NaN : v)))];
-		const series = [{}, ...massIds.map((id, i) => ({
+		const data    = [ts, ...massIds.map((id) => result.nodes[id].map((v) => (v === null ? NaN : v)))];
+		const series  = [{}, ...massIds.map((id, i) => ({
 			label: id,
 			stroke: SERIES_COLORS[i % SERIES_COLORS.length],
 			width: 1.5, spanGaps: false,
@@ -178,99 +153,44 @@
 		return () => resizeObserver?.disconnect();
 	});
 
-	onMount(loadSignals);
 	onDestroy(() => { destroyInputsChart(); destroyChart(); });
 </script>
 
-<div class="sim-run">
-	<!-- ── config panel ── -->
-	<aside class="config-panel">
-		<div class="section-header">Date range</div>
-		<label>
-			<span>From</span>
-			<input type="date" bind:value={range.start} />
-		</label>
-		<label>
-			<span>To</span>
-			<input type="date" bind:value={range.end} />
-		</label>
+<div class="run-panel">
+	<!-- action bar -->
+	<div class="action-bar">
+		<button class="fetch-btn" onclick={fetchInputs} disabled={fetchLoading || simLoading}>
+			{fetchLoading ? 'Fetching…' : 'Fetch inputs'}
+		</button>
+		<button class="run-btn" onclick={runSimulation} disabled={simLoading || fetchLoading}>
+			{simLoading ? 'Running…' : 'Run simulation'}
+		</button>
+		<span class="solver-badge">{solver}</span>
+	</div>
 
-		<div class="section-header">Solver</div>
-		<div class="solver-radios">
-			<label class="radio-label">
-				<input type="radio" bind:group={solver} value="ivp" />
-				<span>IVP (BDF)</span>
-			</label>
-			<label class="radio-label">
-				<input type="radio" bind:group={solver} value="zoh" />
-				<span>ZOH</span>
-			</label>
-		</div>
-
-		<div class="section-header">
-			Inputs
-			{#if signalsError}<span class="sig-warn" title="Cannot reach API">⚠</span>{/if}
-		</div>
-
-		{#if inputNodes.length === 0}
-			<p class="hint">No boundary or source nodes in this model.</p>
-		{:else}
-			<div class="inputs-table">
-				{#each inputNodes as node}
-					<div class="input-row">
-						<div class="node-label">
-							<span class="kind-dot kind-{node.kind}"></span>
-							<span class="node-name">{node.label ?? node.id}</span>
-							<span class="node-id">{node.id}</span>
-						</div>
-						<input
-							type="text"
-							list="signal-list-sim"
-							placeholder="measurement/field?tag=val"
-							value={inputs[node.id] ?? ''}
-							oninput={(e) => setInput(node.id, e.target.value)}
-						/>
-					</div>
-				{/each}
-			</div>
-		{/if}
-
-		<datalist id="signal-list-sim">
-			{#each signals as s}
-				<option value={s}></option>
-			{/each}
-		</datalist>
-
-		<div class="action-btns">
-			<button class="fetch-btn" onclick={fetchInputs} disabled={fetchLoading || simLoading}>
-				{fetchLoading ? 'Fetching…' : 'Fetch inputs'}
-			</button>
-			<button class="run-btn" onclick={runSimulation} disabled={simLoading || fetchLoading}>
-				{simLoading ? 'Running…' : 'Run simulation'}
-			</button>
-		</div>
-	</aside>
-
-	<!-- ── results pane ── -->
-	<div class="results-pane">
+	<!-- results -->
+	<div class="results">
 		{#if !fetchResult && !fetchLoading && !fetchError && !simResult && !simLoading && !simError}
-			<div class="empty">Configure inputs and click Fetch inputs</div>
+			<div class="empty">Configure inputs in the Inputs step, then click Fetch or Run.</div>
 
 		{:else}
 			{#if fetchLoading}
-				<div class="section-loading">Fetching input signals…</div>
+				<div class="status-msg">Fetching input signals…</div>
 			{:else if fetchError}
 				<div class="error-box">⚠ {fetchError}</div>
 			{:else if fetchResult}
 				<div class="result-header">
 					<span class="result-title">Inputs</span>
-					<span class="result-meta">{Object.keys(fetchResult).length} signal{Object.keys(fetchResult).length !== 1 ? 's' : ''} · {fetchResult[Object.keys(fetchResult)[0]]?.t.length ?? 0} steps</span>
+					<span class="result-meta">
+						{Object.keys(fetchResult).length} signal{Object.keys(fetchResult).length !== 1 ? 's' : ''}
+						· {fetchResult[Object.keys(fetchResult)[0]]?.t.length ?? 0} steps
+					</span>
 				</div>
 				<div class="chart-wrap" bind:this={inputsChartContainer}></div>
 			{/if}
 
 			{#if simLoading}
-				<div class="section-loading">Running simulation…</div>
+				<div class="status-msg">Running simulation…</div>
 			{:else if simError}
 				<div class="error-box">⚠ {simError}</div>
 			{:else if simResult}
@@ -298,113 +218,36 @@
 </div>
 
 <style>
-	.sim-run {
-		display: flex;
+	.run-panel {
 		flex: 1;
+		display: flex;
+		flex-direction: column;
 		min-height: 0;
 		overflow: hidden;
 	}
 
-	.config-panel {
-		width: 280px;
-		flex-shrink: 0;
+	.action-bar {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 12px 20px;
 		background: #1e293b;
-		border-right: 1px solid #334155;
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-		padding: 14px 12px;
-		overflow-y: auto;
+		border-bottom: 1px solid #334155;
+		flex-shrink: 0;
 	}
 
-	.section-header {
-		font-size: 10px;
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: #64748b;
-		margin-top: 10px;
-		margin-bottom: 2px;
-		display: flex;
-		align-items: center;
-		gap: 6px;
-	}
-	.section-header:first-child { margin-top: 0; }
-
-	.sig-warn { color: #f59e0b; font-size: 11px; }
-
-	label {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-	}
-
-	label > span {
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		color: #64748b;
-	}
-
-	input[type='date'],
-	input[type='text'] {
-		background: #0f172a;
-		color: #e2e8f0;
-		border: 1px solid #334155;
-		border-radius: 4px;
-		padding: 4px 8px;
-		font-size: 12px;
+	.solver-badge {
+		font-size: 11px;
 		font-family: monospace;
-		width: 100%;
-		box-sizing: border-box;
-		color-scheme: dark;
+		color: #94a3b8;
+		margin-left: 4px;
 	}
-	input:focus { outline: none; border-color: #6366f1; }
-
-	.solver-radios { display: flex; gap: 14px; }
-
-	.radio-label {
-		display: flex;
-		flex-direction: row;
-		align-items: center;
-		gap: 5px;
-		cursor: pointer;
-	}
-	.radio-label span {
-		font-size: 12px;
-		color: #e2e8f0;
-		text-transform: none;
-		letter-spacing: normal;
-	}
-
-	.inputs-table { display: flex; flex-direction: column; gap: 10px; }
-
-	.input-row { display: flex; flex-direction: column; gap: 3px; }
-
-	.node-label { display: flex; align-items: center; gap: 5px; }
-
-	.kind-dot {
-		width: 7px; height: 7px;
-		border-radius: 50%; flex-shrink: 0;
-	}
-	.kind-dot.kind-boundary { background: #4ade80; }
-	.kind-dot.kind-source   { background: #fbbf24; }
-
-	.node-name {
-		font-size: 12px; color: #e2e8f0; font-weight: 500;
-		flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-	}
-	.node-id { font-size: 10px; font-family: monospace; color: #475569; flex-shrink: 0; }
-
-	.hint { font-size: 12px; color: #475569; margin: 0; }
-
-	.action-btns { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
 
 	.fetch-btn {
 		background: #0f4c75; color: #f1f5f9;
 		border: 1px solid #1a6fa3; border-radius: 4px;
-		padding: 7px 12px; font-size: 13px; font-weight: 600;
-		cursor: pointer; width: 100%; transition: background 0.15s;
+		padding: 7px 16px; font-size: 13px; font-weight: 600;
+		cursor: pointer; transition: background 0.15s;
 	}
 	.fetch-btn:hover:not(:disabled) { background: #1a6fa3; }
 	.fetch-btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -412,23 +255,32 @@
 	.run-btn {
 		background: #4f46e5; color: #f1f5f9;
 		border: none; border-radius: 4px;
-		padding: 8px 12px; font-size: 13px; font-weight: 600;
-		cursor: pointer; width: 100%; transition: background 0.15s;
+		padding: 8px 16px; font-size: 13px; font-weight: 600;
+		cursor: pointer; transition: background 0.15s;
 	}
 	.run-btn:hover:not(:disabled) { background: #4338ca; }
 	.run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-	.results-pane {
-		flex: 1; display: flex; flex-direction: column;
-		min-width: 0; padding: 20px 24px; gap: 12px; overflow-y: auto;
+	.results {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		padding: 20px 24px;
+		gap: 12px;
+		overflow-y: auto;
+		min-height: 0;
 	}
 
 	.empty {
-		flex: 1; display: flex; align-items: center; justify-content: center;
-		color: #475569; font-size: 14px;
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: #94a3b8;
+		font-size: 14px;
 	}
 
-	.section-loading { font-size: 13px; color: #64748b; padding: 8px 0; }
+	.status-msg { font-size: 13px; color: #94a3b8; padding: 8px 0; }
 
 	.error-box {
 		background: #1c0a0a; border: 1px solid #7f1d1d;
@@ -437,11 +289,11 @@
 
 	.result-header { display: flex; align-items: baseline; gap: 12px; }
 	.result-title  { font-size: 14px; font-weight: 600; color: #f1f5f9; }
-	.result-meta   { font-size: 12px; color: #64748b; }
+	.result-meta   { font-size: 12px; color: #94a3b8; }
 
 	.meta-block {
 		display: flex; gap: 16px; font-size: 11px; font-family: monospace;
-		color: #64748b; padding: 4px 0;
+		color: #94a3b8; padding: 4px 0;
 	}
 	.meta-block .ok   { color: #4ade80; }
 	.meta-block .fail { color: #f87171; }

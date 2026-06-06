@@ -2,7 +2,7 @@
 
 See README.md for project description and stack overview.
 
-## Status: graph editor + solver + FastAPI backend + ZOH solver + study persistence (backend API + UI picker + save/duplicate) done. UI layout refactor next.
+## Status: graph editor + solver + FastAPI backend + ZOH solver + study persistence + UI layout refactor (step 5c) done. Stale-result tracking (5d) next.
 
 ---
 
@@ -14,7 +14,7 @@ thermalnodes/
   data/
     house.json                   house metadata + sensor defaults
     materials/                   7 materials (λ, ρ, cp)
-    examples/                    read-only seed studies (model JSON format)
+    examples/                    read-only seed studies
       chambre_1r1c.json
       chambre_v1.json
       chambre_2r2c.json
@@ -33,11 +33,11 @@ thermalnodes/
     main.py                      FastAPI app — all routes (see Step 4)
   ui/
     src/
-      routes/+page.svelte        app shell — study bar + left nav + workspace
+      routes/+page.svelte        app shell — home view + left nav (Home + study tabs + Save)
       lib/GraphView.svelte       SvelteFlow canvas
       lib/PropertiesPanel.svelte node/edge inspector + add/delete; signal autocomplete
-      lib/DataExplorer.svelte    signal list + uPlot preview (to be merged into InputsPanel)
-      lib/SimulationRun.svelte   date range + solver + run + results charts
+      lib/InputsPanel.svelte     date range + solver + signal assignment + inline uPlot preview
+      lib/SimulationRun.svelte   fetch/run buttons + results charts (no config sidebar)
       lib/modelToFlow.js         model JSON → SvelteFlow nodes/edges
     vite.config.js               @data alias → thermalnodes/data/
 
@@ -319,39 +319,31 @@ IDs are user-supplied filename stems. Saving with an existing ID overwrites.
 - [x] "Duplicate" button: prompts for new id, calls duplicate endpoint, loads copy
 - [ ] Load `house.json` on mount; use `defaults` to pre-fill inputs on new studies
 
-#### Step 5c — UI layout refactor — TODO
+#### Step 5c — UI layout refactor — DONE
 
-**Goal**: replace the current flat 3-tab nav with a two-level layout:
-- **Top bar** (global): study picker + Save + Duplicate
-- **Left panel** (study steps, free navigation): Topology · Inputs · Run · Fit
-- **Main area**: content for the active step
-
-**Layout sketch:**
+**Layout:**
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ top bar: [study picker ▾]  [example]  [chambre]  Save  Duplicate│
-├──────────┬──────────────────────────────────────────────────────┤
-│ Topology │                                                       │
-│ Inputs   │   active step content                                │
-│ Run      │                                                       │
-│ Fit      │                                                       │
-└──────────┴──────────────────────────────────────────────────────┘
+┌──────────────┬──────────────────────────────────────────┐
+│ miniha       │                                          │
+│ Home         │  Home: card grid of all studies          │
+│ ──────────── │  or active tab content                   │
+│ study_id     │                                          │
+│   Topology   │                                          │
+│   Inputs     │                                          │
+│   Run        │                                          │
+│   Fit        │                                          │
+│  [Save]      │                                          │
+└──────────────┴──────────────────────────────────────────┘
 ```
 
-**Step breakdown:**
-
-- [ ] **Topology** — current GraphView + PropertiesPanel (no change to internals)
-- [ ] **Inputs** — new `InputsPanel.svelte`:
-  - date range pickers (start / end)
-  - signal assignment table (one row per boundary/source node) with autocomplete
-  - inline signal preview: click a row → shows uPlot for that signal in the same panel
-    (absorbs the current standalone DataExplorer; DataExplorer.svelte can be deleted)
-  - solver selector (ivp / zoh)
-- [ ] **Run** — slimmed `SimulationRun.svelte`: no config sidebar, just Fetch + Run
-      buttons + results charts (inputs chart + temperature chart + meta block).
-      Config lives in the Inputs step now.
-- [ ] **Fit** — placeholder panel for now (Step 6 content)
-- [ ] Stale-result tracking (pass 2 — see below)
+- [x] **Home view** — card grid, two groups (examples/ + user/), ⎘ duplicate per card
+- [x] **Topology** — GraphView + PropertiesPanel (internals unchanged)
+- [x] **Inputs** — `InputsPanel.svelte`: date range + solver selector + signal assignment
+      table with inline uPlot preview per row (▾ toggle). `DataExplorer.svelte` deleted.
+- [x] **Run** — slimmed `SimulationRun.svelte`: action bar (Fetch + Run + solver badge)
+      + results charts. No config sidebar — config lives in Inputs.
+- [x] **Fit** — placeholder
+- [x] No top bar — Save pinned at bottom of left nav; study nav only shown when a study is loaded
 
 #### Step 5d — Stale-result tracking — TODO (pass 2, after layout)
 
