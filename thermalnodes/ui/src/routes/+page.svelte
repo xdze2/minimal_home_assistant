@@ -49,17 +49,34 @@
 
 	const selectedStudyMeta = $derived(studies.find((s) => s.id === selectedStudyId));
 
+	// ── stale / dirty tracking ────────────────────────────────────────────────
+	let lastSavedSnapshot = $state(null);
+	let lastRunSnapshot   = $state(null);
+
+	function studySnapshot() {
+		return JSON.stringify({ model, inputs: simInputs, start: simRange.start, end: simRange.end, solver: simSolver });
+	}
+
+	const studyDirty = $derived(lastSavedSnapshot !== null && studySnapshot() !== lastSavedSnapshot);
+	const simStale   = $derived(lastRunSnapshot !== null && studySnapshot() !== lastRunSnapshot);
+
+	function onRunSuccess() {
+		lastRunSnapshot = studySnapshot();
+	}
+
 	async function loadStudy(id) {
 		try {
 			const res   = await fetch(`${API}/studies/${id}`);
 			if (!res.ok) throw new Error(res.statusText);
 			const study = await res.json();
-			selectedStudyId = id;
-			model      = structuredClone(study.model ?? study);
-			simInputs  = structuredClone(study.inputs ?? {});
-			simRange   = { start: study.start ?? '', end: study.end ?? '' };
-			simSolver  = study.solver ?? 'zoh';
-			selected   = null;
+			selectedStudyId   = id;
+			model             = structuredClone(study.model ?? study);
+			simInputs         = structuredClone(study.inputs ?? {});
+			simRange          = { start: study.start ?? '', end: study.end ?? '' };
+			simSolver         = study.solver ?? 'zoh';
+			selected          = null;
+			lastSavedSnapshot = studySnapshot();
+			lastRunSnapshot   = null;
 		} catch (e) {
 			alert(`Failed to load study: ${e.message}`);
 		}
@@ -106,8 +123,9 @@
 				const d = await res.json().catch(() => ({}));
 				throw new Error(d.detail ?? res.statusText);
 			}
-			saveDialogOpen  = false;
-			selectedStudyId = saveId.trim();
+			saveDialogOpen    = false;
+			selectedStudyId   = saveId.trim();
+			lastSavedSnapshot = studySnapshot();
 			await loadStudies();
 		} catch (e) {
 			saveError = e.message;
@@ -282,7 +300,9 @@
 
 		{#if selectedStudyId}
 			<div class="nav-bottom">
-				<button class="nav-save" onclick={openSaveDialog}>Save</button>
+				<button class="nav-save" class:dirty={studyDirty} onclick={openSaveDialog}>
+					Save{studyDirty ? ' ●' : ''}
+				</button>
 			</div>
 		{/if}
 	</nav>
@@ -367,7 +387,7 @@
 
 		{:else if activePage === 'run'}
 			{#if model}
-				<SimulationRun {model} inputs={simInputs} range={simRange} bind:solver={simSolver} />
+				<SimulationRun {model} inputs={simInputs} range={simRange} bind:solver={simSolver} {simStale} {onRunSuccess} />
 			{/if}
 
 		{:else if activePage === 'fit'}
@@ -479,6 +499,7 @@
 		box-sizing: border-box;
 	}
 	.nav-save:hover { background: #1e4976; }
+	.nav-save.dirty { border-color: #f59e0b; color: #fcd34d; }
 
 	/* ── main area ── */
 	.main {

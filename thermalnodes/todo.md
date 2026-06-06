@@ -2,7 +2,7 @@
 
 See README.md for project description and stack overview.
 
-## Status: graph editor + solver + FastAPI backend + ZOH solver + study persistence + UI layout refactor + UI polish done. Next: stale/save cycle (5d).
+## Status: graph editor + solver + FastAPI backend + ZOH solver + study persistence + UI layout refactor + UI polish + stale/save cycle done. Next: step 5e / step 6.
 
 ---
 
@@ -345,27 +345,16 @@ IDs are user-supplied filename stems. Saving with an existing ID overwrites.
 - [x] Topology tab-header bar removed — full vertical space given to canvas
 - [x] **JSON** dev tab (after Run, dimmed/italic in nav) — pretty-prints current config object
 
-#### Step 5d — Stale/save cycle — TODO (next)
+#### Step 5d — Stale/save cycle — DONE
 
-Three related problems:
-1. **Run results go stale** silently when topology, solver, or inputs change after a run
-2. **Study save** doesn't signal whether the on-disk state matches the in-memory state
-3. **Preview stale** is already tracked in InputsPanel; the same idea should extend to Run
-
-**Dependency rules:**
-
-| Change | Invalidates |
-|---|---|
-| Signal assignment or date range | preview + sim result |
-| Topology (R, C, add/remove node) | sim result only |
-| Solver choice | sim result only |
-
-**Proposed implementation:**
-- Track `studySaved: bool` — false whenever model/inputs/range/solver diverge from last save
-- Show a dot or `●` on the Save button when unsaved
-- `simStale: bool` in `+page.svelte` — set by `$effect` on model/inputs/range/solver; cleared on successful run
-- Run panel shows a `⚠ outdated` banner over old results when stale; run button label changes to `Re-run`
-- Keep it simple: no split fetch/sim dirty flags for now
+- [x] `studySnapshot()` in `+page.svelte` — serialises `{model, inputs, range, solver}` to JSON string
+- [x] `lastSavedSnapshot` — captured on load and on successful save
+- [x] `lastRunSnapshot` — captured on successful `POST /simulate/run`; reset to null on study load
+- [x] `studyDirty = $derived(...)` — true when current snapshot ≠ last saved (only after first load/save)
+- [x] `simStale = $derived(...)` — true when current snapshot ≠ last run snapshot
+- [x] Save button shows `Save ●` in amber when `studyDirty`
+- [x] Run panel: amber `⚠ Results are outdated` banner when `simStale` and results exist
+- [x] Run button label: `Re-run` when results are stale, `Run simulation` otherwise
 
 #### Step 5e — Nice to have (post-MVP)
 

@@ -7,9 +7,11 @@
 
 	let {
 		model,
-		inputs = {},
-		range  = { start: '', end: '' },
-		solver = $bindable('zoh'),
+		inputs      = {},
+		range       = { start: '', end: '' },
+		solver      = $bindable('zoh'),
+		simStale    = false,
+		onRunSuccess = () => {},
 	} = $props();
 
 	// ── simulation ────────────────────────────────────────────────────────────
@@ -33,6 +35,7 @@
 				throw new Error(d.detail ?? res.statusText);
 			}
 			simResult = await res.json();
+			onRunSuccess();
 		} catch (e) {
 			simError = e.message;
 		} finally {
@@ -103,12 +106,16 @@
 		</div>
 
 		<button class="run-btn" onclick={runSimulation} disabled={simLoading}>
-			{simLoading ? 'Running…' : 'Run simulation'}
+			{simLoading ? 'Running…' : simResult && simStale ? 'Re-run' : 'Run simulation'}
 		</button>
 	</div>
 
 	<!-- results -->
 	<div class="results">
+		{#if simStale && simResult && !simLoading}
+			<div class="stale-banner">⚠ Results are outdated — inputs or model changed since last run.</div>
+		{/if}
+
 		{#if !simResult && !simLoading && !simError}
 			<div class="empty">Configure inputs, then click Run.</div>
 
@@ -203,6 +210,16 @@
 		justify-content: center;
 		color: #94a3b8;
 		font-size: 14px;
+	}
+
+	.stale-banner {
+		background: #1c1400;
+		border: 1px solid #78350f;
+		border-radius: 4px;
+		color: #fcd34d;
+		font-size: 12px;
+		padding: 8px 12px;
+		flex-shrink: 0;
 	}
 
 	.status-msg { font-size: 13px; color: #94a3b8; padding: 8px 0; }
