@@ -10,7 +10,6 @@
 		model,
 		inputs = $bindable({}),
 		range  = $bindable({ start: '', end: '' }),
-		solver = $bindable('zoh'),
 	} = $props();
 
 	// ── boundary/source nodes ─────────────────────────────────────────────────
@@ -37,37 +36,47 @@
 		inputs = { ...inputs, [nodeId]: value };
 	}
 
-	// ── inline signal preview ─────────────────────────────────────────────────
-	let previewNodeId  = $state(null);
-	let previewLoading = $state(false);
-	let previewError   = $state(null);
-	let previewData    = $state(null);
-	let previewMeta    = $state(null);
+	// ── stale tracking ────────────────────────────────────────────────────────
+	// snapshot of (range + inputs) at the time of the last successful preview
+	let previewedSnapshot = $state(null);
 
-	async function previewSignal(nodeId) {
-		const signal = inputs[nodeId];
-		if (!signal?.trim()) return;
-		if (previewNodeId === nodeId) { previewNodeId = null; return; } // toggle off
-		previewNodeId  = nodeId;
-		previewLoading = true;
-		previewError   = null;
-		previewData    = null;
-		previewMeta    = null;
-		try {
-			const params = new URLSearchParams({ signal, start: range.start, end: range.end });
-			const res    = await fetch(`${API}/series?${params}`);
-			if (!res.ok) {
-				const d = await res.json().catch(() => ({ detail: res.statusText }));
-				throw new Error(d.detail ?? res.statusText);
+	function currentSnapshot() {
+		return JSON.stringify({ range, inputs });
+	}
+
+	const isStale = $derived(
+		previewedSnapshot !== null && previewedSnapshot !== currentSnapshot()
+	);
+
+	// ── signal previews (one per node) ────────────────────────────────────────
+	let previews    = $state({});
+	let anyLoading  = $derived(Object.values(previews).some((p) => p.loading));
+
+	async function previewAll() {
+		const nodes = inputNodes.filter((n) => inputs[n.id]?.trim() && range.start && range.end);
+		if (nodes.length === 0) return;
+
+		// mark all as loading
+		const loading = {};
+		for (const n of nodes) loading[n.id] = { loading: true, error: null, data: null, meta: null };
+		previews = loading;
+
+		await Promise.all(nodes.map(async (node) => {
+			try {
+				const params = new URLSearchParams({ signal: inputs[node.id], start: range.start, end: range.end });
+				const res    = await fetch(`${API}/series?${params}`);
+				if (!res.ok) {
+					const d = await res.json().catch(() => ({ detail: res.statusText }));
+					throw new Error(d.detail ?? res.statusText);
+				}
+				const data = await res.json();
+				previews = { ...previews, [node.id]: { loading: false, error: null, data, meta: computeMeta(data) } };
+			} catch (e) {
+				previews = { ...previews, [node.id]: { loading: false, error: e.message, data: null, meta: null } };
 			}
-			const data  = await res.json();
-			previewData = data;
-			previewMeta = computeMeta(data);
-		} catch (e) {
-			previewError = e.message;
-		} finally {
-			previewLoading = false;
-		}
+		}));
+
+		previewedSnapshot = currentSnapshot();
 	}
 
 	function computeMeta(data) {
@@ -88,21 +97,17 @@
 
 	function fmt(v) { return v === null || v === undefined ? '—' : v.toFixed(2); }
 
-	// ── uPlot preview chart ───────────────────────────────────────────────────
-	let chartContainer = $state(null);
-	let uplot          = null;
+	// ── uPlot charts (one per node) ───────────────────────────────────────────
+	let chartContainers = $state({});  // nodeId → DOM element
+	const uplots = {};                 // nodeId → uPlot instance
 
-	function destroyChart() {
-		if (uplot) { uplot.destroy(); uplot = null; }
-	}
-
-	function buildChart(data) {
-		destroyChart();
-		if (!chartContainer || !data) return;
+	function buildChart(nodeId, el, data) {
+		if (uplots[nodeId]) { uplots[nodeId].destroy(); delete uplots[nodeId]; }
+		if (!el || !data) return;
 		const ts = data.t.map((s) => Date.parse(s) / 1000);
 		const vs = data.values.map((v) => (v === null ? NaN : v));
-		uplot = new uPlot({
-			width: chartContainer.clientWidth || 700, height: 200,
+		uplots[nodeId] = new uPlot({
+			width: el.clientWidth || 700, height: 180,
 			cursor: { show: true }, scales: { x: { time: true } },
 			series: [
 				{},
@@ -112,51 +117,49 @@
 				{ stroke: '#94a3b8', ticks: { stroke: '#334155' }, grid: { stroke: '#1e293b' } },
 				{ stroke: '#94a3b8', ticks: { stroke: '#334155' }, grid: { stroke: '#334155' } },
 			],
-		}, [ts, vs], chartContainer);
+		}, [ts, vs], el);
 	}
 
-	$effect(() => { if (previewData) buildChart(previewData); });
-
-	let resizeObserver;
 	$effect(() => {
-		if (!chartContainer) return;
-		resizeObserver = new ResizeObserver(() => {
-			if (uplot && chartContainer)
-				uplot.setSize({ width: chartContainer.clientWidth, height: 200 });
-		});
-		resizeObserver.observe(chartContainer);
-		return () => resizeObserver?.disconnect();
+		for (const [nodeId, el] of Object.entries(chartContainers)) {
+			const p = previews[nodeId];
+			if (el && p?.data) buildChart(nodeId, el, p.data);
+		}
 	});
 
+	const canPreview = $derived(
+		range.start && range.end && inputNodes.some((n) => inputs[n.id]?.trim())
+	);
+
 	onMount(loadSignals);
-	onDestroy(destroyChart);
+	onDestroy(() => { for (const u of Object.values(uplots)) u.destroy(); });
 </script>
 
 <div class="inputs-panel">
-	<!-- date range -->
-	<div class="section-header">Date range</div>
-	<div class="date-row">
-		<label>
-			<span>From</span>
-			<input type="date" bind:value={range.start} />
-		</label>
-		<label>
-			<span>To</span>
-			<input type="date" bind:value={range.end} />
-		</label>
-	</div>
+	<!-- date range + preview button -->
+	<div class="top-bar">
+		<div>
+			<div class="section-header" style="margin-top:0">Date range</div>
+			<div class="date-row">
+				<label>
+					<span>From</span>
+					<input type="date" bind:value={range.start} class:missing={!range.start} />
+				</label>
+				<label>
+					<span>To</span>
+					<input type="date" bind:value={range.end} class:missing={!range.end} />
+				</label>
+			</div>
+		</div>
 
-	<!-- solver -->
-	<div class="section-header">Solver</div>
-	<div class="solver-radios">
-		<label class="radio-label">
-			<input type="radio" bind:group={solver} value="ivp" />
-			<span>IVP (BDF)</span>
-		</label>
-		<label class="radio-label">
-			<input type="radio" bind:group={solver} value="zoh" />
-			<span>ZOH</span>
-		</label>
+		<button
+			class="preview-all-btn"
+			class:stale={isStale}
+			disabled={!canPreview || anyLoading}
+			onclick={previewAll}
+		>
+			{anyLoading ? 'Loading…' : isStale ? 'Preview ●' : 'Preview'}
+		</button>
 	</div>
 
 	<!-- signal assignment -->
@@ -176,49 +179,41 @@
 
 		<div class="node-rows">
 			{#each inputNodes as node}
-				{@const isOpen = previewNodeId === node.id}
-				<div class="node-block" class:expanded={isOpen}>
+				{@const p = previews[node.id]}
+				<div class="node-block">
 					<div class="node-row">
 						<div class="node-label">
 							<span class="kind-dot kind-{node.kind}"></span>
 							<span class="node-name">{node.label ?? node.id}</span>
 							<span class="node-id">{node.id}</span>
 						</div>
-						<div class="node-input-row">
-							<input
-								type="text"
-								list="signal-list-inputs"
-								placeholder="measurement/field?tag=val"
-								value={inputs[node.id] ?? ''}
-								oninput={(e) => setInput(node.id, e.target.value)}
-							/>
-							<button
-								class="preview-btn"
-								class:active={isOpen}
-								title={isOpen ? 'Hide preview' : 'Preview signal'}
-								disabled={!inputs[node.id]?.trim() || !range.start || !range.end}
-								onclick={() => previewSignal(node.id)}
-							>▾</button>
-						</div>
+						<input
+							type="text"
+							list="signal-list-inputs"
+							placeholder="measurement/field?tag=val"
+							value={inputs[node.id] ?? ''}
+							class:missing={!inputs[node.id]?.trim()}
+							oninput={(e) => setInput(node.id, e.target.value)}
+						/>
 					</div>
 
-					{#if isOpen}
+					{#if p}
 						<div class="preview-block">
-							{#if previewLoading}
+							{#if p.loading}
 								<div class="preview-status">Loading…</div>
-							{:else if previewError}
-								<div class="preview-status error">⚠ {previewError}</div>
-							{:else if previewData}
-								{#if previewMeta}
+							{:else if p.error}
+								<div class="preview-status error">⚠ {p.error}</div>
+							{:else if p.data}
+								{#if p.meta}
 									<div class="meta-row">
-										<span>{previewMeta.count} / {previewMeta.total} samples</span>
-										{#if previewMeta.gaps > 0}
-											<span class="gap-warn">{previewMeta.gaps} gap{previewMeta.gaps > 1 ? 's' : ''}</span>
+										<span>{p.meta.count} / {p.meta.total} samples</span>
+										{#if p.meta.gaps > 0}
+											<span class="gap-warn">{p.meta.gaps} gap{p.meta.gaps > 1 ? 's' : ''}</span>
 										{/if}
-										<span>min {fmt(previewMeta.min)} · max {fmt(previewMeta.max)} · mean {fmt(previewMeta.mean)}</span>
+										<span>min {fmt(p.meta.min)} · max {fmt(p.meta.max)} · mean {fmt(p.meta.mean)}</span>
 									</div>
 								{/if}
-								<div class="chart-wrap" bind:this={chartContainer}></div>
+								<div class="chart-wrap" bind:this={chartContainers[node.id]}></div>
 							{/if}
 						</div>
 					{/if}
@@ -239,6 +234,14 @@
 		color: #f1f5f9;
 	}
 
+	.top-bar {
+		display: flex;
+		align-items: flex-end;
+		justify-content: space-between;
+		gap: 16px;
+		margin-bottom: 4px;
+	}
+
 	.section-header {
 		font-size: 10px;
 		font-weight: 700;
@@ -251,7 +254,6 @@
 		align-items: center;
 		gap: 6px;
 	}
-	.section-header:first-child { margin-top: 0; }
 
 	.sig-warn { color: #f59e0b; font-size: 11px; }
 
@@ -282,22 +284,26 @@
 		color-scheme: dark;
 	}
 	input:focus { outline: none; border-color: #6366f1; }
+	input.missing { border-color: #7f1d1d; color: #f87171; }
+	input.missing::placeholder { color: #f87171; opacity: 0.5; }
 
-	.solver-radios { display: flex; gap: 14px; }
-
-	.radio-label {
-		display: flex;
-		flex-direction: row;
-		align-items: center;
-		gap: 5px;
-		cursor: pointer;
-	}
-	.radio-label span {
+	.preview-all-btn {
+		background: #0f172a;
+		border: 1px solid #334155;
+		color: #94a3b8;
+		border-radius: 4px;
+		padding: 6px 14px;
 		font-size: 12px;
-		color: #e2e8f0;
-		text-transform: none;
-		letter-spacing: normal;
+		font-weight: 600;
+		cursor: pointer;
+		flex-shrink: 0;
+		transition: color 0.1s, border-color 0.1s, background 0.1s;
+		white-space: nowrap;
 	}
+	.preview-all-btn:hover:not(:disabled) { color: #f1f5f9; background: #1e293b; }
+	.preview-all-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+	.preview-all-btn.stale { color: #fbbf24; border-color: #92400e; }
+	.preview-all-btn.stale:hover:not(:disabled) { background: #1c1007; }
 
 	.hint { font-size: 12px; color: #94a3b8; margin: 0; }
 
@@ -310,9 +316,13 @@
 		border-radius: 6px;
 		overflow: hidden;
 	}
-	.node-block.expanded { border-color: #94a3b8; }
 
-	.node-row { padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+	.node-row {
+		padding: 10px 12px;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
 
 	.node-label { display: flex; align-items: center; gap: 5px; }
 
@@ -328,25 +338,6 @@
 		flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 	}
 	.node-id { font-size: 10px; font-family: monospace; color: #94a3b8; flex-shrink: 0; }
-
-	.node-input-row { display: flex; gap: 6px; align-items: center; }
-	.node-input-row input[type='text'] { flex: 1; }
-
-	.preview-btn {
-		background: #0f172a;
-		border: 1px solid #334155;
-		color: #94a3b8;
-		border-radius: 4px;
-		padding: 3px 8px;
-		font-size: 14px;
-		cursor: pointer;
-		flex-shrink: 0;
-		line-height: 1;
-		transition: color 0.1s, background 0.1s;
-	}
-	.preview-btn:hover:not(:disabled) { color: #f1f5f9; background: #1e293b; }
-	.preview-btn.active { color: #38bdf8; border-color: #38bdf8; }
-	.preview-btn:disabled { opacity: 0.3; cursor: default; }
 
 	.preview-block {
 		border-top: 1px solid #334155;

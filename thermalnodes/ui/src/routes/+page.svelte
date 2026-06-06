@@ -18,6 +18,10 @@
 		{ id: 'fit',      label: 'Fit'      },
 	];
 
+	const DEV_TABS = [
+		{ id: 'debug', label: 'JSON' },
+	];
+
 	// ── studies list ──────────────────────────────────────────────────────────
 	let studies      = $state([]);
 	let studiesError = $state(null);
@@ -265,6 +269,14 @@
 						onclick={() => (activePage = t.id)}
 					>{t.label}</button>
 				{/each}
+				<div class="nav-divider"></div>
+				{#each DEV_TABS as t}
+					<button
+						class="nav-item nav-tab nav-dev"
+						class:active={activePage === t.id}
+						onclick={() => (activePage = t.id)}
+					>{t.label}</button>
+				{/each}
 			{/if}
 		</div>
 
@@ -349,19 +361,24 @@
 		{:else if activePage === 'inputs'}
 			{#if model}
 				<div class="body scrollable">
-					<InputsPanel {model} bind:inputs={simInputs} bind:range={simRange} bind:solver={simSolver} />
+					<InputsPanel {model} bind:inputs={simInputs} bind:range={simRange} />
 				</div>
 			{/if}
 
 		{:else if activePage === 'run'}
 			{#if model}
-				<SimulationRun {model} inputs={simInputs} range={simRange} solver={simSolver} />
+				<SimulationRun {model} inputs={simInputs} range={simRange} bind:solver={simSolver} />
 			{/if}
 
 		{:else if activePage === 'fit'}
 			<div class="placeholder">
 				<h2>Fit</h2>
 				<p>Parameter estimation — coming in step 6.</p>
+			</div>
+
+		{:else if activePage === 'debug'}
+			<div class="debug-view">
+				<pre>{JSON.stringify({ model, inputs: simInputs, range: simRange, solver: simSolver }, null, 2)}</pre>
 			</div>
 		{/if}
 
@@ -427,6 +444,9 @@
 	.nav-item.active { background: #334155; color: #f1f5f9; font-weight: 600; }
 
 	.nav-tab { padding-left: 24px; font-size: 12px; }
+	.nav-dev { color: #475569; font-style: italic; }
+	.nav-dev:hover  { color: #94a3b8; }
+	.nav-dev.active { color: #94a3b8; font-weight: 600; }
 
 	.nav-divider {
 		height: 1px;
@@ -622,6 +642,20 @@
 	}
 	.placeholder h2 { margin: 0; font-size: 20px; color: #f1f5f9; }
 	.placeholder p  { margin: 0; font-size: 14px; }
+
+	.debug-view {
+		flex: 1;
+		overflow: auto;
+		padding: 20px 24px;
+	}
+	.debug-view pre {
+		margin: 0;
+		font-family: monospace;
+		font-size: 12px;
+		color: #64748b;
+		line-height: 1.6;
+		white-space: pre-wrap;
+	}
 
 	/* ── buttons (global defaults) ── */
 	button {

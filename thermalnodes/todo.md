@@ -2,7 +2,7 @@
 
 See README.md for project description and stack overview.
 
-## Status: graph editor + solver + FastAPI backend + ZOH solver + study persistence + UI layout refactor (step 5c) + UI polish done. Stale-result tracking (5d) next.
+## Status: graph editor + solver + FastAPI backend + ZOH solver + study persistence + UI layout refactor + UI polish done. Next: stale/save cycle (5d).
 
 ---
 
@@ -36,8 +36,8 @@ thermalnodes/
       routes/+page.svelte        app shell — home view + left nav (Home + study tabs + Save)
       lib/GraphView.svelte       SvelteFlow canvas
       lib/PropertiesPanel.svelte node/edge inspector + add/delete; signal autocomplete
-      lib/InputsPanel.svelte     date range + solver + signal assignment + inline uPlot preview
-      lib/SimulationRun.svelte   fetch/run buttons + results charts (no config sidebar)
+      lib/InputsPanel.svelte     date range + signal assignment + "Preview" button (fetches all signals, stale indicator) + per-node uPlot
+      lib/SimulationRun.svelte   solver picker + Run button + temperature results chart
       lib/modelToFlow.js         model JSON → SvelteFlow nodes/edges
     vite.config.js               @data alias → thermalnodes/data/
 
@@ -173,12 +173,10 @@ Run: `uv run uvicorn thermalnodes.api.main:app --reload --port 8001`
 - [x] `GET /series?signal=...&start=...&end=` — fetch + resample to 15 min
 - [x] `POST /simulate` — mock endpoint (kept for offline use)
 - [x] CORS for Svelte dev server (localhost:5173 and :4173)
-- [x] `POST /simulate/inputs` — fetch + resample all signals in config; returns
-      `{node_id: {signal, t, values}}` for UI preview before running the solver
-- [x] `POST /simulate/run` — fetches inputs from InfluxDB, calls `simulate_ivp`;
-      returns `{t, nodes, meta}` where `meta` carries solver stats
-      (elapsed_s, n_rhs_evals, success, message)
-- [x] `POST /simulate/run` — `solver` field (`"ivp"` | `"zoh"`, default `"ivp"`)
+- [x] `POST /simulate/run` — fetches inputs from InfluxDB, calls `simulate_ivp` or `simulate_zoh`;
+      returns `{t, nodes, meta}` (elapsed_s, n_rhs_evals, success, message)
+- [x] `solver` field (`"ivp"` | `"zoh"`, default `"ivp"`) on simulate/run
+- ~~`POST /simulate/inputs`~~ — removed; UI previews signals individually via `GET /series`
 
 ### Also done (Step 5a)
 - [x] `GET  /studies` — list all studies: examples + user, each `{id, label, room, source}`
@@ -239,11 +237,11 @@ The sim config decouples model topology from data sources:
       signal autocomplete on each row (reuse signal list from data exploration)
 - [x] "Run" button → `POST /simulate/run` with assembled config
 - [x] uPlot: temperature timeseries per mass node (all masses on one shared chart)
-- [x] "Fetch inputs" button → `POST /simulate/inputs`; plots resampled input signals
-      (boundary temperatures, heat sources) above the simulation results chart
-- [x] Solver selector: `ivp` (default) / `zoh` radio; passed as `solver` field to `POST /simulate/run`
+- [x] Solver selector: `ivp` / `zoh` radio in Run panel; passed as `solver` to `POST /simulate/run`
 - [x] Metadata display: show `meta` block from response (elapsed_s, n_steps, solver, message)
-- [ ] (later) skip re-fetch if inputs unchanged — server-side cache, transparent to UI
+- [x] "Preview" button in Inputs panel: fetches all signals in parallel via `GET /series`,
+      shows per-node uPlot + metadata (count, gaps, min/max/mean)
+- [x] Stale indicator on Preview button: turns amber when range or signals change after last fetch
 
 ### Backend-backed persistence — revised design
 
@@ -338,34 +336,36 @@ IDs are user-supplied filename stems. Saving with an existing ID overwrites.
 
 - [x] **Home view** — card grid, two groups (examples/ + user/), ⎘ duplicate per card
 - [x] **Topology** — GraphView + PropertiesPanel (internals unchanged)
-- [x] **Inputs** — `InputsPanel.svelte`: date range + solver selector + signal assignment
-      table with inline uPlot preview per row (▾ toggle). `DataExplorer.svelte` deleted.
-- [x] **Run** — slimmed `SimulationRun.svelte`: action bar (Fetch + Run + solver badge)
-      + results charts. No config sidebar — config lives in Inputs.
+- [x] **Inputs** — `InputsPanel.svelte`: date range + signal assignment + "Preview all" button
+      (parallel fetch, stale indicator) + per-node uPlot preview. Solver moved to Run.
+- [x] **Run** — `SimulationRun.svelte`: solver radio picker + Run button + temperature chart.
 - [x] **Fit** — placeholder
-- [x] No top bar — Save pinned at bottom of left nav (fixed, not pushed by flex spacer); study nav only shown when a study is loaded
-- [x] Model notes moved to PropertiesPanel (shown when nothing is selected, above the hint)
+- [x] No top bar — Save pinned at bottom of left nav; study nav only shown when a study is loaded
+- [x] Model notes moved to PropertiesPanel (shown when nothing is selected)
 - [x] Topology tab-header bar removed — full vertical space given to canvas
+- [x] **JSON** dev tab (after Run, dimmed/italic in nav) — pretty-prints current config object
 
-#### Step 5d — Stale-result tracking — TODO (pass 2, after layout)
+#### Step 5d — Stale/save cycle — TODO (next)
 
-When study inputs change after a run, results are silently outdated. Track this with
-dirty flags and make it visible without blocking the user.
+Three related problems:
+1. **Run results go stale** silently when topology, solver, or inputs change after a run
+2. **Study save** doesn't signal whether the on-disk state matches the in-memory state
+3. **Preview stale** is already tracked in InputsPanel; the same idea should extend to Run
 
 **Dependency rules:**
 
 | Change | Invalidates |
 |---|---|
-| Signal assignment or date range | fetch result + sim result |
+| Signal assignment or date range | preview + sim result |
 | Topology (R, C, add/remove node) | sim result only |
 | Solver choice | sim result only |
 
-**Implementation:**
-- `studyDirty: { fetch: bool, sim: bool }` in `+page.svelte`
-- `$effect` watchers on `simInputs`/`simRange` → set both flags; on `model`/`simSolver` → set sim flag only
-- Pass flags as props to Run panel
-- Run panel shows a `⚠ stale` banner over old results when dirty; run button shows `Re-run`
-- On run: if `fetch` dirty → re-fetch first; if only `sim` dirty → skip re-fetch
+**Proposed implementation:**
+- Track `studySaved: bool` — false whenever model/inputs/range/solver diverge from last save
+- Show a dot or `●` on the Save button when unsaved
+- `simStale: bool` in `+page.svelte` — set by `$effect` on model/inputs/range/solver; cleared on successful run
+- Run panel shows a `⚠ outdated` banner over old results when stale; run button label changes to `Re-run`
+- Keep it simple: no split fetch/sim dirty flags for now
 
 #### Step 5e — Nice to have (post-MVP)
 
