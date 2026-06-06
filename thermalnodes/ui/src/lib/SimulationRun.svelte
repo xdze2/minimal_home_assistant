@@ -105,6 +105,7 @@
 
 		const ts      = simResult.t.map((s) => Date.parse(s) / 1000);
 		const massIds = Object.keys(simResult.nodes);
+		const simTsMs = simResult.t.map((s) => Date.parse(s));
 
 		const simSeries = massIds.map((id, i) => ({
 			label: id, stroke: SIM_COLORS[i % SIM_COLORS.length], width: 1.5, spanGaps: false,
@@ -118,11 +119,8 @@
 			stroke: OBS_COLORS[i % OBS_COLORS.length],
 			width: 1, dash: [4, 3], spanGaps: false,
 		}));
-
-		// align obs to sim time grid via nearest-neighbour lookup
-		const simTsMs = simResult.t.map((s) => Date.parse(s));
 		const obsData = obsIds.map((id) => {
-			const obs = obsSeries[id];
+			const obs   = obsSeries[id];
 			const obsMs = obs.t.map((s) => Date.parse(s));
 			return simTsMs.map((tms) => {
 				const idx = nearestIdx(obsMs, tms);
@@ -130,8 +128,23 @@
 			});
 		});
 
-		const data    = [ts, ...simData, ...obsData];
-		const series  = [{}, ...simSeries, ...obsSer];
+		// overlay boundary input temperatures
+		const bndEntries = inputSeries
+			? Object.entries(inputSeries).filter(([id]) => nodeKindMap[id] === 'boundary')
+			: [];
+		const bndSeries = bndEntries.map(([, e], i) => ({
+			label: e.label, stroke: INP_COLORS[i % INP_COLORS.length], width: 1.5, spanGaps: false,
+		}));
+		const bndData = bndEntries.map(([, e]) => {
+			const bndMs = e.t.map((s) => Date.parse(s));
+			return simTsMs.map((tms) => {
+				const idx = nearestIdx(bndMs, tms);
+				return idx >= 0 ? (e.values[idx] ?? NaN) : NaN;
+			});
+		});
+
+		const data   = [ts, ...simData, ...obsData, ...bndData];
+		const series = [{}, ...simSeries, ...obsSer, ...bndSeries];
 
 		tempChart = makeUplot(tempContainer, {
 			width: tempContainer.clientWidth || 800, height: 260,
@@ -139,33 +152,34 @@
 			axes: [AXIS_STYLE, AXIS_Y],
 			legend: { show: true },
 		}, data);
-		return;
 	}
 
-	// ── inputs chart ─────────────────────────────────────────────────────────
-	let inpContainer = $state(null);
-	let inpChart     = null;
+	// ── power inputs chart (source nodes) ────────────────────────────────────
+	let inpPowerContainer = $state(null);
+	let inpPowerChart     = null;
 
-	function buildInputsChart() {
-		if (inpChart) { inpChart.destroy(); inpChart = null; }
-		if (!inpContainer || !inputSeries) return;
-		const entries = Object.values(inputSeries);
+	const nodeKindMap = $derived(
+		Object.fromEntries((model?.nodes ?? []).map((n) => [n.id, n.kind]))
+	);
+
+	function buildPowerChart() {
+		if (inpPowerChart) { inpPowerChart.destroy(); inpPowerChart = null; }
+		if (!inpPowerContainer || !inputSeries) return;
+
+		const entries = Object.entries(inputSeries).filter(([id]) => nodeKindMap[id] === 'source').map(([, e]) => e);
 		if (entries.length === 0) return;
 
-		// common time axis: use first series
-		const ts = entries[0].t.map((s) => Date.parse(s) / 1000);
-		const data = [ts, ...entries.map((e) => e.values.map((v) => (v === null ? NaN : v)))];
+		const ts     = entries[0].t.map((s) => Date.parse(s) / 1000);
+		const data   = [ts, ...entries.map((e) => e.values.map((v) => (v === null ? NaN : v)))];
 		const series = [{}, ...entries.map((e, i) => ({
 			label: e.label, stroke: INP_COLORS[i % INP_COLORS.length], width: 1.5, spanGaps: false,
 		}))];
-
-		inpChart = makeUplot(inpContainer, {
-			width: inpContainer.clientWidth || 800, height: 200,
+		inpPowerChart = makeUplot(inpPowerContainer, {
+			width: inpPowerContainer.clientWidth || 800, height: 200,
 			cursor: { show: true }, scales: { x: { time: true } }, series,
-			axes: [AXIS_STYLE, { ...AXIS_Y, label: '' }],
+			axes: [AXIS_STYLE, { stroke: '#94a3b8', ticks: { stroke: '#334155' }, grid: { stroke: '#334155' }, label: 'W' }],
 			legend: { show: true },
 		}, data);
-		return;
 	}
 
 	// ── residuals chart ───────────────────────────────────────────────────────
@@ -221,13 +235,13 @@
 	// re-run both when data arrives and when the DOM node is bound.
 	$effect(() => {
 		// eslint-disable-next-line no-unused-expressions
-		tempContainer; simResult; obsSeries;
+		tempContainer; simResult; obsSeries; inputSeries;
 		buildTempChart();
 	});
 	$effect(() => {
 		// eslint-disable-next-line no-unused-expressions
-		inpContainer; inputSeries;
-		buildInputsChart();
+		inpPowerContainer; inputSeries;
+		buildPowerChart();
 	});
 	$effect(() => {
 		// eslint-disable-next-line no-unused-expressions
@@ -249,13 +263,13 @@
 			return () => obs?.disconnect();
 		});
 	}
-	watchResize(() => tempContainer,  () => tempChart);
-	watchResize(() => inpContainer,   () => inpChart);
-	watchResize(() => residContainer, () => residChart);
+	watchResize(() => tempContainer,      () => tempChart);
+	watchResize(() => inpPowerContainer, () => inpPowerChart);
+	watchResize(() => residContainer,    () => residChart);
 
 	onDestroy(() => {
 		tempChart?.destroy();
-		inpChart?.destroy();
+		inpPowerChart?.destroy();
 		residChart?.destroy();
 	});
 
@@ -320,10 +334,10 @@
 				<div class="chart-wrap" bind:this={tempContainer}></div>
 			</div>
 
-			<!-- inputs — always rendered so bind:this is stable; hidden when empty -->
-			<div class="chart-section" class:hidden={!inputSeries || Object.keys(inputSeries).length === 0}>
-				<div class="section-title">Inputs</div>
-				<div class="chart-wrap" bind:this={inpContainer}></div>
+			<!-- input power (source nodes) -->
+			<div class="chart-section" class:hidden={!inputSeries || !Object.keys(inputSeries).some((id) => nodeKindMap[id] === 'source')}>
+				<div class="section-title">Input power</div>
+				<div class="chart-wrap" bind:this={inpPowerContainer}></div>
 			</div>
 
 			<!-- residuals — always rendered so bind:this is stable; hidden when no obs -->
