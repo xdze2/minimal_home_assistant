@@ -232,41 +232,97 @@ The sim config decouples model topology from data sources:
 - [ ] Metadata display: show `meta` block from response (elapsed_s, n_steps, solver, message)
 - [ ] (later) skip re-fetch if inputs unchanged — server-side cache, transparent to UI
 
-### Backend-backed persistence (next — do this first, cleans up the read/write interface)
+### Backend-backed persistence — revised design
 
-Single-user local app, backend always running → all persistent state lives on the server
-under `thermalnodes/data/user/`. No localStorage split, files are human-readable JSON.
+**Use case**: parameter estimation on a house, room by room. The atomic unit of work
+is a **study**: one room, one model topology, one time range, one sensor selection,
+one set of priors → one fit result / analysis report.
+
+**Design principles:**
+- Keep it as flat and simple as possible — single-user local tool, 4-5 rooms
+- Topology is embedded in the study (not a shared reference) — you iterate on topology
+  per study, trying 1R1C vs 2R1C on the same room/period
+- Duplicate a study to make a small variation (different topology, different period,
+  tighter priors)
+- `house.json` is a defaults bag and future LLM input, not a runtime dependency
 
 **File layout:**
 ```
 thermalnodes/data/
-  examples/          (read-only)
+  house.json               — house metadata + sensor defaults (UI pre-fill, LLM input)
+  examples/                — read-only seed studies
   user/
-    models/          {id}.json   — model topology
-    configs/         {id}.json   — full run config (model_id + signals + solver + start/end)
+    studies/               — {id}.json per study
 ```
 
-**Backend API** (`api/main.py`):
-- [ ] `GET  /models` — list all models: examples + user, each with `{id, label, source: "example"|"user"}`
-- [ ] `GET  /models/{id}` — return model JSON
-- [ ] `POST /models` — save model to `data/user/models/{id}.json`, body `{id, model}`
-- [ ] `GET  /configs` — list saved run configs `{id, label}`
-- [ ] `GET  /configs/{id}` — return full config JSON
-- [ ] `POST /configs` — save config to `data/user/configs/{id}.json`, body `{id, label, model_id, start, end, inputs, solver}`
+**`house.json` schema:**
+```json
+{
+  "label": "Maison Machin",
+  "rooms": ["chambre", "salon", "cuisine", "bureau", "cave"],
+  "defaults": {
+    "inputs": {
+      "exterior": "open_meteo/temperature_2m"
+    },
+    "solver": "zoh"
+  }
+}
+```
 
-IDs are user-supplied filename stems (e.g. `chambre_v1`, `run_jan_2024`). No UUIDs.
+**Study schema** (self-contained, fully resolved — no inheritance at runtime):
+```json
+{
+  "id":           "chambre_jan_2024_2r1c",
+  "label":        "Chambre — jan 2024 — modèle 2R1C",
+  "room":         "chambre",
+  "model":        { "...full topology..." },
+  "start":        "2024-01-01",
+  "end":          "2024-02-01",
+  "inputs":       { "exterior": "open_meteo/temperature_2m" },
+  "observations": { "chambre": "zigbee2mqtt/temperature?name=chambre" },
+  "priors":       { "R_ext": { "nominal": 0.02, "sigma_log": 0.5 } },
+  "solver":       "zoh",
+  "result":       null
+}
+```
 
-**UI** (`SimulationRun.svelte` + graph editor):
-- [ ] Replace bundled `MODELS` import with `GET /models`; model picker shows source badge (example / user)
-- [ ] Graph editor: "Save model" button → `POST /models` (id prompt or derived from label)
-- [ ] Simulate tab: "Save config" button → `POST /configs` with current state (id prompt)
-- [ ] Simulate tab: config picker dropdown → `GET /configs`, selecting one restores
-      model, signals, solver, and start/end
+IDs are user-supplied filename stems. Saving with an existing ID overwrites.
 
-### Nice to have (post-MVP)
+#### Step 5a — Backend API
+
+- [ ] `GET  /studies` — list all studies: examples + user, each `{id, label, room, source}`
+- [ ] `GET  /studies/{id}` — return full study JSON
+- [ ] `POST /studies/{id}` — save to `data/user/studies/{id}.json`, body = full study JSON
+- [ ] `POST /studies/{id}/duplicate` — copy to new id; body `{new_id}`
+- [ ] `GET  /house` — return `house.json`
+- [ ] `POST /house` — save `house.json`
+
+#### Step 5b — Wire UI: study picker replaces model picker
+
+- [ ] Drop `MODELS` static import (`models.js`); replace with `GET /studies` on mount
+- [ ] Load `house.json` on mount; use `defaults` to pre-fill new studies
+- [ ] Study picker dropdown (shared in `+page.svelte`): label + room tag + source badge
+- [ ] Selecting a study restores graph topology + signals + observations + dates + solver
+- [ ] "Save study" button: inline ID prompt (pre-filled as `{room}_{date}_{topology}`
+      slug), `POST /studies/{id}`; picker reloads and selects saved id
+- [ ] "Duplicate" button: prompts for new id, calls duplicate endpoint, loads copy
+- [ ] Graph editor: no separate "Save model" — edits are saved via "Save study"
+
+#### Step 5c — Nice to have (post-MVP)
 
 - [ ] Construction picker dropdown on edges (populates R from material library)
 - [ ] Material library browser panel
+
+---
+
+### LLM-assisted model builder (future)
+
+- User fills `house.json` with room descriptions and known materials
+- LLM reads `house.json` + material library → generates an initial study JSON
+  (topology + R/C estimates + suggested priors)
+- User refines in the graph editor and saves as a study
+
+`house.json` is the document you hand to the LLM; the study is what comes back.
 
 ---
 
