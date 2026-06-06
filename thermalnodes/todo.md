@@ -136,10 +136,12 @@ using the model matrices — sufficient to develop and test the UI end-to-end.
       IVP matches `T(t) = 10·(1 − exp(−t/τ))` to < 0.01 °C at t=τ. ✓
 - [x] **Verify** (unit test): `chambre_v1.json`, T_ext=0, zero solar, T0=20 °C,
       IVP → T < 0.5 °C after 5τ_slow; metadata fields present. ✓
-- [ ] `simulate_zoh(system, inputs_uniform, dt) -> SimResult`
-  - `inputs_uniform`: same dict but values on a uniform grid of step `dt` seconds.
-  - Precomputes `Ad = expm(A·dt)`, `Bd = inv(A) @ (Ad − I) @ B_full`.
-  - Returns same `SimResult` format. Reference: `miniha/th_models/fit_2r2c.py`.
+- [ ] `simulate_zoh(system, inputs, start, end, dt_minutes) -> SimResult`
+  - Use `scipy.signal.cont2discrete((A, B_full, I, 0), dt, method='zoh')` to get `Ad`, `Bd`.
+    `B_full` = `[B_boundary | B_source]` concatenated column-wise.
+  - Use `scipy.signal.dlsim((Ad, Bd, I, 0, dt), u, x0=y0)` for the time-stepping loop.
+    `u` = input matrix, shape `(n_steps, n_boundary + n_source)`, assembled from `inputs` dict.
+  - Returns same `SimResult` format (`solver='zoh'`).
 - [ ] **Verify** ZOH against IVP: same step-response test, both agree to < 0.01 °C.
 
 **Integrator choice:**
@@ -173,6 +175,9 @@ Run: `uv run uvicorn thermalnodes.api.main:app --reload --port 8001`
       (elapsed_s, n_rhs_evals, success, message)
 
 ### TODO
+- [ ] `POST /simulate/run` — add `solver` field to request (`"ivp"` | `"zoh"`, default `"ivp"`);
+      route to `simulate_ivp` or `simulate_zoh` accordingly
+- [ ] `POST /fit/run` — accept `{ sim_config, fit_config }`, return fit results (see step 6)
 - [ ] `POST /model/save` — persist model JSON to `data/user/` (separate from examples)
 - [ ] `GET /model/list` — list available model files (examples + user)
 - [ ] `GET /model/{id}` — return model JSON
@@ -223,10 +228,12 @@ The sim config decouples model topology from data sources:
 - [x] Date range pickers (start / end)
 - [x] Inputs table: one row per boundary/source node in the selected model,
       signal autocomplete on each row (reuse signal list from data exploration)
-- [x] "Run" button → `POST /simulate` with assembled config
+- [x] "Run" button → `POST /simulate/run` with assembled config
 - [x] uPlot: temperature timeseries per mass node (all masses on one shared chart)
 - [x] "Fetch inputs" button → `POST /simulate/inputs`; plots resampled input signals
       (boundary temperatures, heat sources) above the simulation results chart
+- [ ] Solver selector: `ivp` (default) / `zoh` radio or dropdown; passed as `solver` field
+- [ ] Metadata display: show `meta` block from response (elapsed_s, n_steps, solver, message)
 - [ ] (later) skip re-fetch if inputs unchanged — server-side cache, transparent to UI
 
 ### Sim-config save / load (next)
@@ -252,16 +259,80 @@ runs can be reproduced without re-entering signal names each time.
 
 ---
 
-## Step 6 — Parameter optimisation and Bayesian MCMC (parent project)
+## Step 6 — Parameter estimation (NLS + MCMC)
 
-Lives in `miniha/`, consumes `thermalnodes` models as topology. ZOH (step 3b) is
-the critical building block.
+Lives in `thermalnodes/solver/fit.py` + `api/main.py`. ZOH (step 3b) is the critical
+building block — implement it first.
 
-- [ ] Wrap `simulate_zoh` as `f(params) -> T_chambre_array` for fixed topology;
-      params = log-space {R values, C values, gain values}.
-- [ ] `scipy.optimize.least_squares` output-error NLS; warm-start from nominal values.
-- [ ] MCMC: `blackjax` or `emcee` on the same log-likelihood.
-      Prior: log-normal ±50% of nominal on each R and C, flat on gains.
+### Fit config
+
+Extends the sim config with two new fields:
+
+```json
+{
+  "model": { "...": "..." },
+  "start": "2024-01-01",
+  "end":   "2024-02-01",
+  "inputs": { "exterior": "open_meteo/temperature_2m", "...": "..." },
+  "observations": {
+    "chambre": "zigbee2mqtt/temperature?name=chambre"
+  }
+}
+```
+
+```json
+{
+  "params": {
+    "R_ext":                   { "nominal": 0.0178, "sigma_log": 0.5 },
+    "R_int":                   { "nominal": 0.0234, "sigma_log": 0.5 },
+    "mur_sud.C":               { "nominal": 9504000, "sigma_log": 0.5 },
+    "chambre.C":               { "nominal": 8640000, "sigma_log": 0.5 },
+    "apport_fenetre_sud.gain": { "nominal": 1.2,     "sigma_log": 0.5 }
+  },
+  "obs_sigma": 0.5,
+  "method": "nls"
+}
+```
+
+- `observations`: mass node id → signal name (same format as `inputs`).
+  Lives in the sim config, not the model — keeps topology reusable.
+- `params`: node id (for R/C on resistance/mass nodes) or `node_id.field` (for gains).
+  `sigma_log` = log-normal prior width (0.5 ≈ ±50% at 1σ). Params not listed are fixed.
+- `obs_sigma`: observation noise [°C], assumed Gaussian.
+- `method`: `"nls"` or `"mcmc"`.
+
+### Python (`solver/fit.py`)
+
+- [ ] `build_forward(sim_config, fit_config, influx_client) -> Callable[[params_vec], T_pred]`
+  - Fetches inputs + observations once (slow I/O step).
+  - Returns a pure function `params_vec → predicted temperatures array` using ZOH.
+  - Params encoded in log-space; function patches the model dict, re-assembles, re-discretises.
+- [ ] `fit_nls(forward_fn, fit_config) -> FitResult`
+  - `scipy.optimize.least_squares` in log-space; residuals = `(T_pred − T_obs) / obs_sigma`.
+  - Warm-start from nominal values. Returns best-fit params + cost + covariance estimate.
+- [ ] `fit_mcmc(forward_fn, fit_config, n_samples=2000) -> MCMCResult`
+  - Log-posterior = Gaussian log-likelihood + log-normal log-prior per param.
+  - Use `emcee` (no JAX dependency). Warm-start walkers around NLS result.
+  - Returns `{ params_mean, params_std, samples (thinned), acceptance_rate }`.
+
+### API (`api/main.py`)
+
+- [ ] `POST /fit/run` — accepts `{ sim_config, fit_config }`, calls `build_forward` then
+      `fit_nls` or `fit_mcmc` based on `fit_config.method`.
+      Returns Pydantic `FitResult` (OpenAPI docs auto-generated).
+
+### UI — Parameter fit tab (new tab)
+
+- [ ] New "Fit" tab in the left nav (after "Simulate")
+- [ ] Sim config section: reuse model picker + date range + inputs table
+- [ ] Observations table: one row per mass node, signal autocomplete
+- [ ] Params table: one row per free parameter — node id, nominal value, sigma_log;
+      pre-populated from model node values, editable
+- [ ] `obs_sigma` field + method selector (`nls` / `mcmc`)
+- [ ] "Run fit" button → `POST /fit/run`
+- [ ] Results panel:
+  - NLS: table of fitted vs nominal param values + % change; residual plot (T_pred vs T_obs)
+  - MCMC: same table with ± uncertainty; marginal histograms per param (or corner plot)
 
 ---
 
@@ -283,6 +354,11 @@ the critical building block.
 - **Thick walls / MVP**: 2R1C block (R_ext, mass, R_int). Already in `chambre_v1`.
 - **Sim config**: signal→node binding lives in a separate sim config object, not in the
   model JSON. Keeps topology reusable across different datasets and time ranges.
-- **Fitting / Bayesian**: Step 6. ZOH chosen from the start to support this.
+- **Fitting / Bayesian**: Step 6. ZOH is the prerequisite (fast enough for MCMC).
+- **Observations**: live in sim config alongside `inputs`, not in model topology.
+- **Fit config**: separate object `{ params, obs_sigma, method }`. Params keyed by node id
+  or `node_id.field`; log-normal priors. NLS first, MCMC warm-started from NLS result.
+- **ZOH implementation**: via `scipy.signal.cont2discrete(..., method='zoh')` +
+  `scipy.signal.dlsim` — no custom matrix exponential needed.
 - **Streamlit app** (`miniha/th_models/inspector.py`): prototype, reference only.
   Svelte UI (`thermalnodes/ui/`) is the target frontend.
