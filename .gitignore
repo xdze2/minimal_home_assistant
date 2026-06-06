@@ -8,6 +8,7 @@ config/open_meteo.yaml
 .env
 !.env.example
 user_models/
+thermalnodes/data/user/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
