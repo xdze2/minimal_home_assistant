@@ -8,14 +8,41 @@
 	// ── props (bound from parent) ─────────────────────────────────────────────
 	let {
 		model,
-		inputs = $bindable({}),
-		range  = $bindable({ start: '', end: '' }),
+		inputs       = $bindable({}),
+		range        = $bindable({ start: '', end: '' }),
+		observations = $bindable({}),  // mass_node_id → signal name (empty string = unknown)
 	} = $props();
 
 	// ── boundary/source nodes ─────────────────────────────────────────────────
 	const inputNodes = $derived(
 		(model?.nodes ?? []).filter((n) => n.kind === 'boundary' || n.kind === 'source')
 	);
+
+	// ── mass nodes (observations) ─────────────────────────────────────────────
+	const massNodes = $derived(
+		(model?.nodes ?? []).filter((n) => n.kind === 'mass')
+	);
+
+	function setObs(nodeId, value) {
+		observations = { ...observations, [nodeId]: value };
+	}
+
+	function isObsMeasured(nodeId) {
+		// "measured" when the checkbox is on; presence of non-empty signal implies measured
+		return (observations[nodeId] ?? null) !== null;
+	}
+
+	function toggleObsCheckbox(nodeId) {
+		if (isObsMeasured(nodeId)) {
+			// remove from map → unknown
+			const next = { ...observations };
+			delete next[nodeId];
+			observations = next;
+		} else {
+			// add to map with empty string → measured (but no signal yet)
+			observations = { ...observations, [nodeId]: '' };
+		}
+	}
 
 	// ── signal autocomplete ───────────────────────────────────────────────────
 	let signals      = $state([]);
@@ -41,38 +68,50 @@
 	let previewedSnapshot = $state(null);
 
 	function currentSnapshot() {
-		return JSON.stringify({ range, inputs });
+		return JSON.stringify({ range, inputs, observations });
 	}
 
 	const isStale = $derived(
 		previewedSnapshot !== null && previewedSnapshot !== currentSnapshot()
 	);
 
-	// ── signal previews (one per node) ────────────────────────────────────────
+	// ── signal previews (inputs + measured observations) ─────────────────────
 	let previews    = $state({});
 	let anyLoading  = $derived(Object.values(previews).some((p) => p.loading));
 
+	async function fetchOne(id, signal) {
+		const params = new URLSearchParams({ signal, start: range.start, end: range.end });
+		const res    = await fetch(`${API}/series?${params}`);
+		if (!res.ok) {
+			const d = await res.json().catch(() => ({ detail: res.statusText }));
+			throw new Error(d.detail ?? res.statusText);
+		}
+		return res.json();
+	}
+
 	async function previewAll() {
-		const nodes = inputNodes.filter((n) => inputs[n.id]?.trim() && range.start && range.end);
-		if (nodes.length === 0) return;
+		const inputEntries = inputNodes
+			.filter((n) => inputs[n.id]?.trim() && range.start && range.end)
+			.map((n) => ({ id: n.id, signal: inputs[n.id] }));
+
+		const obsEntries = massNodes
+			.filter((n) => observations[n.id]?.trim() && range.start && range.end)
+			.map((n) => ({ id: n.id, signal: observations[n.id] }));
+
+		const allEntries = [...inputEntries, ...obsEntries];
+		if (allEntries.length === 0) return;
 
 		// mark all as loading
 		const loading = {};
-		for (const n of nodes) loading[n.id] = { loading: true, error: null, data: null, meta: null };
+		for (const { id } of allEntries) loading[id] = { loading: true, error: null, data: null, meta: null };
 		previews = loading;
 
-		await Promise.all(nodes.map(async (node) => {
+		await Promise.all(allEntries.map(async ({ id, signal }) => {
 			try {
-				const params = new URLSearchParams({ signal: inputs[node.id], start: range.start, end: range.end });
-				const res    = await fetch(`${API}/series?${params}`);
-				if (!res.ok) {
-					const d = await res.json().catch(() => ({ detail: res.statusText }));
-					throw new Error(d.detail ?? res.statusText);
-				}
-				const data = await res.json();
-				previews = { ...previews, [node.id]: { loading: false, error: null, data, meta: computeMeta(data) } };
+				const data = await fetchOne(id, signal);
+				previews = { ...previews, [id]: { loading: false, error: null, data, meta: computeMeta(data) } };
 			} catch (e) {
-				previews = { ...previews, [node.id]: { loading: false, error: e.message, data: null, meta: null } };
+				previews = { ...previews, [id]: { loading: false, error: e.message, data: null, meta: null } };
 			}
 		}));
 
@@ -128,7 +167,10 @@
 	});
 
 	const canPreview = $derived(
-		range.start && range.end && inputNodes.some((n) => inputs[n.id]?.trim())
+		range.start && range.end && (
+			inputNodes.some((n) => inputs[n.id]?.trim()) ||
+			massNodes.some((n) => observations[n.id]?.trim())
+		)
 	);
 
 	onMount(loadSignals);
@@ -168,15 +210,15 @@
 		{#if signalsError}<span class="sig-warn" title="Cannot reach API">⚠</span>{/if}
 	</div>
 
+	<datalist id="signal-list-inputs">
+		{#each signals as s}<option value={s}></option>{/each}
+	</datalist>
+
 	{#if !model}
 		<p class="hint">No study loaded.</p>
 	{:else if inputNodes.length === 0}
 		<p class="hint">No boundary or source nodes in this model.</p>
 	{:else}
-		<datalist id="signal-list-inputs">
-			{#each signals as s}<option value={s}></option>{/each}
-		</datalist>
-
 		<div class="node-rows">
 			{#each inputNodes as node}
 				{@const p = previews[node.id]}
@@ -195,6 +237,63 @@
 							class:missing={!inputs[node.id]?.trim()}
 							oninput={(e) => setInput(node.id, e.target.value)}
 						/>
+					</div>
+
+					{#if p}
+						<div class="preview-block">
+							{#if p.loading}
+								<div class="preview-status">Loading…</div>
+							{:else if p.error}
+								<div class="preview-status error">⚠ {p.error}</div>
+							{:else if p.data}
+								{#if p.meta}
+									<div class="meta-row">
+										<span>{p.meta.count} / {p.meta.total} samples</span>
+										{#if p.meta.gaps > 0}
+											<span class="gap-warn">{p.meta.gaps} gap{p.meta.gaps > 1 ? 's' : ''}</span>
+										{/if}
+										<span>min {fmt(p.meta.min)} · max {fmt(p.meta.max)} · mean {fmt(p.meta.mean)}</span>
+									</div>
+								{/if}
+								<div class="chart-wrap" bind:this={chartContainers[node.id]}></div>
+							{/if}
+						</div>
+					{/if}
+				</div>
+			{/each}
+		</div>
+	{/if}
+
+	<!-- observations section -->
+	{#if model && massNodes.length > 0}
+		<div class="section-header" style="margin-top:8px">Observations</div>
+		<div class="node-rows">
+			{#each massNodes as node}
+				{@const measured = isObsMeasured(node.id)}
+				{@const p = previews[node.id]}
+				<div class="node-block">
+					<div class="node-row">
+						<div class="node-label">
+							<button
+								class="obs-chip"
+								class:measured
+								onclick={() => toggleObsCheckbox(node.id)}
+								title={measured ? 'Click to mark as unknown' : 'Click to mark as measured'}
+							>{measured ? 'measured' : 'unknown'}</button>
+							<span class="kind-dot kind-mass"></span>
+							<span class="node-name">{node.label ?? node.id}</span>
+							<span class="node-id">{node.id}</span>
+						</div>
+						{#if measured}
+							<input
+								type="text"
+								list="signal-list-inputs"
+								placeholder="measurement/field?tag=val"
+								value={observations[node.id] ?? ''}
+								class:missing={!observations[node.id]?.trim()}
+								oninput={(e) => setObs(node.id, e.target.value)}
+							/>
+						{/if}
 					</div>
 
 					{#if p}
@@ -332,6 +431,7 @@
 	}
 	.kind-dot.kind-boundary { background: #4ade80; }
 	.kind-dot.kind-source   { background: #fbbf24; }
+	.kind-dot.kind-mass     { background: #818cf8; }
 
 	.node-name {
 		font-size: 12px; color: #e2e8f0; font-weight: 500;
@@ -360,6 +460,30 @@
 	.gap-warn { color: #fbbf24; }
 
 	.chart-wrap { flex-shrink: 0; }
+
+	.obs-chip {
+		font-size: 10px;
+		font-weight: 700;
+		font-family: inherit;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		padding: 2px 7px;
+		border-radius: 10px;
+		border: 1px solid #334155;
+		background: #0f172a;
+		color: #475569;
+		cursor: pointer;
+		flex-shrink: 0;
+		transition: background 0.1s, color 0.1s, border-color 0.1s;
+		line-height: 1.6;
+	}
+	.obs-chip:hover { border-color: #475569; color: #94a3b8; }
+	.obs-chip.measured {
+		background: #1e1b4b;
+		border-color: #4f46e5;
+		color: #a5b4fc;
+	}
+	.obs-chip.measured:hover { background: #312e81; }
 
 	:global(.uplot)          { color: #94a3b8; }
 	:global(.uplot canvas)   { background: #0f172a; }

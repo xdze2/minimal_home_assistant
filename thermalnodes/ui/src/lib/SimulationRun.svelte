@@ -7,22 +7,34 @@
 
 	let {
 		model,
-		inputs      = {},
-		range       = { start: '', end: '' },
-		solver      = $bindable('zoh'),
-		simStale    = false,
+		inputs       = {},
+		range        = { start: '', end: '' },
+		observations = {},
+		solver       = $bindable('zoh'),
+		simStale     = false,
 		onRunSuccess = () => {},
 	} = $props();
 
 	// ── simulation ────────────────────────────────────────────────────────────
-	let simLoading = $state(false);
-	let simError   = $state(null);
-	let simResult  = $state(null);
+	let simLoading   = $state(false);
+	let simError     = $state(null);
+	let simResult    = $state(null);
+	let inputSeries  = $state(null);  // { node_id: { t, values, label } }
+	let obsSeries    = $state(null);  // { node_id: { t, values, label } }
+
+	async function fetchSeries(signal, start, end) {
+		const url = `${API}/series?signal=${encodeURIComponent(signal)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+		const res = await fetch(url);
+		if (!res.ok) throw new Error(`Series fetch failed: ${res.statusText}`);
+		return res.json();
+	}
 
 	async function runSimulation() {
-		simLoading = true;
-		simError   = null;
-		simResult  = null;
+		simLoading  = true;
+		simError    = null;
+		simResult   = null;
+		inputSeries = null;
+		obsSeries   = null;
 		try {
 			const body = { model, start: range.start, end: range.end, inputs, solver };
 			const res  = await fetch(`${API}/simulate/run`, {
@@ -36,6 +48,32 @@
 			}
 			simResult = await res.json();
 			onRunSuccess();
+
+			// fetch input series in parallel
+			const nodeLabels = Object.fromEntries(
+				(model?.nodes ?? []).map((n) => [n.id, n.label ?? n.id])
+			);
+			const inputEntries = await Promise.all(
+				Object.entries(inputs).map(async ([nodeId, signal]) => {
+					try {
+						const s = await fetchSeries(signal, range.start, range.end);
+						return [nodeId, { t: s.t, values: s.values, label: nodeLabels[nodeId] ?? nodeId, signal }];
+					} catch { return null; }
+				})
+			);
+			inputSeries = Object.fromEntries(inputEntries.filter(Boolean));
+
+			// fetch observation series in parallel (if any)
+			const obsEntries = await Promise.all(
+				Object.entries(observations).map(async ([nodeId, signal]) => {
+					if (!signal) return null;
+					try {
+						const s = await fetchSeries(signal, range.start, range.end);
+						return [nodeId, { t: s.t, values: s.values, label: nodeLabels[nodeId] ?? nodeId, signal }];
+					} catch { return null; }
+				})
+			);
+			obsSeries = Object.fromEntries(obsEntries.filter(Boolean));
 		} catch (e) {
 			simError = e.message;
 		} finally {
@@ -43,51 +81,185 @@
 		}
 	}
 
-	// ── uPlot chart ───────────────────────────────────────────────────────────
-	const SERIES_COLORS = ['#38bdf8', '#fb923c', '#a78bfa', '#34d399', '#f472b6', '#facc15'];
+	// ── uPlot helpers ─────────────────────────────────────────────────────────
+	const SIM_COLORS  = ['#38bdf8', '#fb923c', '#a78bfa', '#34d399', '#f472b6', '#facc15'];
+	const OBS_COLORS  = ['#fde68a', '#fca5a5', '#d9f99d', '#e9d5ff'];
+	const INP_COLORS  = ['#64748b', '#475569', '#94a3b8', '#6b7280', '#9ca3af'];
 
-	let chartContainer = $state(null);
-	let uplot          = null;
+	const AXIS_STYLE  = { stroke: '#94a3b8', ticks: { stroke: '#334155' }, grid: { stroke: '#1e293b' } };
+	const AXIS_Y      = { stroke: '#94a3b8', ticks: { stroke: '#334155' }, grid: { stroke: '#334155' }, label: '°C' };
+	const AXIS_Y_RESID = { stroke: '#94a3b8', ticks: { stroke: '#334155' }, grid: { stroke: '#334155' }, label: 'Δ°C' };
 
-	function destroyChart() {
-		if (uplot) { uplot.destroy(); uplot = null; }
+	function makeUplot(container, opts, data) {
+		return new uPlot(opts, data, container);
 	}
 
-	function buildChart(result) {
-		destroyChart();
-		if (!chartContainer || !result) return;
-		const ts      = result.t.map((s) => Date.parse(s) / 1000);
-		const massIds = Object.keys(result.nodes);
-		const data    = [ts, ...massIds.map((id) => result.nodes[id].map((v) => (v === null ? NaN : v)))];
-		const series  = [{}, ...massIds.map((id, i) => ({
-			label: id,
-			stroke: SERIES_COLORS[i % SERIES_COLORS.length],
-			width: 1.5, spanGaps: false,
-		}))];
-		uplot = new uPlot({
-			width: chartContainer.clientWidth || 800, height: 300,
-			cursor: { show: true }, scales: { x: { time: true } }, series,
-			axes: [
-				{ stroke: '#94a3b8', ticks: { stroke: '#334155' }, grid: { stroke: '#1e293b' } },
-				{ stroke: '#94a3b8', ticks: { stroke: '#334155' }, grid: { stroke: '#334155' }, label: '°C' },
-			],
-			legend: { show: true },
-		}, data, chartContainer);
-	}
+	// ── temperature chart ─────────────────────────────────────────────────────
+	let tempContainer = $state(null);
+	let tempChart     = null;
+	// unwrapped DOM refs for uPlot (avoids Svelte 5 proxy wrapping)
 
-	$effect(() => { if (simResult) buildChart(simResult); });
+	function buildTempChart() {
+		if (tempChart) { tempChart.destroy(); tempChart = null; }
+		if (!tempContainer || !simResult) return;
 
-	let resizeObserver;
-	$effect(() => {
-		if (!chartContainer) return;
-		resizeObserver = new ResizeObserver(() => {
-			if (uplot && chartContainer) uplot.setSize({ width: chartContainer.clientWidth, height: 300 });
+		const ts      = simResult.t.map((s) => Date.parse(s) / 1000);
+		const massIds = Object.keys(simResult.nodes);
+
+		const simSeries = massIds.map((id, i) => ({
+			label: id, stroke: SIM_COLORS[i % SIM_COLORS.length], width: 1.5, spanGaps: false,
+		}));
+		const simData = massIds.map((id) => simResult.nodes[id].map((v) => (v === null ? NaN : v)));
+
+		// overlay observed temperatures if available
+		const obsIds = obsSeries ? Object.keys(obsSeries).filter((id) => simResult.nodes[id] !== undefined) : [];
+		const obsSer = obsIds.map((id, i) => ({
+			label: `${id} (obs)`,
+			stroke: OBS_COLORS[i % OBS_COLORS.length],
+			width: 1, dash: [4, 3], spanGaps: false,
+		}));
+
+		// align obs to sim time grid via nearest-neighbour lookup
+		const simTsMs = simResult.t.map((s) => Date.parse(s));
+		const obsData = obsIds.map((id) => {
+			const obs = obsSeries[id];
+			const obsMs = obs.t.map((s) => Date.parse(s));
+			return simTsMs.map((tms) => {
+				const idx = nearestIdx(obsMs, tms);
+				return idx >= 0 ? (obs.values[idx] ?? NaN) : NaN;
+			});
 		});
-		resizeObserver.observe(chartContainer);
-		return () => resizeObserver?.disconnect();
+
+		const data    = [ts, ...simData, ...obsData];
+		const series  = [{}, ...simSeries, ...obsSer];
+
+		tempChart = makeUplot(tempContainer, {
+			width: tempContainer.clientWidth || 800, height: 260,
+			cursor: { show: true }, scales: { x: { time: true } }, series,
+			axes: [AXIS_STYLE, AXIS_Y],
+			legend: { show: true },
+		}, data);
+		return;
+	}
+
+	// ── inputs chart ─────────────────────────────────────────────────────────
+	let inpContainer = $state(null);
+	let inpChart     = null;
+
+	function buildInputsChart() {
+		if (inpChart) { inpChart.destroy(); inpChart = null; }
+		if (!inpContainer || !inputSeries) return;
+		const entries = Object.values(inputSeries);
+		if (entries.length === 0) return;
+
+		// common time axis: use first series
+		const ts = entries[0].t.map((s) => Date.parse(s) / 1000);
+		const data = [ts, ...entries.map((e) => e.values.map((v) => (v === null ? NaN : v)))];
+		const series = [{}, ...entries.map((e, i) => ({
+			label: e.label, stroke: INP_COLORS[i % INP_COLORS.length], width: 1.5, spanGaps: false,
+		}))];
+
+		inpChart = makeUplot(inpContainer, {
+			width: inpContainer.clientWidth || 800, height: 200,
+			cursor: { show: true }, scales: { x: { time: true } }, series,
+			axes: [AXIS_STYLE, { ...AXIS_Y, label: '' }],
+			legend: { show: true },
+		}, data);
+		return;
+	}
+
+	// ── residuals chart ───────────────────────────────────────────────────────
+	let residContainer = $state(null);
+	let residChart     = null;
+
+	function nearestIdx(sortedMs, tms) {
+		if (sortedMs.length === 0) return -1;
+		let lo = 0, hi = sortedMs.length - 1;
+		while (lo < hi) {
+			const mid = (lo + hi) >> 1;
+			if (sortedMs[mid] < tms) lo = mid + 1; else hi = mid;
+		}
+		return lo;
+	}
+
+	function buildResidChart() {
+		if (residChart) { residChart.destroy(); residChart = null; }
+		if (!residContainer || !simResult || !obsSeries) return;
+		const validIds = Object.keys(obsSeries).filter((id) => simResult.nodes[id] !== undefined);
+		if (validIds.length === 0) return;
+
+		const simTs   = simResult.t.map((s) => Date.parse(s));
+		const ts      = simTs.map((ms) => ms / 1000);
+
+		const residData = validIds.map((id) => {
+			const obs   = obsSeries[id];
+			const obsMs = obs.t.map((s) => Date.parse(s));
+			const simVals = simResult.nodes[id];
+			return simTs.map((tms, k) => {
+				const idx    = nearestIdx(obsMs, tms);
+				const obsVal = idx >= 0 ? (obs.values[idx] ?? null) : null;
+				return obsVal !== null ? (simVals[k] - obsVal) : NaN;
+			});
+		});
+
+		const data   = [ts, ...residData];
+		const series = [{}, ...validIds.map((id, i) => ({
+			label: id, stroke: SIM_COLORS[i % SIM_COLORS.length], width: 1.5, spanGaps: false,
+		}))];
+
+		residChart = makeUplot(residContainer, {
+			width: residContainer.clientWidth || 800, height: 200,
+			cursor: { show: true }, scales: { x: { time: true } }, series,
+			axes: [AXIS_STYLE, AXIS_Y_RESID],
+			legend: { show: true },
+		}, data);
+		return;
+	}
+
+	// ── reactive chart builds ─────────────────────────────────────────────────
+	// Explicitly read container $state refs so Svelte tracks them — effects
+	// re-run both when data arrives and when the DOM node is bound.
+	$effect(() => {
+		// eslint-disable-next-line no-unused-expressions
+		tempContainer; simResult; obsSeries;
+		buildTempChart();
+	});
+	$effect(() => {
+		// eslint-disable-next-line no-unused-expressions
+		inpContainer; inputSeries;
+		buildInputsChart();
+	});
+	$effect(() => {
+		// eslint-disable-next-line no-unused-expressions
+		residContainer; simResult; obsSeries;
+		buildResidChart();
 	});
 
-	onDestroy(destroyChart);
+	// ── resize observers ──────────────────────────────────────────────────────
+	function watchResize(getContainer, getChart) {
+		let obs;
+		$effect(() => {
+			const el = getContainer();
+			if (!el) return;
+			obs = new ResizeObserver(() => {
+				const u = getChart();
+				if (u && el) u.setSize({ width: el.clientWidth, height: u.height });
+			});
+			obs.observe(el);
+			return () => obs?.disconnect();
+		});
+	}
+	watchResize(() => tempContainer,  () => tempChart);
+	watchResize(() => inpContainer,   () => inpChart);
+	watchResize(() => residContainer, () => residChart);
+
+	onDestroy(() => {
+		tempChart?.destroy();
+		inpChart?.destroy();
+		residChart?.destroy();
+	});
+
+	const hasObs = $derived(obsSeries && Object.keys(obsSeries).length > 0);
 </script>
 
 <div class="run-panel">
@@ -126,24 +298,42 @@
 			<div class="error-box">⚠ {simError}</div>
 
 		{:else if simResult}
-			<div class="result-header">
-				<span class="result-title">Temperature — mass nodes</span>
-				<span class="result-meta">
-					{Object.keys(simResult.nodes).length} node{Object.keys(simResult.nodes).length !== 1 ? 's' : ''}
-					· {simResult.t.length} steps
-					{#if simResult.meta}· {simResult.meta.elapsed_s.toFixed(2)} s · solver: {simResult.meta.solver}{/if}
-				</span>
-			</div>
+			<!-- meta row -->
 			{#if simResult.meta}
 				<div class="meta-block">
-					<span>n_rhs_evals: {simResult.meta.n_rhs_evals ?? '—'}</span>
-					<span>n_steps: {simResult.meta.n_steps ?? '—'}</span>
+					<span class="meta-label">solver: {simResult.meta.solver}</span>
+					<span class="meta-label">{simResult.t.length} steps</span>
+					<span class="meta-label">{simResult.meta.elapsed_s.toFixed(2)} s</span>
+					{#if simResult.meta.n_rhs_evals}<span class="meta-label">n_rhs_evals: {simResult.meta.n_rhs_evals}</span>{/if}
 					<span class:ok={simResult.meta.success} class:fail={!simResult.meta.success}>
 						{simResult.meta.success ? '✓ success' : '✗ ' + simResult.meta.message}
 					</span>
 				</div>
 			{/if}
-			<div class="chart-wrap" bind:this={chartContainer}></div>
+
+			<!-- temperatures + observed overlay -->
+			<div class="chart-section">
+				<div class="section-title">
+					Temperatures — mass nodes
+					{#if hasObs}<span class="section-sub">simulated + observed overlay</span>{/if}
+				</div>
+				<div class="chart-wrap" bind:this={tempContainer}></div>
+			</div>
+
+			<!-- inputs — always rendered so bind:this is stable; hidden when empty -->
+			<div class="chart-section" class:hidden={!inputSeries || Object.keys(inputSeries).length === 0}>
+				<div class="section-title">Inputs</div>
+				<div class="chart-wrap" bind:this={inpContainer}></div>
+			</div>
+
+			<!-- residuals — always rendered so bind:this is stable; hidden when no obs -->
+			<div class="chart-section" class:hidden={!hasObs}>
+				<div class="section-title">
+					Residuals
+					<span class="section-sub">simulated − observed [°C]</span>
+				</div>
+				<div class="chart-wrap" bind:this={residContainer}></div>
+			</div>
 		{/if}
 	</div>
 </div>
@@ -198,7 +388,7 @@
 		display: flex;
 		flex-direction: column;
 		padding: 20px 24px;
-		gap: 12px;
+		gap: 20px;
 		overflow-y: auto;
 		min-height: 0;
 	}
@@ -229,18 +419,42 @@
 		border-radius: 4px; color: #f87171; padding: 12px 16px; font-size: 13px;
 	}
 
-	.result-header { display: flex; align-items: baseline; gap: 12px; }
-	.result-title  { font-size: 14px; font-weight: 600; color: #f1f5f9; }
-	.result-meta   { font-size: 12px; color: #94a3b8; }
-
 	.meta-block {
 		display: flex; gap: 16px; font-size: 11px; font-family: monospace;
-		color: #94a3b8; padding: 4px 0;
+		color: #94a3b8; padding: 4px 0; flex-wrap: wrap; flex-shrink: 0;
 	}
+	.meta-label { color: #64748b; }
 	.meta-block .ok   { color: #4ade80; }
 	.meta-block .fail { color: #f87171; }
 
+	.chart-section {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		flex-shrink: 0;
+	}
+
+	.section-title {
+		font-size: 12px;
+		font-weight: 600;
+		color: #94a3b8;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+	}
+
+	.section-sub {
+		font-size: 11px;
+		font-weight: 400;
+		color: #475569;
+		text-transform: none;
+		letter-spacing: 0;
+	}
+
 	.chart-wrap { flex-shrink: 0; }
+	.hidden { display: none; }
 
 	:global(.uplot)          { color: #94a3b8; }
 	:global(.uplot canvas)   { background: #0f172a; }

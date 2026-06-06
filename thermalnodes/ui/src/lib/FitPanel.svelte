@@ -1,5 +1,5 @@
 <script>
-	import { onMount } from 'svelte';
+	import { onDestroy } from 'svelte';
 	import uPlot from 'uplot';
 	import 'uplot/dist/uPlot.min.css';
 
@@ -7,35 +7,27 @@
 
 	let {
 		model,
-		inputs = {},       // node_id → signal name (from Inputs tab)
-		range  = { start: '', end: '' },
+		inputs       = {},   // node_id → signal name (from Inputs tab)
+		range        = { start: '', end: '' },
+		observations = {},   // mass_node_id → signal name (from Inputs tab observations)
+		groups       = [],   // list[list[str]] from /fit/preview-groups (all params)
 	} = $props();
 
-	// ── signal autocomplete ───────────────────────────────────────────────────
-	let signals      = $state([]);
-	let signalsError = $state(false);
+	// Group colors — must match GraphView.svelte palette
+	const GROUP_COLORS = ['#f97316', '#22d3ee', '#a78bfa', '#4ade80', '#fb7185'];
 
-	async function loadSignals() {
-		try {
-			const res = await fetch(`${API}/signals`);
-			if (!res.ok) throw new Error(res.statusText);
-			signals      = await res.json();
-			signalsError = false;
-		} catch {
-			signalsError = true;
+	// param_key → { color, groupIndex, size }
+	const groupInfoMap = $derived.by(() => {
+		const map = {};
+		let colorIdx = 0;
+		for (const g of groups) {
+			if (g.length <= 1) { colorIdx; continue; }
+			const color = GROUP_COLORS[colorIdx % GROUP_COLORS.length];
+			colorIdx++;
+			for (const key of g) map[key] = { color, size: g.length };
 		}
-	}
-
-	// ── observations (mass node → signal) ────────────────────────────────────
-	let observations = $state({});  // mass_node_id → signal name
-
-	const massNodes = $derived(
-		(model?.nodes ?? []).filter((n) => n.kind === 'mass')
-	);
-
-	function setObs(nodeId, value) {
-		observations = { ...observations, [nodeId]: value };
-	}
+		return map;
+	});
 
 	// ── params table ──────────────────────────────────────────────────────────
 	// Each row: { key: 'node_id.field', nominal: number, sigma_log: number }
@@ -87,14 +79,17 @@
 	const canRun = $derived(
 		!fitLoading &&
 		range.start && range.end &&
-		massNodes.some((n) => observations[n.id]?.trim()) &&
+		Object.values(observations).some((v) => v?.trim()) &&
 		paramRows.some((r) => !r.fixed)
 	);
 
 	async function runFit() {
-		fitLoading = true;
-		fitError   = null;
-		fitResult  = null;
+		fitLoading  = true;
+		fitError    = null;
+		fitResult   = null;
+		simResult   = null;
+		inputSeries = null;
+		obsSeries   = null;
 
 		const freeParams = {};
 		for (const r of paramRows) {
@@ -126,6 +121,11 @@
 				throw new Error(typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail));
 			}
 			fitResult = await res.json();
+
+			// run forward simulation with fitted params to build charts
+			const fittedParams = fitResult.params_fitted ?? fitResult.params_mean ?? {};
+			const simRes = await runSimWithFittedParams(fittedParams);
+			await loadChartsForResult(simRes);
 		} catch (e) {
 			fitError = e.message;
 		} finally {
@@ -146,7 +146,249 @@
 		return (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
 	}
 
-	onMount(loadSignals);
+	// ── post-fit simulation + series ──────────────────────────────────────────
+	let simResult   = $state(null);
+	let inputSeries = $state(null);
+	let obsSeries   = $state(null);
+
+	async function fetchSeries(signal, start, end) {
+		const url = `${API}/series?signal=${encodeURIComponent(signal)}&start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+		const res = await fetch(url);
+		if (!res.ok) throw new Error(`Series fetch failed: ${res.statusText}`);
+		return res.json();
+	}
+
+	async function runSimWithFittedParams(fittedParams) {
+		// Patch model with fitted parameter values
+		const fittedModel = {
+			...model,
+			nodes: (model?.nodes ?? []).map((n) => {
+				const Rkey = `${n.id}.R`;
+				const Ckey = `${n.id}.C`;
+				const Gkey = `${n.id}.gain`;
+				if (n.kind === 'resistance' && fittedParams[Rkey] !== undefined)
+					return { ...n, R: fittedParams[Rkey] };
+				if (n.kind === 'mass' && fittedParams[Ckey] !== undefined)
+					return { ...n, C: fittedParams[Ckey] };
+				if (n.kind === 'source' && fittedParams[Gkey] !== undefined)
+					return { ...n, gain: fittedParams[Gkey] };
+				return n;
+			}),
+		};
+
+		const body = { model: fittedModel, start: range.start, end: range.end, inputs, solver: 'zoh' };
+		const res = await fetch(`${API}/simulate/run`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body),
+		});
+		if (!res.ok) {
+			const d = await res.json().catch(() => ({ detail: res.statusText }));
+			throw new Error(d.detail ?? res.statusText);
+		}
+		return res.json();
+	}
+
+	async function loadChartsForResult(result) {
+		simResult = result;
+
+		const nodeLabels = Object.fromEntries(
+			(model?.nodes ?? []).map((n) => [n.id, n.label ?? n.id])
+		);
+
+		const inputEntries = await Promise.all(
+			Object.entries(inputs).map(async ([nodeId, signal]) => {
+				try {
+					const s = await fetchSeries(signal, range.start, range.end);
+					return [nodeId, { t: s.t, values: s.values, label: nodeLabels[nodeId] ?? nodeId }];
+				} catch { return null; }
+			})
+		);
+		inputSeries = Object.fromEntries(inputEntries.filter(Boolean));
+
+		const obsEntries = await Promise.all(
+			Object.entries(observations).map(async ([nodeId, signal]) => {
+				if (!signal) return null;
+				try {
+					const s = await fetchSeries(signal, range.start, range.end);
+					return [nodeId, { t: s.t, values: s.values, label: nodeLabels[nodeId] ?? nodeId }];
+				} catch { return null; }
+			})
+		);
+		obsSeries = Object.fromEntries(obsEntries.filter(Boolean));
+	}
+
+	// ── uPlot helpers ─────────────────────────────────────────────────────────
+	const SIM_COLORS  = ['#38bdf8', '#fb923c', '#a78bfa', '#34d399', '#f472b6', '#facc15'];
+	const OBS_COLORS  = ['#fde68a', '#fca5a5', '#d9f99d', '#e9d5ff'];
+	const INP_COLORS  = ['#64748b', '#475569', '#94a3b8', '#6b7280', '#9ca3af'];
+
+	const AXIS_STYLE   = { stroke: '#94a3b8', ticks: { stroke: '#334155' }, grid: { stroke: '#1e293b' } };
+	const AXIS_Y       = { stroke: '#94a3b8', ticks: { stroke: '#334155' }, grid: { stroke: '#334155' }, label: '°C' };
+	const AXIS_Y_RESID = { stroke: '#94a3b8', ticks: { stroke: '#334155' }, grid: { stroke: '#334155' }, label: 'Δ°C' };
+
+	function makeUplot(container, opts, data) {
+		return new uPlot(opts, data, container);
+	}
+
+	function nearestIdx(sortedMs, tms) {
+		if (sortedMs.length === 0) return -1;
+		let lo = 0, hi = sortedMs.length - 1;
+		while (lo < hi) {
+			const mid = (lo + hi) >> 1;
+			if (sortedMs[mid] < tms) lo = mid + 1; else hi = mid;
+		}
+		return lo;
+	}
+
+	// ── temperature chart ─────────────────────────────────────────────────────
+	let tempContainer = $state(null);
+	let tempChart     = null;
+
+	function buildTempChart() {
+		if (tempChart) { tempChart.destroy(); tempChart = null; }
+		if (!tempContainer || !simResult) return;
+
+		const ts      = simResult.t.map((s) => Date.parse(s) / 1000);
+		const massIds = Object.keys(simResult.nodes);
+
+		const simSeries = massIds.map((id, i) => ({
+			label: id, stroke: SIM_COLORS[i % SIM_COLORS.length], width: 1.5, spanGaps: false,
+		}));
+		const simData = massIds.map((id) => simResult.nodes[id].map((v) => (v === null ? NaN : v)));
+
+		const obsIds = obsSeries ? Object.keys(obsSeries).filter((id) => simResult.nodes[id] !== undefined) : [];
+		const obsSer = obsIds.map((id, i) => ({
+			label: `${id} (obs)`,
+			stroke: OBS_COLORS[i % OBS_COLORS.length],
+			width: 1, dash: [4, 3], spanGaps: false,
+		}));
+
+		const simTsMs = simResult.t.map((s) => Date.parse(s));
+		const obsData = obsIds.map((id) => {
+			const obs   = obsSeries[id];
+			const obsMs = obs.t.map((s) => Date.parse(s));
+			return simTsMs.map((tms) => {
+				const idx = nearestIdx(obsMs, tms);
+				return idx >= 0 ? (obs.values[idx] ?? NaN) : NaN;
+			});
+		});
+
+		const data   = [ts, ...simData, ...obsData];
+		const series = [{}, ...simSeries, ...obsSer];
+
+		tempChart = makeUplot(tempContainer, {
+			width: tempContainer.clientWidth || 800, height: 260,
+			cursor: { show: true }, scales: { x: { time: true } }, series,
+			axes: [AXIS_STYLE, AXIS_Y],
+			legend: { show: true },
+		}, data);
+	}
+
+	// ── inputs chart ──────────────────────────────────────────────────────────
+	let inpContainer = $state(null);
+	let inpChart     = null;
+
+	function buildInputsChart() {
+		if (inpChart) { inpChart.destroy(); inpChart = null; }
+		if (!inpContainer || !inputSeries) return;
+		const entries = Object.values(inputSeries);
+		if (entries.length === 0) return;
+
+		const ts     = entries[0].t.map((s) => Date.parse(s) / 1000);
+		const data   = [ts, ...entries.map((e) => e.values.map((v) => (v === null ? NaN : v)))];
+		const series = [{}, ...entries.map((e, i) => ({
+			label: e.label, stroke: INP_COLORS[i % INP_COLORS.length], width: 1.5, spanGaps: false,
+		}))];
+
+		inpChart = makeUplot(inpContainer, {
+			width: inpContainer.clientWidth || 800, height: 200,
+			cursor: { show: true }, scales: { x: { time: true } }, series,
+			axes: [AXIS_STYLE, { ...AXIS_Y, label: '' }],
+			legend: { show: true },
+		}, data);
+	}
+
+	// ── residuals chart ───────────────────────────────────────────────────────
+	let residContainer = $state(null);
+	let residChart     = null;
+
+	function buildResidChart() {
+		if (residChart) { residChart.destroy(); residChart = null; }
+		if (!residContainer || !simResult || !obsSeries) return;
+		const validIds = Object.keys(obsSeries).filter((id) => simResult.nodes[id] !== undefined);
+		if (validIds.length === 0) return;
+
+		const simTs = simResult.t.map((s) => Date.parse(s));
+		const ts    = simTs.map((ms) => ms / 1000);
+
+		const residData = validIds.map((id) => {
+			const obs     = obsSeries[id];
+			const obsMs   = obs.t.map((s) => Date.parse(s));
+			const simVals = simResult.nodes[id];
+			return simTs.map((tms, k) => {
+				const idx    = nearestIdx(obsMs, tms);
+				const obsVal = idx >= 0 ? (obs.values[idx] ?? null) : null;
+				return obsVal !== null ? (simVals[k] - obsVal) : NaN;
+			});
+		});
+
+		const data   = [ts, ...residData];
+		const series = [{}, ...validIds.map((id, i) => ({
+			label: id, stroke: SIM_COLORS[i % SIM_COLORS.length], width: 1.5, spanGaps: false,
+		}))];
+
+		residChart = makeUplot(residContainer, {
+			width: residContainer.clientWidth || 800, height: 200,
+			cursor: { show: true }, scales: { x: { time: true } }, series,
+			axes: [AXIS_STYLE, AXIS_Y_RESID],
+			legend: { show: true },
+		}, data);
+	}
+
+	// ── reactive chart builds ─────────────────────────────────────────────────
+	$effect(() => {
+		// eslint-disable-next-line no-unused-expressions
+		tempContainer; simResult; obsSeries;
+		buildTempChart();
+	});
+	$effect(() => {
+		// eslint-disable-next-line no-unused-expressions
+		inpContainer; inputSeries;
+		buildInputsChart();
+	});
+	$effect(() => {
+		// eslint-disable-next-line no-unused-expressions
+		residContainer; simResult; obsSeries;
+		buildResidChart();
+	});
+
+	// ── resize observers ──────────────────────────────────────────────────────
+	function watchResize(getContainer, getChart) {
+		let obs;
+		$effect(() => {
+			const el = getContainer();
+			if (!el) return;
+			obs = new ResizeObserver(() => {
+				const u = getChart();
+				if (u && el) u.setSize({ width: el.clientWidth, height: u.height });
+			});
+			obs.observe(el);
+			return () => obs?.disconnect();
+		});
+	}
+	watchResize(() => tempContainer,  () => tempChart);
+	watchResize(() => inpContainer,   () => inpChart);
+	watchResize(() => residContainer, () => residChart);
+
+	onDestroy(() => {
+		tempChart?.destroy();
+		inpChart?.destroy();
+		residChart?.destroy();
+	});
+
+	const hasObs = $derived(obsSeries && Object.keys(obsSeries).length > 0);
+
 </script>
 
 <div class="fit-panel">
@@ -174,41 +416,6 @@
 	</div>
 
 	<div class="body">
-		<!-- observations section -->
-		<section class="section">
-			<div class="section-header">
-				Observations (measured temperatures)
-				{#if signalsError}<span class="sig-warn" title="Cannot reach API">⚠</span>{/if}
-			</div>
-
-			<datalist id="signal-list-fit">
-				{#each signals as s}<option value={s}></option>{/each}
-			</datalist>
-
-			{#if massNodes.length === 0}
-				<p class="hint">No mass nodes in this model.</p>
-			{:else}
-				<div class="node-rows">
-					{#each massNodes as node}
-						<div class="node-row">
-							<div class="node-label">
-								<span class="kind-dot"></span>
-								<span class="node-name">{node.label ?? node.id}</span>
-								<span class="node-id">{node.id}</span>
-							</div>
-							<input
-								type="text"
-								list="signal-list-fit"
-								placeholder="measurement/field?tag=val"
-								value={observations[node.id] ?? ''}
-								oninput={(e) => setObs(node.id, e.target.value)}
-							/>
-						</div>
-					{/each}
-				</div>
-			{/if}
-		</section>
-
 		<!-- params section -->
 		<section class="section">
 			<div class="section-header">Free parameters</div>
@@ -221,12 +428,14 @@
 						<tr>
 							<th></th>
 							<th>Parameter</th>
+							<th></th>
 							<th>Nominal</th>
 							<th>σ log</th>
 						</tr>
 					</thead>
 					<tbody>
 						{#each paramRows as row (row.key)}
+							{@const gi = groupInfoMap[row.key]}
 							<tr class:fixed={row.fixed}>
 								<td>
 									<input
@@ -236,6 +445,11 @@
 									/>
 								</td>
 								<td class="param-key">{row.key}</td>
+								<td class="group-cell">
+									{#if gi}
+										<span class="group-dot" style="background:{gi.color}" title="Tied group — {gi.size} parallel paths"></span>
+									{/if}
+								</td>
 								<td>
 									<input
 										type="number"
@@ -286,6 +500,7 @@
 					<thead>
 						<tr>
 							<th>Parameter</th>
+							<th></th>
 							<th>Nominal</th>
 							<th>Fitted / Mean</th>
 							<th>± σ</th>
@@ -297,8 +512,14 @@
 							{@const nominal = fitResult.params_nominal?.[key]}
 							{@const fitted  = (fitResult.params_fitted ?? fitResult.params_mean)?.[key]}
 							{@const std     = fitResult.params_std?.[key]}
+							{@const gi      = groupInfoMap[key]}
 							<tr>
 								<td class="param-key">{key}</td>
+								<td class="group-cell">
+									{#if gi}
+										<span class="group-dot" style="background:{gi.color}" title="Tied — shared multiplier with {gi.size - 1} other path(s)"></span>
+									{/if}
+								</td>
 								<td class="num">{fmtParam(nominal)}</td>
 								<td class="num fitted">{fmtParam(fitted)}</td>
 								<td class="num std">± {fmtParam(std)}</td>
@@ -315,6 +536,30 @@
 					<div class="cost-row">acceptance rate: {(fitResult.acceptance_rate * 100).toFixed(1)}%</div>
 				{/if}
 			</section>
+
+			<!-- charts — fitted simulation vs observed -->
+			{#if simResult}
+				<section class="section">
+					<div class="section-header">
+						Temperatures — fitted simulation
+						{#if hasObs}<span class="chart-sub">simulated + observed overlay</span>{/if}
+					</div>
+					<div class="chart-wrap" bind:this={tempContainer}></div>
+				</section>
+
+				<section class="section" class:hidden={!inputSeries || Object.keys(inputSeries).length === 0}>
+					<div class="section-header">Inputs</div>
+					<div class="chart-wrap" bind:this={inpContainer}></div>
+				</section>
+
+				<section class="section" class:hidden={!hasObs}>
+					<div class="section-header">
+						Residuals
+						<span class="chart-sub">simulated − observed [°C]</span>
+					</div>
+					<div class="chart-wrap" bind:this={residContainer}></div>
+				</section>
+			{/if}
 		{/if}
 	</div>
 </div>
@@ -389,35 +634,7 @@
 		gap: 8px;
 	}
 
-	.sig-warn { color: #f59e0b; font-size: 11px; }
 	.hint { font-size: 12px; color: #94a3b8; margin: 0; }
-
-	/* observation rows */
-	.node-rows { display: flex; flex-direction: column; gap: 6px; }
-
-	.node-row {
-		background: #1e293b;
-		border: 1px solid #334155;
-		border-radius: 6px;
-		padding: 8px 12px;
-		display: flex;
-		flex-direction: column;
-		gap: 5px;
-	}
-
-	.node-label { display: flex; align-items: center; gap: 5px; }
-
-	.kind-dot {
-		width: 7px; height: 7px;
-		border-radius: 50%; flex-shrink: 0;
-		background: #818cf8;
-	}
-
-	.node-name {
-		font-size: 12px; color: #e2e8f0; font-weight: 500;
-		flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-	}
-	.node-id { font-size: 10px; font-family: monospace; color: #94a3b8; flex-shrink: 0; }
 
 	input[type='text'],
 	input[type='number'] {
@@ -459,6 +676,20 @@
 		font-family: monospace;
 		font-size: 11px;
 		color: #e2e8f0;
+	}
+
+	.group-cell {
+		width: 14px;
+		padding: 4px 2px;
+	}
+
+	.group-dot {
+		display: inline-block;
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		flex-shrink: 0;
+		cursor: help;
 	}
 
 	/* results table */
@@ -509,4 +740,18 @@
 		padding: 12px 16px;
 		font-size: 13px;
 	}
+
+	.chart-wrap { flex-shrink: 0; }
+	.chart-sub {
+		font-size: 11px;
+		font-weight: 400;
+		text-transform: none;
+		letter-spacing: 0;
+		color: #475569;
+	}
+	.hidden { display: none; }
+
+	:global(.uplot)           { color: #94a3b8; }
+	:global(.uplot canvas)    { background: #0f172a; }
+	:global(.uplot .u-legend) { background: transparent; color: #94a3b8; font-size: 12px; }
 </style>

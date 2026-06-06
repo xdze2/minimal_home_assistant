@@ -18,6 +18,7 @@ from .influx import fetch_series, list_signals
 from ..solver.assemble import assemble
 from ..solver.simulate import simulate_ivp, simulate_zoh, simulate_mock
 from ..solver.fit import build_forward, fit_nls, fit_mcmc
+from ..solver.identifiability import group_params
 
 DATA_DIR     = Path(__file__).parent.parent / "data"
 EXAMPLES_DIR = DATA_DIR / "examples"
@@ -227,6 +228,25 @@ def post_simulate(req: SimulateRequest) -> dict:
 
 # ── fit ───────────────────────────────────────────────────────────────────────
 
+class PreviewGroupsRequest(BaseModel):
+    model: dict
+    param_keys: list[str]
+
+
+@app.post("/fit/preview-groups")
+def post_fit_preview_groups(req: PreviewGroupsRequest) -> list[list[str]]:
+    """Return identifiability groups for the given model and free param keys.
+
+    Groups with more than one element contain parallel-path resistors whose
+    individual values cannot be distinguished — only their combined conductance
+    is observable from the state vector.
+    """
+    try:
+        return group_params(req.model, req.param_keys)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 class FitRequest(BaseModel):
     model: dict
     start: str
@@ -281,7 +301,7 @@ def post_fit_run(req: FitRequest) -> dict:
     }
 
     try:
-        forward_fn, log_p0, param_keys = build_forward(
+        forward_fn, log_p0, param_keys, groups = build_forward(
             req.model, inputs, observations, fit_config,
             req.start, req.end, req.dt_minutes,
         )
@@ -290,7 +310,7 @@ def post_fit_run(req: FitRequest) -> dict:
 
     try:
         if req.method == "mcmc":
-            result = fit_mcmc(forward_fn, log_p0, param_keys, fit_config)
+            result = fit_mcmc(forward_fn, log_p0, param_keys, fit_config, groups=groups)
             return {
                 "method":          result.method,
                 "params_nominal":  result.params_nominal,
@@ -298,9 +318,10 @@ def post_fit_run(req: FitRequest) -> dict:
                 "params_std":      result.params_std,
                 "acceptance_rate": result.acceptance_rate,
                 "elapsed_s":       result.elapsed_s,
+                "param_groups":    groups,
             }
         else:
-            result = fit_nls(forward_fn, log_p0, param_keys, fit_config)
+            result = fit_nls(forward_fn, log_p0, param_keys, fit_config, groups=groups)
             return {
                 "method":          result.method,
                 "params_nominal":  result.params_nominal,
@@ -311,6 +332,7 @@ def post_fit_run(req: FitRequest) -> dict:
                 "message":         result.message,
                 "elapsed_s":       result.elapsed_s,
                 "n_evals":         result.n_evals,
+                "param_groups":    groups,
             }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fit error: {e}") from e

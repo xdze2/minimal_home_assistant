@@ -42,11 +42,12 @@
 	const userStudies    = $derived(studies.filter((s) => s.source === 'user'));
 
 	// ── current study state ───────────────────────────────────────────────────
-	let selectedStudyId = $state(null);
-	let model           = $state(null);
-	let simInputs       = $state({});
-	let simRange        = $state({ start: '', end: '' });
-	let simSolver       = $state('zoh');
+	let selectedStudyId  = $state(null);
+	let model            = $state(null);
+	let simInputs        = $state({});
+	let simRange         = $state({ start: '', end: '' });
+	let simSolver        = $state('zoh');
+	let simObservations  = $state({});  // mass_node_id → signal name (key present = measured)
 
 	const selectedStudyMeta = $derived(studies.find((s) => s.id === selectedStudyId));
 
@@ -55,7 +56,7 @@
 	let lastRunSnapshot   = $state(null);
 
 	function studySnapshot() {
-		return JSON.stringify({ model, inputs: simInputs, start: simRange.start, end: simRange.end, solver: simSolver });
+		return JSON.stringify({ model, inputs: simInputs, observations: simObservations, start: simRange.start, end: simRange.end, solver: simSolver });
 	}
 
 	const studyDirty = $derived(lastSavedSnapshot !== null && studySnapshot() !== lastSavedSnapshot);
@@ -70,12 +71,13 @@
 			const res   = await fetch(`${API}/studies/${id}`);
 			if (!res.ok) throw new Error(res.statusText);
 			const study = await res.json();
-			selectedStudyId   = id;
-			model             = structuredClone(study.model ?? study);
-			simInputs         = structuredClone(study.inputs ?? {});
-			simRange          = { start: study.start ?? '', end: study.end ?? '' };
-			simSolver         = study.solver ?? 'zoh';
-			selected          = null;
+			selectedStudyId  = id;
+			model            = structuredClone(study.model ?? study);
+			simInputs        = structuredClone(study.inputs ?? {});
+			simRange         = { start: study.start ?? '', end: study.end ?? '' };
+			simSolver        = study.solver ?? 'zoh';
+			simObservations  = structuredClone(study.observations ?? {});
+			selected         = null;
 			lastSavedSnapshot = studySnapshot();
 			lastRunSnapshot   = null;
 		} catch (e) {
@@ -105,14 +107,15 @@
 		saveLoading = true;
 		saveError   = null;
 		const study = {
-			id:     saveId.trim(),
-			label:  model?.name ?? saveId.trim(),
-			room:   selectedStudyMeta?.room ?? null,
+			id:           saveId.trim(),
+			label:        model?.name ?? saveId.trim(),
+			room:         selectedStudyMeta?.room ?? null,
 			model,
-			start:  simRange.start,
-			end:    simRange.end,
-			inputs: simInputs,
-			solver: simSolver,
+			start:        simRange.start,
+			end:          simRange.end,
+			inputs:       simInputs,
+			observations: simObservations,
+			solver:       simSolver,
 		};
 		try {
 			const res = await fetch(`${API}/studies/${saveId.trim()}`, {
@@ -172,6 +175,31 @@
 			dupLoading = false;
 		}
 	}
+
+	// ── param groups (identifiability) ───────────────────────────────────────
+	let paramGroups = $state([]);  // list[list[str]] from /fit/preview-groups
+
+	async function refreshGroups(currentModel) {
+		if (!currentModel) { paramGroups = []; return; }
+		const nodes = currentModel.nodes ?? [];
+		const keys = nodes.flatMap((n) => {
+			if (n.kind === 'resistance') return [`${n.id}.R`];
+			if (n.kind === 'mass')       return [`${n.id}.C`];
+			if (n.kind === 'source')     return [`${n.id}.gain`];
+			return [];
+		});
+		if (keys.length === 0) { paramGroups = []; return; }
+		try {
+			const res = await fetch(`${API}/fit/preview-groups`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ model: currentModel, param_keys: keys }),
+			});
+			if (res.ok) paramGroups = await res.json();
+		} catch { /* silently ignore — groups are cosmetic */ }
+	}
+
+	$effect(() => { refreshGroups(model); });
 
 	// ── graph node selection + operations ─────────────────────────────────────
 	let selected  = $state(null);
@@ -375,27 +403,25 @@
 			{#if model}
 				<div class="body">
 					<PropertiesPanel {model} {selected} {onpatch} {onadd} {ondelete} {ondeleteedge} />
-					<GraphView {model} {selected} onselect={(s) => (selected = s)} {onaddedge} />
+					<GraphView {model} {selected} onselect={(s) => (selected = s)} {onaddedge} groups={paramGroups} />
 				</div>
 			{/if}
 
 		{:else if activePage === 'inputs'}
 			{#if model}
 				<div class="body scrollable">
-					<InputsPanel {model} bind:inputs={simInputs} bind:range={simRange} />
+					<InputsPanel {model} bind:inputs={simInputs} bind:range={simRange} bind:observations={simObservations} />
 				</div>
 			{/if}
 
 		{:else if activePage === 'run'}
 			{#if model}
-				<SimulationRun {model} inputs={simInputs} range={simRange} bind:solver={simSolver} {simStale} {onRunSuccess} />
+				<SimulationRun {model} inputs={simInputs} range={simRange} observations={simObservations} bind:solver={simSolver} {simStale} {onRunSuccess} />
 			{/if}
 
 		{:else if activePage === 'fit'}
 			{#if model}
-				<div class="body scrollable">
-					<FitPanel {model} inputs={simInputs} range={simRange} />
-				</div>
+				<FitPanel {model} inputs={simInputs} range={simRange} observations={simObservations} groups={paramGroups} />
 			{/if}
 
 		{:else if activePage === 'debug'}

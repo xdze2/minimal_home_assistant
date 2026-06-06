@@ -1,8 +1,27 @@
 <script>
 	import dagre from 'dagre';
 
-	/** @type {{ model: object, selected: object|null, onselect: function, onaddedge: function }} */
-	let { model, selected, onselect, onaddedge } = $props();
+	/** @type {{ model: object, selected: object|null, onselect: function, onaddedge: function, groups?: string[][] }} */
+	let { model, selected, onselect, onaddedge, groups = [] } = $props();
+
+	// Group colors — one hue per non-singleton group
+	const GROUP_COLORS = ['#f97316', '#22d3ee', '#a78bfa', '#4ade80', '#fb7185'];
+
+	// node_id → { color, index } for resistance nodes in non-singleton groups
+	const groupInfo = $derived.by(() => {
+		const info = {};
+		let colorIdx = 0;
+		for (const g of groups) {
+			if (g.length <= 1) continue;
+			const color = GROUP_COLORS[colorIdx % GROUP_COLORS.length];
+			colorIdx++;
+			for (const key of g) {
+				const nodeId = key.split('.')[0];
+				info[nodeId] = { color, size: g.length };
+			}
+		}
+		return info;
+	});
 
 	const NODE_W = 160;
 	const NODE_H = 50;
@@ -174,11 +193,12 @@
 					</text>
 
 				{:else if n.kind === 'resistance'}
+					{@const gi = groupInfo[n.id]}
 					<rect
 						width={NODE_W} height={NODE_H} rx="4"
 						fill={isWiringSource ? '#3b1f00' : selNode ? '#1e1a2e' : '#0f0d1a'}
-						stroke={isWiringSource ? '#f59e0b' : selNode ? '#818cf8' : isWiringTarget ? '#475569' : '#6366f1'}
-						stroke-width={isWiringSource || selNode ? 2.5 : 1.5}
+						stroke={isWiringSource ? '#f59e0b' : selNode ? '#818cf8' : isWiringTarget ? '#475569' : gi ? gi.color : '#6366f1'}
+						stroke-width={isWiringSource || selNode ? 2.5 : gi ? 2 : 1.5}
 						stroke-dasharray={isWiringSource ? '5 3' : 'none'}
 					/>
 					{@const zx = NODE_W / 2}
@@ -204,6 +224,10 @@
 					<text x={NODE_W/2} y={NODE_H/2 + 14} text-anchor="middle" class="node-sub" fill={selNode ? '#c7d2fe' : '#a5b4fc'}>
 						{n.R} K/W
 					</text>
+					{#if gi}
+						<circle cx={NODE_W - 8} cy={8} r="5" fill={gi.color} />
+						<text x={NODE_W - 8} y={8} text-anchor="middle" dominant-baseline="central" class="group-badge-text">{gi.size}</text>
+					{/if}
 
 				{:else if n.kind === 'source'}
 					<rect
@@ -276,6 +300,13 @@
 	.node-sub {
 		font-size: 12px;
 		font-family: monospace;
+		pointer-events: none;
+	}
+
+	.group-badge-text {
+		font-size: 7px;
+		font-weight: 700;
+		fill: #0f172a;
 		pointer-events: none;
 	}
 </style>

@@ -2,7 +2,7 @@
 
 See README.md for project description and stack overview.
 
-## Status: graph editor + solver + FastAPI backend + ZOH solver + study persistence + UI layout refactor + UI polish + stale/save cycle + fit (NLS/MCMC) done. Next: step 5e / UI polish on Fit tab.
+## Status: graph editor + solver + FastAPI backend + ZOH solver + study persistence + UI layout refactor + UI polish + stale/save cycle + fit (NLS/MCMC) + fit charts (temperatures, inputs, residuals) done. Next: step 5e / UI polish.
 
 ---
 
@@ -187,7 +187,7 @@ Run: `uv run uvicorn thermalnodes.api.main:app --reload --port 8001`
 - [x] `POST /house` — save `house.json`
 
 ### TODO
-- [ ] `POST /fit/run` — accept `{ sim_config, fit_config }`, return fit results (see step 6)
+- [x] `POST /fit/run` — accept `{ sim_config, fit_config }`, return fit results (see step 6)
 - [ ] `GET /materials` — list available material ids + names
 
 ---
@@ -449,7 +449,8 @@ Extends the sim config with two new fields:
 
 ### TODO (nice to have)
 
-- [ ] Residual plot: T_pred vs T_obs overlay after NLS fit
+- [x] Residual plot + T_pred vs T_obs overlay: fitted simulation re-run after NLS/MCMC,
+      charts (temperatures + observed overlay, inputs, residuals) shown in Fit tab
 - [ ] MCMC: marginal histograms per param (corner plot)
 
 ---

@@ -18,6 +18,7 @@ from typing import Callable
 import numpy as np
 
 from .assemble import assemble
+from .identifiability import group_params
 from .simulate import simulate_zoh
 
 
@@ -36,6 +37,7 @@ class FitResult:
     message: str
     elapsed_s: float
     n_evals: int
+    param_groups: list[list[str]] = field(default_factory=list)  # identifiability groups
 
 
 @dataclass
@@ -92,10 +94,17 @@ def build_forward(
     Callable[[np.ndarray], np.ndarray],
     np.ndarray,
     list[str],
+    list[list[str]],
 ]:
     """Build a forward function for optimisation.
 
     Inputs and observations must already be fetched (slow I/O done outside).
+
+    Parallel resistors between the same node pair are automatically grouped:
+    they share one log-scale multiplier in the optimiser (their ratio stays
+    fixed at nominals).  The returned param_keys are one representative key
+    per group (the first key in group order); call expand_groups() to map
+    fitted group values back to per-node values.
 
     Parameters
     ----------
@@ -120,21 +129,31 @@ def build_forward(
     -------
     forward_fn:
         Callable(log_params_vec) → residuals_vec.
-        log_params_vec: log-space parameter vector, same order as param_keys.
+        log_params_vec: log-space parameter vector, one entry per group.
         residuals_vec: (T_pred − T_obs) / obs_sigma, concatenated over all
                        observed mass nodes and time steps.
     log_params0:
-        Initial log-space parameter vector (log of nominals).
-    param_keys:
-        Ordered list of parameter keys matching the vector positions.
+        Initial log-space parameter vector (log of group nominals).
+    group_keys:
+        One representative key per group (first key in group), matching the
+        vector positions.
+    groups:
+        Full group list from group_params() — pass to expand_groups() to
+        reconstruct all per-node fitted values.
     """
     import datetime
     from scipy.interpolate import interp1d
 
     params_cfg: dict[str, dict] = fit_config["params"]
     obs_sigma: float = float(fit_config.get("obs_sigma", 0.5))
-    param_keys = list(params_cfg.keys())
-    log_params0 = np.array([np.log(params_cfg[k]["nominal"]) for k in param_keys])
+    all_param_keys = list(params_cfg.keys())
+
+    # Auto-group parallel resistors
+    groups = group_params(model, all_param_keys)
+    # One representative key per group (first element)
+    group_keys = [g[0] for g in groups]
+    # Nominal for each group = nominal of representative key
+    log_params0 = np.array([np.log(params_cfg[k]["nominal"]) for k in group_keys])
 
     # Pre-build observation interpolators on the ZOH output grid
     t0 = datetime.datetime.fromisoformat(start).timestamp()
@@ -155,7 +174,12 @@ def build_forward(
     obs_ids = list(obs_on_grid.keys())
 
     def forward_fn(log_params_vec: np.ndarray) -> np.ndarray:
-        params = {k: float(np.exp(v)) for k, v in zip(param_keys, log_params_vec)}
+        # Expand group multipliers to per-node param values
+        params = {}
+        for group, log_val in zip(groups, log_params_vec):
+            multiplier = np.exp(log_val) / params_cfg[group[0]]["nominal"]
+            for key in group:
+                params[key] = params_cfg[key]["nominal"] * multiplier
         patched = _patch_model(model, params)
         system = assemble(patched)
         result = simulate_zoh(system, inputs, start, end, dt_minutes=dt_minutes, y0=y0)
@@ -168,7 +192,28 @@ def build_forward(
             residuals.append((T_pred[:n] - T_obs[:n]) / obs_sigma)
         return np.concatenate(residuals)
 
-    return forward_fn, log_params0, param_keys
+    return forward_fn, log_params0, group_keys, groups
+
+
+def expand_groups(
+    groups: list[list[str]],
+    group_values: dict[str, float],
+    params_cfg: dict[str, dict],
+) -> dict[str, float]:
+    """Expand fitted group values to per-node values.
+
+    For a group with representative key k and fitted value v, every member m
+    in the group gets value: v * (nominal_m / nominal_k).
+    Singletons pass through unchanged.
+    """
+    result = {}
+    for group in groups:
+        rep = group[0]
+        fitted_rep = group_values[rep]
+        rep_nominal = params_cfg[rep]["nominal"]
+        for key in group:
+            result[key] = fitted_rep * (params_cfg[key]["nominal"] / rep_nominal)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -180,12 +225,17 @@ def fit_nls(
     log_params0: np.ndarray,
     param_keys: list[str],
     fit_config: dict,
+    groups: list[list[str]] | None = None,
 ) -> FitResult:
     """Nonlinear least squares in log-space via scipy.optimize.least_squares.
 
     Log-normal priors are folded in as extra residual terms so that
     least_squares minimises:
         Σ (T_pred − T_obs)²/σ²  +  Σ (log p − log p_nom)²/σ_log²
+
+    param_keys and log_params0 are the group-level vectors returned by
+    build_forward (one entry per group).  groups, if provided, is used to
+    expand group-level fitted values back to per-node values in the result.
     """
     from scipy.optimize import least_squares
 
@@ -209,8 +259,8 @@ def fit_nls(
     )
     elapsed = time.perf_counter() - t0
 
-    params_fitted = {k: float(np.exp(v)) for k, v in zip(param_keys, result.x)}
-    params_nominal = {k: params_cfg[k]["nominal"] for k in param_keys}
+    # Group-level fitted values
+    group_fitted = {k: float(np.exp(v)) for k, v in zip(param_keys, result.x)}
 
     # Covariance from Jacobian (J^T J)^{-1} * cost / dof
     try:
@@ -220,11 +270,20 @@ def fit_nls(
         dof = max(n_res - n_par, 1)
         s_sq = 2.0 * result.cost / dof
         cov = np.linalg.pinv(J.T @ J) * s_sq
-        # std in log-space → propagate to linear space via delta method
         std_log = np.sqrt(np.diag(cov))
-        params_std = {k: float(np.exp(v) * s) for k, v, s in zip(param_keys, result.x, std_log)}
+        group_std = {k: float(np.exp(v) * s) for k, v, s in zip(param_keys, result.x, std_log)}
     except Exception:
-        params_std = {k: float("nan") for k in param_keys}
+        group_std = {k: float("nan") for k in param_keys}
+
+    # Expand groups → per-node results
+    if groups is not None:
+        params_fitted = expand_groups(groups, group_fitted, params_cfg)
+        params_std = expand_groups(groups, group_std, params_cfg)
+        params_nominal = {k: params_cfg[k]["nominal"] for g in groups for k in g}
+    else:
+        params_fitted = group_fitted
+        params_std = group_std
+        params_nominal = {k: params_cfg[k]["nominal"] for k in param_keys}
 
     return FitResult(
         method="nls",
@@ -236,6 +295,7 @@ def fit_nls(
         message=result.message,
         elapsed_s=elapsed,
         n_evals=result.nfev,
+        param_groups=groups or [[k] for k in param_keys],
     )
 
 
@@ -250,11 +310,14 @@ def fit_mcmc(
     fit_config: dict,
     n_samples: int = 2000,
     n_walkers: int | None = None,
+    groups: list[list[str]] | None = None,
 ) -> MCMCResult:
     """Ensemble MCMC sampler (emcee) in log-space.
 
     Log-posterior = Gaussian log-likelihood + log-normal log-prior per param.
     Walkers are initialised around log_params0 (NLS result or nominals).
+    param_keys are the group-level keys from build_forward; groups, if
+    provided, expands fitted values back to per-node values in the result.
     """
     import emcee
 
@@ -270,28 +333,23 @@ def fit_mcmc(
         n_walkers += 1
 
     def log_posterior(log_p: np.ndarray) -> float:
-        # Log-normal prior
         log_prior = -0.5 * np.sum(((log_p - log_nominals) / sigma_logs) ** 2)
-        # Gaussian log-likelihood from residuals
         res = forward_fn(log_p)
         log_like = -0.5 * float(res @ res)
         return log_prior + log_like
 
-    # Initialise walkers with small scatter around starting point
     rng = np.random.default_rng(42)
     p0 = log_params0 + rng.normal(0, 0.05, size=(n_walkers, n_dim))
 
     sampler = emcee.EnsembleSampler(n_walkers, n_dim, log_posterior)
 
     t0 = time.perf_counter()
-    # Burn-in: 20% of total
     n_burn = max(n_samples // 5, 50)
     sampler.run_mcmc(p0, n_burn, progress=False)
     sampler.reset()
     sampler.run_mcmc(None, n_samples, progress=False)
     elapsed = time.perf_counter() - t0
 
-    # Thin by autocorrelation time (fall back to thin=1 if estimation fails)
     try:
         tau = sampler.get_autocorr_time(quiet=True)
         thin = max(int(np.max(tau) / 2), 1)
@@ -301,13 +359,32 @@ def fit_mcmc(
     flat = sampler.get_chain(flat=True, thin=thin)  # (n_thinned, n_dim)
     acceptance_rate = float(np.mean(sampler.acceptance_fraction))
 
-    params_mean = {k: float(np.exp(np.mean(flat[:, i]))) for i, k in enumerate(param_keys)}
-    params_std = {k: float(np.exp(np.mean(flat[:, i])) * np.std(flat[:, i])) for i, k in enumerate(param_keys)}
-    samples = {k: np.exp(flat[:, i]) for i, k in enumerate(param_keys)}
+    # Group-level summaries
+    group_mean = {k: float(np.exp(np.mean(flat[:, i]))) for i, k in enumerate(param_keys)}
+    group_std = {k: float(np.exp(np.mean(flat[:, i])) * np.std(flat[:, i])) for i, k in enumerate(param_keys)}
+    group_samples = {k: np.exp(flat[:, i]) for i, k in enumerate(param_keys)}
+
+    # Expand to per-node if groups provided
+    if groups is not None:
+        params_mean = expand_groups(groups, group_mean, params_cfg)
+        params_std = expand_groups(groups, group_std, params_cfg)
+        # Samples: expand each group member's chain from the representative
+        samples: dict[str, np.ndarray] = {}
+        for g in groups:
+            rep = g[0]
+            rep_nominal = params_cfg[rep]["nominal"]
+            for key in g:
+                samples[key] = group_samples[rep] * (params_cfg[key]["nominal"] / rep_nominal)
+        params_nominal = {k: params_cfg[k]["nominal"] for g in groups for k in g}
+    else:
+        params_mean = group_mean
+        params_std = group_std
+        samples = group_samples
+        params_nominal = {k: params_cfg[k]["nominal"] for k in param_keys}
 
     return MCMCResult(
         method="mcmc",
-        params_nominal={k: params_cfg[k]["nominal"] for k in param_keys},
+        params_nominal=params_nominal,
         params_mean=params_mean,
         params_std=params_std,
         samples=samples,

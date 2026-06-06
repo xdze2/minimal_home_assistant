@@ -110,12 +110,12 @@ class TestFitNLS1R1C:
             "method": "nls",
         }
 
-        forward_fn, log_p0, param_keys = build_forward(
+        forward_fn, log_p0, param_keys, groups = build_forward(
             self.model, inputs, observations, fit_config,
             self.start, self.end, dt_minutes=60, y0=np.zeros(1),
         )
 
-        result = fit_nls(forward_fn, log_p0, param_keys, fit_config)
+        result = fit_nls(forward_fn, log_p0, param_keys, fit_config, groups=groups)
 
         assert isinstance(result, FitResult)
         assert result.success, result.message
