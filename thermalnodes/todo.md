@@ -2,7 +2,7 @@
 
 See README.md for project description and stack overview.
 
-## Status: graph editor + solver assembly + FastAPI backend (real IVP solver + ZOH routing) + ZOH solver + data exploration UI + simulation run tab (with solver selector) done
+## Status: graph editor + solver + FastAPI backend + ZOH solver + study persistence (backend API + UI picker + save/duplicate) done. UI layout refactor next.
 
 ---
 
@@ -12,27 +12,32 @@ See README.md for project description and stack overview.
 thermalnodes/
   schema/                        JSON schemas (v0.3)
   data/
+    house.json                   house metadata + sensor defaults
     materials/                   7 materials (λ, ρ, cp)
-    examples/
-      chambre_1r1c.json          1 mass, 1 resistance, 1 boundary, 1 source
-      chambre_v1.json            2 mass, 5 resistance, 1 boundary, 2 source
-      chambre_2r2c.json          2 mass, 5 resistance, 1 boundary, 1 source
+    examples/                    read-only seed studies (model JSON format)
+      chambre_1r1c.json
+      chambre_v1.json
+      chambre_2r2c.json
+    user/
+      studies/                   {id}.json per user study (created at runtime)
   solver/
     assemble.py                  graph → AssembledSystem (done)
-    simulate.py                  SimResult + simulate_mock() (done); IVP + ZOH TODO
-    inputs.py                    stub inputs generator (TODO step 3c, optional)
+    simulate.py                  simulate_ivp + simulate_zoh + simulate_mock (done)
+    inputs.py                    stub inputs generator (optional)
     tests/
       test_assemble.py           assembly unit tests (passing)
+      test_simulate.py           IVP + ZOH unit tests (passing)
   api/
-    config.py                    env-based config (MINIHA_INFLUX_* vars, same as miniha)
+    config.py                    env-based config (MINIHA_INFLUX_* vars)
     influx.py                    InfluxDB client + parse_signal + list_signals + fetch_series
-    main.py                      FastAPI app: GET /signals, GET /series, POST /simulate (mock)
+    main.py                      FastAPI app — all routes (see Step 4)
   ui/
     src/
-      routes/+page.svelte        app shell — left nav, page switcher
+      routes/+page.svelte        app shell — study bar + left nav + workspace
       lib/GraphView.svelte       SvelteFlow canvas
       lib/PropertiesPanel.svelte node/edge inspector + add/delete; signal autocomplete
-      lib/DataExplorer.svelte    data exploration tab (signal list + uPlot preview)
+      lib/DataExplorer.svelte    signal list + uPlot preview (to be merged into InputsPanel)
+      lib/SimulationRun.svelte   date range + solver + run + results charts
       lib/modelToFlow.js         model JSON → SvelteFlow nodes/edges
     vite.config.js               @data alias → thermalnodes/data/
 
@@ -175,6 +180,14 @@ Run: `uv run uvicorn thermalnodes.api.main:app --reload --port 8001`
       (elapsed_s, n_rhs_evals, success, message)
 - [x] `POST /simulate/run` — `solver` field (`"ivp"` | `"zoh"`, default `"ivp"`)
 
+### Also done (Step 5a)
+- [x] `GET  /studies` — list all studies: examples + user, each `{id, label, room, source}`
+- [x] `GET  /studies/{id}` — return full study JSON
+- [x] `POST /studies/{id}` — save to `data/user/studies/{id}.json`
+- [x] `POST /studies/{id}/duplicate` — copy to new id; body `{new_id}`
+- [x] `GET  /house` — return `house.json`
+- [x] `POST /house` — save `house.json`
+
 ### TODO
 - [ ] `POST /fit/run` — accept `{ sim_config, fit_config }`, return fit results (see step 6)
 - [ ] `GET /materials` — list available material ids + names
@@ -229,7 +242,7 @@ The sim config decouples model topology from data sources:
 - [x] "Fetch inputs" button → `POST /simulate/inputs`; plots resampled input signals
       (boundary temperatures, heat sources) above the simulation results chart
 - [x] Solver selector: `ivp` (default) / `zoh` radio; passed as `solver` field to `POST /simulate/run`
-- [ ] Metadata display: show `meta` block from response (elapsed_s, n_steps, solver, message)
+- [x] Metadata display: show `meta` block from response (elapsed_s, n_steps, solver, message)
 - [ ] (later) skip re-fetch if inputs unchanged — server-side cache, transparent to UI
 
 ### Backend-backed persistence — revised design
@@ -297,18 +310,70 @@ IDs are user-supplied filename stems. Saving with an existing ID overwrites.
 - [ ] `GET  /house` — return `house.json`
 - [ ] `POST /house` — save `house.json`
 
-#### Step 5b — Wire UI: study picker replaces model picker
+#### Step 5b — Wire UI: study picker replaces model picker — DONE
 
-- [ ] Drop `MODELS` static import (`models.js`); replace with `GET /studies` on mount
-- [ ] Load `house.json` on mount; use `defaults` to pre-fill new studies
-- [ ] Study picker dropdown (shared in `+page.svelte`): label + room tag + source badge
-- [ ] Selecting a study restores graph topology + signals + observations + dates + solver
-- [ ] "Save study" button: inline ID prompt (pre-filled as `{room}_{date}_{topology}`
-      slug), `POST /studies/{id}`; picker reloads and selects saved id
-- [ ] "Duplicate" button: prompts for new id, calls duplicate endpoint, loads copy
-- [ ] Graph editor: no separate "Save model" — edits are saved via "Save study"
+- [x] Drop `MODELS` static import (`models.js`); replace with `GET /studies` on mount
+- [x] Study picker dropdown (shared in `+page.svelte`): label + room tag + source badge
+- [x] Selecting a study restores graph topology + signals + dates + solver
+- [x] "Save study" button: inline ID prompt, `POST /studies/{id}`; picker reloads
+- [x] "Duplicate" button: prompts for new id, calls duplicate endpoint, loads copy
+- [ ] Load `house.json` on mount; use `defaults` to pre-fill inputs on new studies
 
-#### Step 5c — Nice to have (post-MVP)
+#### Step 5c — UI layout refactor — TODO
+
+**Goal**: replace the current flat 3-tab nav with a two-level layout:
+- **Top bar** (global): study picker + Save + Duplicate
+- **Left panel** (study steps, free navigation): Topology · Inputs · Run · Fit
+- **Main area**: content for the active step
+
+**Layout sketch:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ top bar: [study picker ▾]  [example]  [chambre]  Save  Duplicate│
+├──────────┬──────────────────────────────────────────────────────┤
+│ Topology │                                                       │
+│ Inputs   │   active step content                                │
+│ Run      │                                                       │
+│ Fit      │                                                       │
+└──────────┴──────────────────────────────────────────────────────┘
+```
+
+**Step breakdown:**
+
+- [ ] **Topology** — current GraphView + PropertiesPanel (no change to internals)
+- [ ] **Inputs** — new `InputsPanel.svelte`:
+  - date range pickers (start / end)
+  - signal assignment table (one row per boundary/source node) with autocomplete
+  - inline signal preview: click a row → shows uPlot for that signal in the same panel
+    (absorbs the current standalone DataExplorer; DataExplorer.svelte can be deleted)
+  - solver selector (ivp / zoh)
+- [ ] **Run** — slimmed `SimulationRun.svelte`: no config sidebar, just Fetch + Run
+      buttons + results charts (inputs chart + temperature chart + meta block).
+      Config lives in the Inputs step now.
+- [ ] **Fit** — placeholder panel for now (Step 6 content)
+- [ ] Stale-result tracking (pass 2 — see below)
+
+#### Step 5d — Stale-result tracking — TODO (pass 2, after layout)
+
+When study inputs change after a run, results are silently outdated. Track this with
+dirty flags and make it visible without blocking the user.
+
+**Dependency rules:**
+
+| Change | Invalidates |
+|---|---|
+| Signal assignment or date range | fetch result + sim result |
+| Topology (R, C, add/remove node) | sim result only |
+| Solver choice | sim result only |
+
+**Implementation:**
+- `studyDirty: { fetch: bool, sim: bool }` in `+page.svelte`
+- `$effect` watchers on `simInputs`/`simRange` → set both flags; on `model`/`simSolver` → set sim flag only
+- Pass flags as props to Run panel
+- Run panel shows a `⚠ stale` banner over old results when dirty; run button shows `Re-run`
+- On run: if `fetch` dirty → re-fetch first; if only `sim` dirty → skip re-fetch
+
+#### Step 5e — Nice to have (post-MVP)
 
 - [ ] Construction picker dropdown on edges (populates R from material library)
 - [ ] Material library browser panel

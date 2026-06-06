@@ -1,0 +1,10 @@
+{
+  "label": "Maison",
+  "rooms": ["chambre", "salon", "cuisine", "bureau", "cave"],
+  "defaults": {
+    "inputs": {
+      "exterior": "open_meteo/temperature_2m"
+    },
+    "solver": "zoh"
+  }
+}

@@ -6,6 +6,10 @@ Run:
 
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -13,6 +17,13 @@ from pydantic import BaseModel
 from .influx import fetch_series, list_signals
 from ..solver.assemble import assemble
 from ..solver.simulate import simulate_ivp, simulate_zoh, simulate_mock
+
+DATA_DIR     = Path(__file__).parent.parent / "data"
+EXAMPLES_DIR = DATA_DIR / "examples"
+STUDIES_DIR  = DATA_DIR / "user" / "studies"
+HOUSE_FILE   = DATA_DIR / "house.json"
+
+STUDIES_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="thermalnodes API")
 
@@ -23,6 +34,92 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ── house ────────────────────────────────────────────────────────────────────
+
+@app.get("/house")
+def get_house() -> dict:
+    if not HOUSE_FILE.exists():
+        raise HTTPException(status_code=404, detail="house.json not found")
+    return json.loads(HOUSE_FILE.read_text())
+
+
+@app.post("/house")
+def post_house(body: dict) -> dict:
+    HOUSE_FILE.write_text(json.dumps(body, indent=2, ensure_ascii=False))
+    return {"ok": True}
+
+
+# ── studies ───────────────────────────────────────────────────────────────────
+
+def _load_study(path: Path, source: str) -> dict:
+    data = json.loads(path.read_text())
+    study_id = path.stem
+    return {
+        "id":     data.get("id", study_id),
+        "label":  data.get("label") or data.get("name") or study_id,
+        "room":   data.get("room", None),
+        "source": source,
+    }
+
+
+@app.get("/studies")
+def get_studies() -> list[dict]:
+    studies = []
+    for p in sorted(EXAMPLES_DIR.glob("*.json")):
+        try:
+            studies.append(_load_study(p, "example"))
+        except Exception:
+            pass
+    for p in sorted(STUDIES_DIR.glob("*.json")):
+        try:
+            studies.append(_load_study(p, "user"))
+        except Exception:
+            pass
+    return studies
+
+
+@app.get("/studies/{study_id}")
+def get_study(study_id: str) -> dict:
+    user_path = STUDIES_DIR / f"{study_id}.json"
+    if user_path.exists():
+        return json.loads(user_path.read_text())
+    example_path = EXAMPLES_DIR / f"{study_id}.json"
+    if example_path.exists():
+        return json.loads(example_path.read_text())
+    raise HTTPException(status_code=404, detail=f"Study '{study_id}' not found")
+
+
+def _valid_id(study_id: str) -> bool:
+    return bool(re.fullmatch(r"[a-zA-Z0-9_\-]+", study_id))
+
+
+@app.post("/studies/{study_id}")
+def post_study(study_id: str, body: dict) -> dict:
+    if not _valid_id(study_id):
+        raise HTTPException(status_code=400, detail="Invalid study id (alphanumeric, _ and - only)")
+    path = STUDIES_DIR / f"{study_id}.json"
+    body["id"] = study_id
+    path.write_text(json.dumps(body, indent=2, ensure_ascii=False))
+    return {"ok": True, "id": study_id}
+
+
+class DuplicateRequest(BaseModel):
+    new_id: str
+
+
+@app.post("/studies/{study_id}/duplicate")
+def duplicate_study(study_id: str, req: DuplicateRequest) -> dict:
+    if not _valid_id(req.new_id):
+        raise HTTPException(status_code=400, detail="Invalid new_id")
+    source = get_study(study_id)  # raises 404 if not found
+    source["id"] = req.new_id
+    dest = STUDIES_DIR / f"{req.new_id}.json"
+    dest.write_text(json.dumps(source, indent=2, ensure_ascii=False))
+    return {"ok": True, "id": req.new_id}
+
+
+# ── simulate ──────────────────────────────────────────────────────────────────
 
 class SimulateRequest(BaseModel):
     model: dict

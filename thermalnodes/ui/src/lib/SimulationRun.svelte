@@ -2,28 +2,15 @@
 	import { onMount, onDestroy } from 'svelte';
 	import uPlot from 'uplot';
 	import 'uplot/dist/uPlot.min.css';
-	import { MODELS } from '$lib/models.js';
 
 	const API = 'http://localhost:8001';
 
-	// ── model picker ──────────────────────────────────────────────────────────
-	let selectedModelId = $state(MODELS[0].id);
-	let model = $state(structuredClone(MODELS[0].model));
-
-	function onModelChange(e) {
-		selectedModelId = e.target.value;
-		const found = MODELS.find((m) => m.id === selectedModelId);
-		if (found) {
-			model = structuredClone(found.model);
-			inputs = {};
-			simResult = null;
-			simError = null;
-		}
-	}
+	// ── props (bound from parent) ─────────────────────────────────────────────
+	let { model, inputs = $bindable({}), range = $bindable({ start: '', end: '' }), solver = $bindable('zoh') } = $props();
 
 	// ── boundary/source nodes from current model ──────────────────────────────
 	const inputNodes = $derived(
-		(model.nodes ?? []).filter((n) => n.kind === 'boundary' || n.kind === 'source')
+		(model?.nodes ?? []).filter((n) => n.kind === 'boundary' || n.kind === 'source')
 	);
 
 	// ── signal autocomplete ───────────────────────────────────────────────────
@@ -41,24 +28,7 @@
 		}
 	}
 
-	// ── date range ────────────────────────────────────────────────────────────
-	function defaultDateRange() {
-		const end = new Date();
-		const start = new Date(end - 7 * 24 * 3600 * 1000);
-		return {
-			start: start.toISOString().slice(0, 10),
-			end:   end.toISOString().slice(0, 10),
-		};
-	}
-
-	let range = $state(defaultDateRange());
-
-	// ── solver selector ───────────────────────────────────────────────────────
-	let solver = $state('ivp');
-
 	// ── inputs map: node_id → signal_name ────────────────────────────────────
-	let inputs = $state({});
-
 	function setInput(nodeId, value) {
 		inputs = { ...inputs, [nodeId]: value };
 	}
@@ -66,19 +36,14 @@
 	// ── fetch inputs ──────────────────────────────────────────────────────────
 	let fetchLoading = $state(false);
 	let fetchError = $state(null);
-	let fetchResult = $state(null); // { node_id: { signal, t, values } }
+	let fetchResult = $state(null);
 
 	async function fetchInputs() {
 		fetchLoading = true;
 		fetchError = null;
 		fetchResult = null;
 		try {
-			const body = {
-				model,
-				start: range.start,
-				end:   range.end,
-				inputs,
-			};
+			const body = { model, start: range.start, end: range.end, inputs };
 			const res = await fetch(`${API}/simulate/inputs`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -100,20 +65,14 @@
 	// ── simulation ────────────────────────────────────────────────────────────
 	let simLoading = $state(false);
 	let simError = $state(null);
-	let simResult = $state(null); // { t, nodes }
+	let simResult = $state(null);
 
 	async function runSimulation() {
 		simLoading = true;
 		simError = null;
 		simResult = null;
 		try {
-			const body = {
-				model,
-				start: range.start,
-				end:   range.end,
-				inputs,
-				solver,
-			};
+			const body = { model, start: range.start, end: range.end, inputs, solver };
 			const res = await fetch(`${API}/simulate/run`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -132,10 +91,9 @@
 	}
 
 	// ── uPlot charts ──────────────────────────────────────────────────────────
-	const SERIES_COLORS      = ['#38bdf8', '#fb923c', '#a78bfa', '#34d399', '#f472b6', '#facc15'];
+	const SERIES_COLORS       = ['#38bdf8', '#fb923c', '#a78bfa', '#34d399', '#f472b6', '#facc15'];
 	const INPUT_SERIES_COLORS = ['#4ade80', '#fbbf24', '#f472b6', '#c084fc', '#67e8f9', '#fdba74'];
 
-	// inputs chart
 	let inputsChartContainer = $state(null);
 	let inputsUplot = null;
 
@@ -146,36 +104,24 @@
 	function buildInputsChart(result) {
 		destroyInputsChart();
 		if (!inputsChartContainer || !result) return;
-
 		const nodeIds = Object.keys(result);
 		if (nodeIds.length === 0) return;
-
 		const ts = result[nodeIds[0]].t.map((s) => Date.parse(s) / 1000);
 		const data = [ts, ...nodeIds.map((id) => result[id].values.map((v) => (v === null ? NaN : v)))];
-
-		const series = [
-			{},
-			...nodeIds.map((id, i) => ({
-				label: result[id].signal,
-				stroke: INPUT_SERIES_COLORS[i % INPUT_SERIES_COLORS.length],
-				width: 1.5,
-				spanGaps: false,
-			})),
-		];
-
-		const opts = {
-			width:  inputsChartContainer.clientWidth || 800,
-			height: 220,
-			cursor: { show: true },
-			scales: { x: { time: true } },
-			series,
+		const series = [{}, ...nodeIds.map((id, i) => ({
+			label: result[id].signal,
+			stroke: INPUT_SERIES_COLORS[i % INPUT_SERIES_COLORS.length],
+			width: 1.5, spanGaps: false,
+		}))];
+		inputsUplot = new uPlot({
+			width: inputsChartContainer.clientWidth || 800, height: 220,
+			cursor: { show: true }, scales: { x: { time: true } }, series,
 			axes: [
 				{ stroke: '#94a3b8', ticks: { stroke: '#334155' }, grid: { stroke: '#1e293b' } },
 				{ stroke: '#94a3b8', ticks: { stroke: '#334155' }, grid: { stroke: '#334155' } },
 			],
 			legend: { show: true },
-		};
-		inputsUplot = new uPlot(opts, data, inputsChartContainer);
+		}, data, inputsChartContainer);
 	}
 
 	$effect(() => { if (fetchResult) buildInputsChart(fetchResult); });
@@ -191,7 +137,6 @@
 		return () => inputsResizeObserver?.disconnect();
 	});
 
-	// simulation results chart
 	let chartContainer = $state(null);
 	let uplot = null;
 
@@ -202,40 +147,26 @@
 	function buildChart(result) {
 		destroyChart();
 		if (!chartContainer || !result) return;
-
 		const ts = result.t.map((s) => Date.parse(s) / 1000);
 		const massIds = Object.keys(result.nodes);
-
 		const data = [ts, ...massIds.map((id) => result.nodes[id].map((v) => (v === null ? NaN : v)))];
-
-		const series = [
-			{},
-			...massIds.map((id, i) => ({
-				label: id,
-				stroke: SERIES_COLORS[i % SERIES_COLORS.length],
-				width: 1.5,
-				spanGaps: false,
-			})),
-		];
-
-		const opts = {
-			width:  chartContainer.clientWidth || 800,
-			height: 300,
-			cursor: { show: true },
-			scales: { x: { time: true } },
-			series,
+		const series = [{}, ...massIds.map((id, i) => ({
+			label: id,
+			stroke: SERIES_COLORS[i % SERIES_COLORS.length],
+			width: 1.5, spanGaps: false,
+		}))];
+		uplot = new uPlot({
+			width: chartContainer.clientWidth || 800, height: 300,
+			cursor: { show: true }, scales: { x: { time: true } }, series,
 			axes: [
 				{ stroke: '#94a3b8', ticks: { stroke: '#334155' }, grid: { stroke: '#1e293b' } },
 				{ stroke: '#94a3b8', ticks: { stroke: '#334155' }, grid: { stroke: '#334155' }, label: '°C' },
 			],
 			legend: { show: true },
-		};
-		uplot = new uPlot(opts, data, chartContainer);
+		}, data, chartContainer);
 	}
 
-	$effect(() => {
-		if (simResult) buildChart(simResult);
-	});
+	$effect(() => { if (simResult) buildChart(simResult); });
 
 	let resizeObserver;
 	$effect(() => {
@@ -254,13 +185,6 @@
 <div class="sim-run">
 	<!-- ── config panel ── -->
 	<aside class="config-panel">
-		<div class="section-header">Model</div>
-		<select value={selectedModelId} onchange={onModelChange}>
-			{#each MODELS as m}
-				<option value={m.id}>{m.label}</option>
-			{/each}
-		</select>
-
 		<div class="section-header">Date range</div>
 		<label>
 			<span>From</span>
@@ -333,7 +257,6 @@
 			<div class="empty">Configure inputs and click Fetch inputs</div>
 
 		{:else}
-			<!-- inputs section -->
 			{#if fetchLoading}
 				<div class="section-loading">Fetching input signals…</div>
 			{:else if fetchError}
@@ -346,7 +269,6 @@
 				<div class="chart-wrap" bind:this={inputsChartContainer}></div>
 			{/if}
 
-			<!-- simulation section -->
 			{#if simLoading}
 				<div class="section-loading">Running simulation…</div>
 			{:else if simError}
@@ -354,8 +276,21 @@
 			{:else if simResult}
 				<div class="result-header">
 					<span class="result-title">Temperature — mass nodes</span>
-					<span class="result-meta">{Object.keys(simResult.nodes).length} node{Object.keys(simResult.nodes).length !== 1 ? 's' : ''} · {simResult.t.length} steps{simResult.meta ? ` · ${simResult.meta.elapsed_s.toFixed(2)} s · ${simResult.meta.n_rhs_evals} evals` : ''}</span>
+					<span class="result-meta">
+						{Object.keys(simResult.nodes).length} node{Object.keys(simResult.nodes).length !== 1 ? 's' : ''}
+						· {simResult.t.length} steps
+						{#if simResult.meta}· {simResult.meta.elapsed_s.toFixed(2)} s · solver: {simResult.meta.solver}{/if}
+					</span>
 				</div>
+				{#if simResult.meta}
+					<div class="meta-block">
+						<span>n_rhs_evals: {simResult.meta.n_rhs_evals ?? '—'}</span>
+						<span>n_steps: {simResult.meta.n_steps ?? '—'}</span>
+						<span class:ok={simResult.meta.success} class:fail={!simResult.meta.success}>
+							{simResult.meta.success ? '✓ success' : '✗ ' + simResult.meta.message}
+						</span>
+					</div>
+				{/if}
 				<div class="chart-wrap" bind:this={chartContainer}></div>
 			{/if}
 		{/if}
@@ -370,7 +305,6 @@
 		overflow: hidden;
 	}
 
-	/* ── config panel ── */
 	.config-panel {
 		width: 280px;
 		flex-shrink: 0;
@@ -399,17 +333,6 @@
 
 	.sig-warn { color: #f59e0b; font-size: 11px; }
 
-	select {
-		background: #0f172a;
-		color: #f1f5f9;
-		border: 1px solid #334155;
-		border-radius: 4px;
-		padding: 5px 8px;
-		font-size: 13px;
-		cursor: pointer;
-		width: 100%;
-	}
-
 	label {
 		display: flex;
 		flex-direction: column;
@@ -436,15 +359,9 @@
 		box-sizing: border-box;
 		color-scheme: dark;
 	}
-	input:focus {
-		outline: none;
-		border-color: #6366f1;
-	}
+	input:focus { outline: none; border-color: #6366f1; }
 
-	.solver-radios {
-		display: flex;
-		gap: 14px;
-	}
+	.solver-radios { display: flex; gap: 14px; }
 
 	.radio-label {
 		display: flex;
@@ -453,7 +370,6 @@
 		gap: 5px;
 		cursor: pointer;
 	}
-
 	.radio-label span {
 		font-size: 12px;
 		color: #e2e8f0;
@@ -461,154 +377,78 @@
 		letter-spacing: normal;
 	}
 
-	/* ── inputs table ── */
-	.inputs-table {
-		display: flex;
-		flex-direction: column;
-		gap: 10px;
-	}
+	.inputs-table { display: flex; flex-direction: column; gap: 10px; }
 
-	.input-row {
-		display: flex;
-		flex-direction: column;
-		gap: 3px;
-	}
+	.input-row { display: flex; flex-direction: column; gap: 3px; }
 
-	.node-label {
-		display: flex;
-		align-items: center;
-		gap: 5px;
-	}
+	.node-label { display: flex; align-items: center; gap: 5px; }
 
 	.kind-dot {
-		width: 7px;
-		height: 7px;
-		border-radius: 50%;
-		flex-shrink: 0;
+		width: 7px; height: 7px;
+		border-radius: 50%; flex-shrink: 0;
 	}
 	.kind-dot.kind-boundary { background: #4ade80; }
 	.kind-dot.kind-source   { background: #fbbf24; }
 
 	.node-name {
-		font-size: 12px;
-		color: #e2e8f0;
-		font-weight: 500;
-		flex: 1;
-		min-width: 0;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		font-size: 12px; color: #e2e8f0; font-weight: 500;
+		flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 	}
+	.node-id { font-size: 10px; font-family: monospace; color: #475569; flex-shrink: 0; }
 
-	.node-id {
-		font-size: 10px;
-		font-family: monospace;
-		color: #475569;
-		flex-shrink: 0;
-	}
+	.hint { font-size: 12px; color: #475569; margin: 0; }
 
-	.hint {
-		font-size: 12px;
-		color: #475569;
-		margin: 0;
-	}
-
-	/* ── action buttons ── */
-	.action-btns {
-		margin-top: 14px;
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-	}
+	.action-btns { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
 
 	.fetch-btn {
-		background: #0f4c75;
-		color: #f1f5f9;
-		border: 1px solid #1a6fa3;
-		border-radius: 4px;
-		padding: 7px 12px;
-		font-size: 13px;
-		font-weight: 600;
-		cursor: pointer;
-		width: 100%;
-		transition: background 0.15s;
+		background: #0f4c75; color: #f1f5f9;
+		border: 1px solid #1a6fa3; border-radius: 4px;
+		padding: 7px 12px; font-size: 13px; font-weight: 600;
+		cursor: pointer; width: 100%; transition: background 0.15s;
 	}
 	.fetch-btn:hover:not(:disabled) { background: #1a6fa3; }
 	.fetch-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 	.run-btn {
-		background: #4f46e5;
-		color: #f1f5f9;
-		border: none;
-		border-radius: 4px;
-		padding: 8px 12px;
-		font-size: 13px;
-		font-weight: 600;
-		cursor: pointer;
-		width: 100%;
-		transition: background 0.15s;
+		background: #4f46e5; color: #f1f5f9;
+		border: none; border-radius: 4px;
+		padding: 8px 12px; font-size: 13px; font-weight: 600;
+		cursor: pointer; width: 100%; transition: background 0.15s;
 	}
 	.run-btn:hover:not(:disabled) { background: #4338ca; }
 	.run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-	/* ── results pane ── */
 	.results-pane {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		min-width: 0;
-		padding: 20px 24px;
-		gap: 12px;
-		overflow-y: auto;
+		flex: 1; display: flex; flex-direction: column;
+		min-width: 0; padding: 20px 24px; gap: 12px; overflow-y: auto;
 	}
 
 	.empty {
-		flex: 1;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		color: #475569;
-		font-size: 14px;
+		flex: 1; display: flex; align-items: center; justify-content: center;
+		color: #475569; font-size: 14px;
 	}
 
-	.section-loading {
-		font-size: 13px;
-		color: #64748b;
-		padding: 8px 0;
-	}
+	.section-loading { font-size: 13px; color: #64748b; padding: 8px 0; }
 
 	.error-box {
-		background: #1c0a0a;
-		border: 1px solid #7f1d1d;
-		border-radius: 4px;
-		color: #f87171;
-		padding: 12px 16px;
-		font-size: 13px;
+		background: #1c0a0a; border: 1px solid #7f1d1d;
+		border-radius: 4px; color: #f87171; padding: 12px 16px; font-size: 13px;
 	}
 
-	.result-header {
-		display: flex;
-		align-items: baseline;
-		gap: 12px;
-	}
+	.result-header { display: flex; align-items: baseline; gap: 12px; }
+	.result-title  { font-size: 14px; font-weight: 600; color: #f1f5f9; }
+	.result-meta   { font-size: 12px; color: #64748b; }
 
-	.result-title {
-		font-size: 14px;
-		font-weight: 600;
-		color: #f1f5f9;
+	.meta-block {
+		display: flex; gap: 16px; font-size: 11px; font-family: monospace;
+		color: #64748b; padding: 4px 0;
 	}
+	.meta-block .ok   { color: #4ade80; }
+	.meta-block .fail { color: #f87171; }
 
-	.result-meta {
-		font-size: 12px;
-		color: #64748b;
-	}
+	.chart-wrap { flex-shrink: 0; }
 
-	.chart-wrap {
-		flex-shrink: 0;
-	}
-
-	/* uPlot dark theme overrides */
-	:global(.uplot) { color: #94a3b8; }
-	:global(.uplot canvas) { background: #0f172a; }
-	:global(.uplot .u-legend) { background: transparent; color: #94a3b8; font-size: 12px; }
+	:global(.uplot)          { color: #94a3b8; }
+	:global(.uplot canvas)   { background: #0f172a; }
+	:global(.uplot .u-legend){ background: transparent; color: #94a3b8; font-size: 12px; }
 </style>
