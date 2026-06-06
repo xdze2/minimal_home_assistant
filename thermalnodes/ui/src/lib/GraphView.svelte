@@ -4,8 +4,8 @@
 	/** @type {{ model: object, selected: object|null, onselect: function, onaddedge: function }} */
 	let { model, selected, onselect, onaddedge } = $props();
 
-	const NODE_W = 140;
-	const NODE_H = 44;
+	const NODE_W = 160;
+	const NODE_H = 50;
 	const MARGIN = 40;
 
 	// ── wiring mode ──────────────────────────────────────────────────────────
@@ -155,8 +155,8 @@
 						stroke-width={isWiringSource || selNode ? 2.5 : 1.5}
 						stroke-dasharray={isWiringSource ? '5 3' : 'none'}
 					/>
-					<text x={NODE_W/2} y={NODE_H/2 - 4} text-anchor="middle" class="node-label" fill="#e0e7ff">{n.label ?? n.id}</text>
-					<text x={NODE_W/2} y={NODE_H/2 + 10} text-anchor="middle" class="node-sub" fill="#818cf8">
+					<text x={NODE_W/2} y={NODE_H/2 - 5} text-anchor="middle" class="node-label" fill="#e0e7ff">{n.label ?? n.id}</text>
+					<text x={NODE_W/2} y={NODE_H/2 + 12} text-anchor="middle" class="node-sub" fill="#a5b4fc">
 						{`C = ${n.C.toExponential(1)} J/K`}
 					</text>
 
@@ -168,8 +168,8 @@
 						stroke-width={isWiringSource || selNode ? 2.5 : 1.5}
 						stroke-dasharray={isWiringSource ? '5 3' : '6 3'}
 					/>
-					<text x={NODE_W/2} y={NODE_H/2 - 4} text-anchor="middle" class="node-label" fill="#d9f99d">{n.label ?? n.id}</text>
-					<text x={NODE_W/2} y={NODE_H/2 + 10} text-anchor="middle" class="node-sub" fill="#84cc16">
+					<text x={NODE_W/2} y={NODE_H/2 - 5} text-anchor="middle" class="node-label" fill="#ecfccb">{n.label ?? n.id}</text>
+					<text x={NODE_W/2} y={NODE_H/2 + 12} text-anchor="middle" class="node-sub" fill="#bef264">
 						{typeof n.T_source === 'number' ? `${n.T_source} °C` : n.T_source}
 					</text>
 
@@ -182,9 +182,10 @@
 						stroke-dasharray={isWiringSource ? '5 3' : 'none'}
 					/>
 					{@const zx = NODE_W / 2}
-					{@const zy = NODE_H / 2 - 2}
-					{@const zw = 36}
-					{@const zh = 8}
+					{@const zy = NODE_H / 2 - 4}
+					{@const zw = 40}
+					{@const zh = 7}
+					<text x={NODE_W/2} y={NODE_H/2 - 17} text-anchor="middle" class="node-label" fill={selNode ? '#c7d2fe' : '#a5b4fc'}>{n.label ?? n.id}</text>
 					<polyline
 						points={`
 							${zx - zw/2},${zy}
@@ -200,8 +201,8 @@
 						stroke-width="1.5"
 						stroke-linejoin="round"
 					/>
-					<text x={NODE_W/2} y={NODE_H/2 + 14} text-anchor="middle" class="node-sub" fill={selNode ? '#818cf8' : '#6366f1'}>
-						{n.label ?? n.id} — {n.R} K/W
+					<text x={NODE_W/2} y={NODE_H/2 + 14} text-anchor="middle" class="node-sub" fill={selNode ? '#c7d2fe' : '#a5b4fc'}>
+						{n.R} K/W
 					</text>
 
 				{:else if n.kind === 'source'}
@@ -212,8 +213,8 @@
 						stroke-width={isWiringSource || selNode ? 2.5 : 1.5}
 						stroke-dasharray={isWiringSource ? '5 3' : 'none'}
 					/>
-					<text x={NODE_W/2} y={NODE_H/2 - 4} text-anchor="middle" class="node-label" fill="#fef3c7">{n.label ?? n.id}</text>
-					<text x={NODE_W/2} y={NODE_H/2 + 10} text-anchor="middle" class="node-sub" fill="#fbbf24">
+					<text x={NODE_W/2} y={NODE_H/2 - 5} text-anchor="middle" class="node-label" fill="#fef9c3">{n.label ?? n.id}</text>
+					<text x={NODE_W/2} y={NODE_H/2 + 12} text-anchor="middle" class="node-sub" fill="#fde047">
 						×{n.gain}
 					</text>
 				{/if}
@@ -266,14 +267,14 @@
 	}
 
 	.node-label {
-		font-size: 12px;
+		font-size: 14px;
 		font-weight: 600;
-		font-family: sans-serif;
+		font-family: 'Inter', system-ui, sans-serif;
 		pointer-events: none;
 	}
 
 	.node-sub {
-		font-size: 10px;
+		font-size: 12px;
 		font-family: monospace;
 		pointer-events: none;
 	}

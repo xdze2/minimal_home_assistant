@@ -341,8 +341,8 @@
 		{:else if activePage === 'topology'}
 			{#if model}
 				<div class="body">
-					<GraphView {model} {selected} onselect={(s) => (selected = s)} {onaddedge} />
 					<PropertiesPanel {model} {selected} {onpatch} {onadd} {ondelete} {ondeleteedge} />
+					<GraphView {model} {selected} onselect={(s) => (selected = s)} {onaddedge} />
 				</div>
 			{/if}
 
@@ -369,14 +369,7 @@
 </div>
 
 <style>
-	:global(body) {
-		margin: 0;
-		font-family: sans-serif;
-		background: #0f172a;
-		color: #f1f5f9;
-	}
-
-	.shell {
+.shell {
 		display: flex;
 		height: 100vh;
 		overflow: hidden;
