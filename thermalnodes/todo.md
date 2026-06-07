@@ -32,22 +32,24 @@ Roof/wall/slab differ by `tilt` + `between: [room, "outdoor"|"ground"|other_room
 not by kind. `air_exchange` is its own kind because it dominates losses in old
 houses and a fit without it is biased.
 
-### House-model schema (planned)
+### House-model schema
 
 Top-level `materials` dict for shared parameters; `rooms` + `elements` lists.
 `between: [a, b]` is the topology — `a`, `b` are room ids or virtual zones
-(`outdoor`, `ground`).
+(`outdoor`, `ground`). Dimensions as `a × b` [m] instead of `area` — works
+uniformly for walls (width × height), floors/roofs (width × depth or slope length),
+and windows (width × height).
 
 ```json
 {
   "materials": { "brick_full": { "lambda": 0.8, "rho": 1800, "cp": 840 } },
-  "rooms":    [ { "id": "chambre", "kind": "room", "volume": 75 } ],
+  "rooms":    [ { "id": "chambre", "volume": 75 } ],
   "elements": [
     { "id": "mur_SE", "kind": "opaque", "between": ["chambre", "outdoor"],
-      "area": 13.5, "orientation": "SE", "tilt": 90,
+      "a": 4.5, "b": 3.0, "orientation": "SE", "tilt": 90,
       "layers": [ { "material": "brick_full", "thickness": 0.40 } ] },
     { "id": "win_SE", "kind": "glazing", "between": ["chambre", "outdoor"],
-      "area": 1.8, "U": 2.8, "SHGC": 0.67 },
+      "a": 1.2, "b": 1.4, "U": 2.8, "SHGC": 0.67 },
     { "id": "infil_chambre", "kind": "air_exchange", "between": ["chambre", "outdoor"],
       "ach": 0.4 }
   ]
@@ -56,24 +58,32 @@ Top-level `materials` dict for shared parameters; `rooms` + `elements` lists.
 
 ### Implementation order
 
-1. **Schema** — JSON schema for house model (`schema/house_model.v0.json`)
-2. **Material library extension** — add `category` field; add `stone_rubble`,
-   `lime_plaster`, `wood_floor`, `tile_clay`, `concrete_slab`
-3. **`solver/physics.py`** — `expand(house) -> (rc_model, expansion_map)`
+1. ~~**Schema** — JSON schema for house model (`schema/house_model.schema.json`)~~ ✓
+2. ~~**House UI tab** — room list + element cards + add forms (`HousePanel.svelte`)~~ ✓
+3. **UA summary bar chart** — per-element `UA = a*b/R_total` [W/K] computed in JS
+   (ISO 6946: `R = 1/h_i + Σ d/λ + 1/h_e`); horizontal bars, color by kind;
+   shows which element dominates heat loss. No backend needed.
+4. **Material library extension** — add `category` field; add `brique_creuse`,
+   `stone_rubble`, `lime_plaster`, `wood_floor`, `tile_clay`, `concrete_slab`
+5. **`solver/physics.py`** — `expand(house) -> (rc_model, expansion_map)`
    for `opaque` and `glazing` first; unit tests vs hand calcs
-4. **Wire into `assemble()`** as transparent pre-pass; existing RC studies
+6. **Wire into `assemble()`** as transparent pre-pass; existing RC studies
    unchanged
-5. **Add `room` + `air_exchange` kinds** — completes the physics
-6. **House UI tab** (form-based first, not floor-plan): room list left, element
-   cards per room, property editor — reuse `PropertiesPanel.svelte` pattern.
-   This is the bulk of the work and where the app's value lives.
-7. **Per-element heat-flow view** in Run tab — `Q_element(t) = ΔT / R_total`,
+7. **Add `room` + `air_exchange` kinds** — completes the physics
+8. **Per-element heat-flow view** in Run tab — `Q_element(t) = ΔT / R_total`,
    bar chart "which surface dominates?". First payoff.
-8. **Fit param keys in physical form** — `mur_SE.layers[0].lambda`,
+9. **Fit param keys in physical form** — `mur_SE.layers[0].lambda`,
    `materials.brick_full.lambda`. Update `_patch_model()` in `fit.py` to
    re-run `expand()` after patching.
-9. **Per-element fit badges** — element cards show fitted λ ± σ, click for
-   prior vs posterior.
+10. **Per-element fit badges** — element cards show fitted λ ± σ, click for
+    prior vs posterior.
+
+### R/UA computation — JS vs Python
+
+The `R_total` formula (`1/h_i + Σ d/λ + 1/h_e`, ISO 6946) is stable enough to
+implement in JS for display without risk of meaningful drift from the Python
+solver. A shared API endpoint only makes sense once `physics.py` handles
+non-trivial cases (thermal bridges, non-uniform layers).
 
 ### Fit result persistence (folds in here)
 
@@ -111,6 +121,10 @@ API additions:
 
 ## Changelog
 
+- **2026-06** — House tab UI (`HousePanel.svelte`): room list, element cards
+  (opaque/glazing/air_exchange), layer stack editor, `a × b` dimensions
+- **2026-06** — `schema/house_model.schema.json` v0.1: rooms, elements, materials;
+  `a`/`b` dims, `between` topology, `category` on material schema
 - **2026-06** — Fit charts: temperatures with observed overlay, inputs, residuals
 - **2026-06** — Identifiability module (parameter correlation analysis)
 - **2026-06** — Group charts by unit (boundary temps on temperature chart,

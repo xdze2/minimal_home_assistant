@@ -5,6 +5,7 @@
 	import InputsPanel from '$lib/InputsPanel.svelte';
 	import SimulationRun from '$lib/SimulationRun.svelte';
 	import FitPanel from '$lib/FitPanel.svelte';
+	import HousePanel from '$lib/HousePanel.svelte';
 
 	const API = 'http://localhost:8001';
 
@@ -13,6 +14,7 @@
 	let activePage = $state('home');
 
 	const TABS = [
+		{ id: 'house',    label: 'House'    },
 		{ id: 'topology', label: 'Topology' },
 		{ id: 'inputs',   label: 'Inputs'   },
 		{ id: 'run',      label: 'Run'      },
@@ -44,6 +46,7 @@
 	// ── current study state ───────────────────────────────────────────────────
 	let selectedStudyId  = $state(null);
 	let model            = $state(null);
+	let house            = $state({ schema_version: '0.1', id: 'new_house', rooms: [], elements: [] });
 	let simInputs        = $state({});
 	let simRange         = $state({ start: '', end: '' });
 	let simSolver        = $state('zoh');
@@ -87,7 +90,7 @@
 
 	async function openStudy(id) {
 		await loadStudy(id);
-		activePage = 'topology';
+		activePage = 'house';
 	}
 
 	// ── save study ────────────────────────────────────────────────────────────
@@ -397,6 +400,11 @@
 						</div>
 					</div>
 				</div>
+			</div>
+
+		{:else if activePage === 'house'}
+			<div class="body">
+				<HousePanel {house} onchange={(h) => (house = h)} />
 			</div>
 
 		{:else if activePage === 'topology'}
