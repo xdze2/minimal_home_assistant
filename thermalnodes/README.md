@@ -12,6 +12,15 @@ from InfluxDB, run forward simulations, and fit model parameters to sensor data.
 The miniha parent project handles **data capture and logging** (InfluxDB).
 thermalnodes consumes that data for **model identification**.
 
+## Screenshots
+
+<p align="center">
+  <img src="screenshots/graph_topo_070626.png"     width="420" alt="Topology editor" />
+  <img src="screenshots/inputs_07062026.png"       width="420" alt="Inputs tab" />
+  <img src="screenshots/run_results_07062026.png"  width="420" alt="Simulation run" />
+  <img src="screenshots/fit_results_03072026.png"  width="420" alt="Fit results" />
+</p>
+
 ## Stack
 
 | Layer | Choice |
