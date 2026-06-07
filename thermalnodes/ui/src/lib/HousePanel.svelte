@@ -3,17 +3,25 @@
    * Props:
    *   house: the house model object (reactive, bound from parent)
    *   onchange: (newHouse) => void
+   *   customMaterials: user-defined materials from MaterialsPanel
    */
-  let { house, onchange } = $props();
+  let { house, onchange, customMaterials = {} } = $props();
 
-  // ── built-in material library ─────────────────────────────────────────────
   const BUILTIN_MATERIALS = {
     brick_full:     { lambda: 0.8,   rho: 1800, cp: 840,  name: 'Brique pleine' },
+    brick_hollow:   { lambda: 0.45,  rho: 1200, cp: 840,  name: 'Brique creuse' },
     stone_calcaire: { lambda: 1.7,   rho: 2200, cp: 900,  name: 'Calcaire' },
-    glass_wool:     { lambda: 0.035, rho: 15,   cp: 840,  name: 'Laine de verre' },
-    plaster:        { lambda: 0.57,  rho: 1200, cp: 1000, name: 'Plâtre' },
+    stone_rubble:   { lambda: 1.3,   rho: 2000, cp: 900,  name: 'Moellon' },
     concrete_heavy: { lambda: 1.75,  rho: 2300, cp: 840,  name: 'Béton lourd' },
+    concrete_slab:  { lambda: 1.65,  rho: 2200, cp: 840,  name: 'Dalle béton' },
+    glass_wool:     { lambda: 0.035, rho: 15,   cp: 840,  name: 'Laine de verre' },
+    rock_wool:      { lambda: 0.038, rho: 30,   cp: 840,  name: 'Laine de roche' },
+    cellulose:      { lambda: 0.040, rho: 50,   cp: 1900, name: 'Ouate de cellulose' },
+    plaster:        { lambda: 0.57,  rho: 1200, cp: 1000, name: 'Plâtre' },
+    lime_plaster:   { lambda: 0.87,  rho: 1600, cp: 1000, name: 'Enduit chaux' },
     wood_frame:     { lambda: 0.13,  rho: 530,  cp: 1600, name: 'Bois (structure)' },
+    wood_floor:     { lambda: 0.16,  rho: 700,  cp: 1600, name: 'Parquet' },
+    tile_clay:      { lambda: 1.0,   rho: 1900, cp: 840,  name: 'Tuile terre cuite' },
   };
 
   const ORIENTATIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -21,7 +29,7 @@
   // ── derived helpers ───────────────────────────────────────────────────────
   const rooms    = $derived(house?.rooms    ?? []);
   const elements = $derived(house?.elements ?? []);
-  const materials = $derived({ ...BUILTIN_MATERIALS, ...(house?.materials ?? {}) });
+  const materials = $derived({ ...BUILTIN_MATERIALS, ...(customMaterials ?? {}), ...(house?.materials ?? {}) });
 
   // ── selected room ─────────────────────────────────────────────────────────
   let selectedRoomId = $state(null);

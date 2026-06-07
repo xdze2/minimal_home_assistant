@@ -6,15 +6,17 @@
 	import SimulationRun from '$lib/SimulationRun.svelte';
 	import FitPanel from '$lib/FitPanel.svelte';
 	import HousePanel from '$lib/HousePanel.svelte';
+	import MaterialsPanel from '$lib/MaterialsPanel.svelte';
 
 	const API = 'http://localhost:8001';
 
 	// ── navigation ────────────────────────────────────────────────────────────
-	// activePage: 'home' | 'topology' | 'inputs' | 'run' | 'fit'
-	let activePage = $state('home');
+	// activeSection: 'materials' | 'house' | 'studies'
+	// activePage: sub-tab within studies: 'topology' | 'inputs' | 'run' | 'fit' | 'debug'
+	let activeSection = $state('house');
+	let activePage    = $state('topology');
 
-	const TABS = [
-		{ id: 'house',    label: 'House'    },
+	const STUDY_TABS = [
 		{ id: 'topology', label: 'Topology' },
 		{ id: 'inputs',   label: 'Inputs'   },
 		{ id: 'run',      label: 'Run'      },
@@ -47,6 +49,8 @@
 	let selectedStudyId  = $state(null);
 	let model            = $state(null);
 	let house            = $state({ schema_version: '0.1', id: 'new_house', rooms: [], elements: [] });
+	let customMaterials  = $state({});  // user-defined materials
+	let customConstants  = $state({});  // project-level constant overrides (h_i, h_e, …)
 	let simInputs        = $state({});
 	let simRange         = $state({ start: '', end: '' });
 	let simSolver        = $state('zoh');
@@ -90,7 +94,8 @@
 
 	async function openStudy(id) {
 		await loadStudy(id);
-		activePage = 'house';
+		activeSection = 'studies';
+		activePage    = 'topology';
 	}
 
 	// ── save study ────────────────────────────────────────────────────────────
@@ -305,14 +310,23 @@
 		<div class="nav-top">
 			<div class="nav-logo">miniha</div>
 
-			<button class="nav-item" class:active={activePage === 'home'} onclick={() => (activePage = 'home')}>
-				Home
+			<!-- top-level sections -->
+			<button class="nav-item" class:active={activeSection === 'materials'} onclick={() => (activeSection = 'materials')}>
+				Materials
+			</button>
+			<button class="nav-item" class:active={activeSection === 'house'} onclick={() => (activeSection = 'house')}>
+				House
+			</button>
+			<button class="nav-item" class:active={activeSection === 'studies'} onclick={() => (activeSection = 'studies')}>
+				Studies
 			</button>
 
-			{#if selectedStudyId}
+			<!-- study sub-tabs, shown when a study is selected and in studies section -->
+			{#if selectedStudyId && activeSection === 'studies'}
 				<div class="nav-divider"></div>
+				<button class="nav-item nav-back" onclick={() => { selectedStudyId = null; model = null; }}>← all studies</button>
 				<div class="nav-study-id">{selectedStudyId}</div>
-				{#each TABS as t}
+				{#each STUDY_TABS as t}
 					<button
 						class="nav-item nav-tab"
 						class:active={activePage === t.id}
@@ -330,7 +344,7 @@
 			{/if}
 		</div>
 
-		{#if selectedStudyId}
+		{#if selectedStudyId && activeSection === 'studies'}
 			<div class="nav-bottom">
 				<button class="nav-save" class:dirty={studyDirty} onclick={openSaveDialog}>
 					Save{studyDirty ? ' ●' : ''}
@@ -342,100 +356,110 @@
 	<!-- main area -->
 	<div class="main">
 
-		{#if activePage === 'home'}
-			<!-- ── home: study browser ── -->
-			<div class="home">
-				<div class="home-header">
-					{#if studiesError}
-						<span class="api-warn">⚠ API unreachable — {studiesError}</span>
-					{:else}
-						<span class="home-title">Studies</span>
-					{/if}
-				</div>
+		{#if activeSection === 'materials'}
+			<div class="body">
+				<MaterialsPanel
+					materials={customMaterials}
+					{customConstants}
+					onchange={(m) => (customMaterials = m)}
+					onconstants={(c) => (customConstants = c)}
+				/>
+			</div>
 
-				<div class="home-groups">
-					<!-- examples -->
-					{#if exampleStudies.length > 0}
+		{:else if activeSection === 'house'}
+			<div class="body">
+				<HousePanel {house} onchange={(h) => (house = h)} {customMaterials} />
+			</div>
+
+		{:else if activeSection === 'studies'}
+			{#if !selectedStudyId || activePage === 'browse'}
+				<!-- ── study browser ── -->
+				<div class="home">
+					<div class="home-header">
+						{#if studiesError}
+							<span class="api-warn">⚠ API unreachable — {studiesError}</span>
+						{:else}
+							<span class="home-title">Studies</span>
+						{/if}
+					</div>
+
+					<div class="home-groups">
+						{#if exampleStudies.length > 0}
+							<div class="study-group">
+								<div class="group-label">examples/</div>
+								<div class="study-grid">
+									{#each exampleStudies as s}
+										<div class="study-card" class:selected={s.id === selectedStudyId}>
+											<button class="card-open" onclick={() => openStudy(s.id)}>
+												<div class="card-id">{s.id}</div>
+												{#if s.room}<div class="card-room">{s.room}</div>{/if}
+												<div class="card-badge badge-example">example</div>
+											</button>
+											<div class="card-actions">
+												<button class="card-action" onclick={() => openDupDialog(s.id)} title="Duplicate">⎘</button>
+											</div>
+										</div>
+									{/each}
+								</div>
+							</div>
+						{/if}
+
 						<div class="study-group">
-							<div class="group-label">examples/</div>
+							<div class="group-label">user/</div>
 							<div class="study-grid">
-								{#each exampleStudies as s}
+								{#each userStudies as s}
 									<div class="study-card" class:selected={s.id === selectedStudyId}>
 										<button class="card-open" onclick={() => openStudy(s.id)}>
 											<div class="card-id">{s.id}</div>
 											{#if s.room}<div class="card-room">{s.room}</div>{/if}
-											<div class="card-badge badge-example">example</div>
+											<div class="card-badge badge-user">user</div>
 										</button>
 										<div class="card-actions">
 											<button class="card-action" onclick={() => openDupDialog(s.id)} title="Duplicate">⎘</button>
 										</div>
 									</div>
 								{/each}
-							</div>
-						</div>
-					{/if}
 
-					<!-- user studies -->
-					<div class="study-group">
-						<div class="group-label">user/</div>
-						<div class="study-grid">
-							{#each userStudies as s}
-								<div class="study-card" class:selected={s.id === selectedStudyId}>
-									<button class="card-open" onclick={() => openStudy(s.id)}>
-										<div class="card-id">{s.id}</div>
-										{#if s.room}<div class="card-room">{s.room}</div>{/if}
-										<div class="card-badge badge-user">user</div>
-									</button>
-									<div class="card-actions">
-										<button class="card-action" onclick={() => openDupDialog(s.id)} title="Duplicate">⎘</button>
+								{#if userStudies.length === 0}
+									<div class="study-card card-empty">
+										<span>No user studies yet.<br/>Duplicate an example to start.</span>
 									</div>
-								</div>
-							{/each}
-
-							{#if userStudies.length === 0}
-								<div class="study-card card-empty">
-									<span>No user studies yet.<br/>Duplicate an example to start.</span>
-								</div>
-							{/if}
+								{/if}
+							</div>
 						</div>
 					</div>
 				</div>
-			</div>
 
-		{:else if activePage === 'house'}
-			<div class="body">
-				<HousePanel {house} onchange={(h) => (house = h)} />
-			</div>
+			{:else if activePage === 'topology'}
+				{#if model}
+					<div class="body">
+						<PropertiesPanel {model} {selected} {onpatch} {onadd} {ondelete} {ondeleteedge} />
+						<GraphView {model} {selected} onselect={(s) => (selected = s)} {onaddedge} groups={paramGroups} />
+					</div>
+				{/if}
 
-		{:else if activePage === 'topology'}
-			{#if model}
-				<div class="body">
-					<PropertiesPanel {model} {selected} {onpatch} {onadd} {ondelete} {ondeleteedge} />
-					<GraphView {model} {selected} onselect={(s) => (selected = s)} {onaddedge} groups={paramGroups} />
+			{:else if activePage === 'inputs'}
+				{#if model}
+					<div class="body scrollable">
+						<InputsPanel {model} bind:inputs={simInputs} bind:range={simRange} bind:observations={simObservations} />
+					</div>
+				{/if}
+
+			{:else if activePage === 'run'}
+				{#if model}
+					<SimulationRun {model} inputs={simInputs} range={simRange} observations={simObservations} bind:solver={simSolver} {simStale} {onRunSuccess} />
+				{/if}
+
+			{:else if activePage === 'fit'}
+				{#if model}
+					<FitPanel {model} inputs={simInputs} range={simRange} observations={simObservations} groups={paramGroups} />
+				{/if}
+
+			{:else if activePage === 'debug'}
+				<div class="debug-view">
+					<pre>{JSON.stringify({ model, inputs: simInputs, range: simRange, solver: simSolver }, null, 2)}</pre>
 				</div>
 			{/if}
-
-		{:else if activePage === 'inputs'}
-			{#if model}
-				<div class="body scrollable">
-					<InputsPanel {model} bind:inputs={simInputs} bind:range={simRange} bind:observations={simObservations} />
-				</div>
-			{/if}
-
-		{:else if activePage === 'run'}
-			{#if model}
-				<SimulationRun {model} inputs={simInputs} range={simRange} observations={simObservations} bind:solver={simSolver} {simStale} {onRunSuccess} />
-			{/if}
-
-		{:else if activePage === 'fit'}
-			{#if model}
-				<FitPanel {model} inputs={simInputs} range={simRange} observations={simObservations} groups={paramGroups} />
-			{/if}
-
-		{:else if activePage === 'debug'}
-			<div class="debug-view">
-				<pre>{JSON.stringify({ model, inputs: simInputs, range: simRange, solver: simSolver }, null, 2)}</pre>
-			</div>
 		{/if}
 
 	</div>
@@ -499,8 +523,10 @@
 	.nav-item:hover  { background: #334155; color: #f1f5f9; }
 	.nav-item.active { background: #334155; color: #f1f5f9; font-weight: 600; }
 
-	.nav-tab { padding-left: 24px; font-size: 12px; }
-	.nav-dev { color: #475569; font-style: italic; }
+	.nav-tab  { padding-left: 24px; font-size: 12px; }
+	.nav-back { font-size: 11px; color: #475569; }
+	.nav-back:hover { color: #94a3b8; }
+	.nav-dev  { color: #475569; font-style: italic; }
 	.nav-dev:hover  { color: #94a3b8; }
 	.nav-dev.active { color: #94a3b8; font-weight: 600; }
 
