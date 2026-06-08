@@ -31,6 +31,10 @@
         {
           "material": "brick_full",
           "thickness": 0.3
+        },
+        {
+          "material": "cellulose",
+          "thickness": 0.4
         }
       ]
     },
