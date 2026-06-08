@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import SignalPicker from '$lib/SignalPicker.svelte';
 
-  let { house, onchange, customMaterials = {}, dirty = false, saveLoading = false, saveError = null, onsave = null, oncreatestudy = null, createStudyLoading = false, createStudyError = null } = $props();
+  let { house, onchange, customMaterials = {}, dirty = false, saveLoading = false, saveError = null, onsave = null, oncreatestudy = null, createStudyLoading = false, createStudyError = null, ondelete = null } = $props();
 
   // ── signals autocomplete ──────────────────────────────────────────────────
   const API = 'http://localhost:8001';
@@ -231,6 +231,20 @@
 
   <!-- ── toolbar ───────────────────────────────────────────────────────────── -->
   <div class="toolbar">
+    <div class="toolbar-row toolbar-row-name">
+      <input
+        class="house-name-input"
+        type="text"
+        value={house?.label ?? ''}
+        oninput={(e) => patchHouse({ label: e.target.value })}
+        placeholder="House name"
+      />
+      {#if ondelete}
+        <button class="toolbar-delete" onclick={() => {
+          if (confirm(`Delete "${house?.label || 'this house'}"? This cannot be undone.`)) ondelete();
+        }} title="Delete house">Delete</button>
+      {/if}
+    </div>
     <div class="toolbar-row">
       <span class="toolbar-label">Add</span>
       {#each [
@@ -660,6 +674,38 @@
     gap: 6px;
     flex-wrap: wrap;
   }
+
+  .toolbar-row-name {
+    gap: 8px;
+  }
+
+  .house-name-input {
+    flex: 1;
+    background: transparent;
+    border: 1px solid transparent;
+    color: #e2e8f0;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    padding: 3px 6px;
+    border-radius: 4px;
+    min-width: 0;
+  }
+  .house-name-input:hover { border-color: #334155; }
+  .house-name-input:focus { outline: none; border-color: #6366f1; background: #0f172a; }
+  .house-name-input::placeholder { color: #475569; font-weight: 400; font-style: italic; }
+
+  .toolbar-delete {
+    padding: 3px 10px;
+    border-radius: 4px;
+    border: 1px solid #334155;
+    background: transparent;
+    color: #64748b;
+    font-size: 11px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .toolbar-delete:hover { color: #ef4444; border-color: #ef4444; background: transparent; }
 
   .toolbar-label {
     font-size: 10px;

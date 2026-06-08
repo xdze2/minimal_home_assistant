@@ -106,6 +106,17 @@ def put_house(name: str, body: dict) -> dict:
     return {"ok": True, "name": name, "model_hash": _compute_model_hash(body)}
 
 
+@app.delete("/houses/{name}")
+def delete_house(name: str) -> dict:
+    if not _valid_name(name):
+        raise HTTPException(status_code=400, detail="Invalid house name")
+    path = HOUSES_DIR / f"{name}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="House not found")
+    path.unlink()
+    return {"ok": True, "name": name}
+
+
 @app.post("/houses")
 def create_house(body: dict) -> dict:
     """Create a new house. Generates a name from label if not provided."""

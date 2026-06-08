@@ -121,6 +121,12 @@ described above.
 
 ## Changelog
 
+- **2026-06** — House UI improvements — inline house label editor in HousePanel toolbar;
+  delete house button (with confirm) + `DELETE /houses/{name}` backend endpoint; Studies
+  section removed from left nav — all study navigation (Studies list, Simulation,
+  Topology, Inputs, Run, Fit, RC, JSON tabs) moved into the right pane of the house split
+  view; study save bar with back button replaces left-nav Save.
+
 - **2026-06** — M4: New data model — `houses/` directory replaces single `house.json`; houses
   have embedded studies; `GET /houses`, `GET /houses/{name}`, `PUT /houses/{name}`,
   `POST /houses/{name}/studies`, `PUT/DELETE /houses/{name}/studies/{id}` endpoints;

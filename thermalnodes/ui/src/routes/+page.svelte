@@ -11,21 +11,9 @@
 	const API = 'http://localhost:8001';
 
 	// ── navigation ────────────────────────────────────────────────────────────
-	// activeSection: 'materials' | 'houses' | 'house' | 'studies'
-	// activePage: sub-tab within studies: 'topology' | 'inputs' | 'run' | 'fit' | 'debug'
+	// activeSection: 'materials' | 'houses' | 'house'
+	// simPaneTab: right-pane tab: 'studies' | 'sim' | 'rc' | 'topology' | 'inputs' | 'run' | 'fit' | 'debug'
 	let activeSection = $state('houses');
-	let activePage    = $state('topology');
-
-	const STUDY_TABS = [
-		{ id: 'topology', label: 'Topology' },
-		{ id: 'inputs',   label: 'Inputs'   },
-		{ id: 'run',      label: 'Run'      },
-		{ id: 'fit',      label: 'Fit'      },
-	];
-
-	const DEV_TABS = [
-		{ id: 'debug', label: 'JSON' },
-	];
 
 	// ── houses list ───────────────────────────────────────────────────────────
 	let housesList     = $state([]);
@@ -103,6 +91,25 @@
 		return obj;
 	}
 
+	async function deleteHouse() {
+		if (!houseName) return;
+		try {
+			const res = await fetch(`${API}/houses/${houseName}`, { method: 'DELETE' });
+			if (!res.ok) {
+				const d = await res.json().catch(() => ({}));
+				throw new Error(d.detail ?? res.statusText);
+			}
+			houseName = null;
+			house = null;
+			selectedStudyId = null;
+			model = null;
+			activeSection = 'houses';
+			await loadHousesList();
+		} catch (e) {
+			alert(`Failed to delete house: ${e.message}`);
+		}
+	}
+
 	async function createNewHouse() {
 		try {
 			const res = await fetch(`${API}/houses`, {
@@ -160,11 +167,12 @@
 	}
 
 	function loadStudyIntoState(study) {
-		model            = structuredClone(study.model ?? study);
-		simInputs        = structuredClone(study.inputs ?? {});
-		simRange         = { start: study.start ?? '', end: study.end ?? '' };
-		simSolver        = study.solver ?? 'zoh';
-		simObservations  = structuredClone(study.observations ?? {});
+		const snap          = $state.snapshot(study);
+		model            = snap.model ?? snap;
+		simInputs        = snap.inputs ?? {};
+		simRange         = { start: snap.start ?? '', end: snap.end ?? '' };
+		simSolver        = snap.solver ?? 'zoh';
+		simObservations  = snap.observations ?? {};
 		selected         = null;
 		lastSavedSnapshot = studySnapshot();
 		lastRunSnapshot   = null;
@@ -175,8 +183,8 @@
 		if (!study) return;
 		selectedStudyId = studyId;
 		loadStudyIntoState(study);
-		activeSection = 'studies';
-		activePage    = 'topology';
+		activeSection = 'house';
+		simPaneTab    = 'topology';
 	}
 
 	// ── save study ────────────────────────────────────────────────────────────
@@ -220,7 +228,7 @@
 	}
 
 	// ── simulation pane (house view) ─────────────────────────────────────────
-	let simPaneTab  = $state('sim'); // 'sim' | 'rc'
+	let simPaneTab  = $state('studies'); // 'studies' | 'sim' | 'rc' | 'topology' | 'inputs' | 'run' | 'fit' | 'debug'
 	let rangeMode   = $state('duration'); // 'dates' | 'duration'
 	let triggerRun  = $state(/** @type {(() => void) | null} */ (null));
 	let showInputs  = $state(false);
@@ -262,7 +270,7 @@
 			const data = await res.json();
 			await loadHouse(houseName);
 			await openStudy(data.id);
-			simPaneTab = 'run';
+			simPaneTab = 'sim';
 		} catch (e) {
 			createStudyError = e.message;
 		} finally {
@@ -412,48 +420,13 @@
 			<button class="nav-item" class:active={activeSection === 'houses' || activeSection === 'house'} onclick={() => (activeSection = houseName ? 'house' : 'houses')}>
 				House
 			</button>
-			<button class="nav-item" class:active={activeSection === 'studies'} onclick={() => (activeSection = 'studies')}>
-				Studies
-			</button>
 
 			<!-- house sub-nav -->
-			{#if (activeSection === 'house' || activeSection === 'studies') && houseName}
+			{#if activeSection === 'house' && houseName}
 				<div class="nav-divider"></div>
 				<button class="nav-item nav-back" onclick={() => { houseName = null; house = null; selectedStudyId = null; model = null; activeSection = 'houses'; }}>← all houses</button>
-				<div class="nav-house-name">{house?.label ?? houseName}</div>
-			{/if}
-
-			<!-- study sub-tabs -->
-			{#if selectedStudyId && activeSection === 'studies'}
-				<div class="nav-divider"></div>
-				<button class="nav-item nav-back" onclick={() => { selectedStudyId = null; model = null; }}>← all studies</button>
-				<div class="nav-study-id">{selectedStudyId}</div>
-				{#each STUDY_TABS as t}
-					<button
-						class="nav-item nav-tab"
-						class:active={activePage === t.id}
-						onclick={() => (activePage = t.id)}
-					>{t.label}</button>
-				{/each}
-				<div class="nav-divider"></div>
-				{#each DEV_TABS as t}
-					<button
-						class="nav-item nav-tab nav-dev"
-						class:active={activePage === t.id}
-						onclick={() => (activePage = t.id)}
-					>{t.label}</button>
-				{/each}
 			{/if}
 		</div>
-
-		{#if selectedStudyId && activeSection === 'studies'}
-			<div class="nav-bottom">
-				<button class="nav-save" class:dirty={studyDirty} onclick={saveStudy} disabled={saveLoading}>
-					{saveLoading ? 'Saving…' : `Save${studyDirty ? ' ●' : ''}`}
-				</button>
-				{#if saveError}<div class="nav-save-error">{saveError}</div>{/if}
-			</div>
-		{/if}
 	</nav>
 
 	<!-- main area -->
@@ -512,7 +485,7 @@
 				<div class="house-pane">
 					<HousePanel
 						{house}
-						onchange={(h) => (house = { ...h, _model_hash: house._model_hash, studies: house.studies })}
+						onchange={(h) => (house = { ...h, _model_hash: house._model_hash, studies: $state.snapshot(house.studies) })}
 						{customMaterials}
 						dirty={houseDirty}
 						saveLoading={houseSaveLoading}
@@ -521,15 +494,74 @@
 						oncreatestudy={createStudy}
 						{createStudyLoading}
 						{createStudyError}
+						ondelete={deleteHouse}
 					/>
 				</div>
 				<div class="study-pane">
 					<div class="study-pane-tabs">
-						<button class="sim-tab" class:active={simPaneTab === 'sim'} onclick={() => (simPaneTab = 'sim')}>Simulation</button>
-						<button class="sim-tab" class:active={simPaneTab === 'rc'}  onclick={() => (simPaneTab = 'rc')}>RC graph</button>
+						<button class="sim-tab" class:active={simPaneTab === 'studies'}  onclick={() => (simPaneTab = 'studies')}>Studies</button>
+						{#if selectedStudyId}
+							<button class="sim-tab" class:active={simPaneTab === 'sim'}      onclick={() => (simPaneTab = 'sim')}>Simulation</button>
+							<button class="sim-tab" class:active={simPaneTab === 'topology'} onclick={() => (simPaneTab = 'topology')}>Topology</button>
+							<button class="sim-tab" class:active={simPaneTab === 'inputs'}   onclick={() => (simPaneTab = 'inputs')}>Inputs</button>
+							<button class="sim-tab" class:active={simPaneTab === 'run'}      onclick={() => (simPaneTab = 'run')}>Run</button>
+							<button class="sim-tab" class:active={simPaneTab === 'fit'}      onclick={() => (simPaneTab = 'fit')}>Fit</button>
+							<button class="sim-tab sim-tab-dev" class:active={simPaneTab === 'rc'}    onclick={() => (simPaneTab = 'rc')}>RC</button>
+							<button class="sim-tab sim-tab-dev" class:active={simPaneTab === 'debug'} onclick={() => (simPaneTab = 'debug')}>JSON</button>
+						{/if}
 					</div>
 
-					{#if simPaneTab === 'sim'}
+					<!-- study save bar (shown when a study is open) -->
+					{#if selectedStudyId}
+						<div class="study-save-bar">
+							<button class="study-back-btn" onclick={() => { selectedStudyId = null; model = null; simPaneTab = 'studies'; }}>← studies</button>
+							<span class="study-save-label">{selectedStudy?.label ?? selectedStudyId}</span>
+							<button class="study-save-btn" class:dirty={studyDirty} onclick={saveStudy} disabled={saveLoading}>
+								{saveLoading ? 'Saving…' : studyDirty ? 'Save ●' : 'Saved'}
+							</button>
+							{#if saveError}<span class="study-save-error">{saveError}</span>{/if}
+						</div>
+					{/if}
+
+					{#if simPaneTab === 'studies'}
+						<div class="studies-tab-content">
+							<div class="studies-tab-header">
+								{#if createStudyError}<div class="home-error">{createStudyError}</div>{/if}
+								<button class="home-new-btn" onclick={createStudy} disabled={createStudyLoading}>
+									{createStudyLoading ? 'Expanding…' : '+ New study'}
+								</button>
+							</div>
+							<div class="study-grid">
+								{#each studies as s}
+									<div class="study-card" class:selected-card={s.id === selectedStudyId}>
+										<button class="card-open" onclick={() => openStudy(s.id)}>
+											<div class="card-label">{s.label ?? s.id}</div>
+											<div class="card-uuid">{s.id}</div>
+											{#if s._stale_run || s._stale_fit}
+												<div class="card-stale">⚠ stale</div>
+											{/if}
+											{#if s.run}
+												<div class="card-badge badge-run">run {s.run.timestamp?.slice(0,8) ?? ''}</div>
+											{/if}
+											{#if s.fit}
+												<div class="card-badge badge-fit">fit {s.fit.timestamp?.slice(0,8) ?? ''}</div>
+											{/if}
+										</button>
+										<div class="card-actions">
+											<button class="card-action" onclick={() => openDupDialog(s.id)} title="Duplicate">⎘</button>
+										</div>
+									</div>
+								{/each}
+
+								{#if studies.length === 0}
+									<div class="study-card card-empty">
+										<span>No studies yet.<br/>Click "+ New study" to create one.</span>
+									</div>
+								{/if}
+							</div>
+						</div>
+
+					{:else if simPaneTab === 'sim'}
 						{#if createStudyLoading}
 							<div class="study-pane-empty"><span>expanding…</span></div>
 						{:else if createStudyError}
@@ -596,7 +628,32 @@
 								/>
 							</div>
 						{:else}
-							<div class="study-pane-empty"><span>create a study first</span></div>
+							<div class="study-pane-empty"><span>select a study first</span></div>
+						{/if}
+
+					{:else if simPaneTab === 'topology'}
+						{#if model}
+							<div class="body">
+								<PropertiesPanel {model} {selected} {onpatch} {onadd} {ondelete} {ondeleteedge} />
+								<GraphView {model} {selected} onselect={(s) => (selected = s)} {onaddedge} groups={paramGroups} />
+							</div>
+						{/if}
+
+					{:else if simPaneTab === 'inputs'}
+						{#if model}
+							<div class="body scrollable">
+								<InputsPanel {model} bind:inputs={simInputs} bind:range={simRange} bind:observations={simObservations} />
+							</div>
+						{/if}
+
+					{:else if simPaneTab === 'run'}
+						{#if model}
+							<SimulationRun {model} inputs={simInputs} range={simRange} observations={simObservations} bind:solver={simSolver} {simStale} {onRunSuccess} />
+						{/if}
+
+					{:else if simPaneTab === 'fit'}
+						{#if model}
+							<FitPanel {model} inputs={simInputs} range={simRange} observations={simObservations} groups={paramGroups} />
 						{/if}
 
 					{:else if simPaneTab === 'rc'}
@@ -607,82 +664,15 @@
 						{:else}
 							<div class="study-pane-empty"><span>no model</span></div>
 						{/if}
+
+					{:else if simPaneTab === 'debug'}
+						<div class="debug-view">
+							<pre>{JSON.stringify({ model, inputs: simInputs, range: simRange, solver: simSolver }, null, 2)}</pre>
+						</div>
 					{/if}
 				</div>
 			</div>
 
-		{:else if activeSection === 'studies' && house}
-			{#if !selectedStudyId || activePage === 'browse'}
-				<!-- ── study browser ── -->
-				<div class="home">
-					<div class="home-header">
-						<span class="home-title">Studies — {house.label ?? houseName}</span>
-						<button class="home-new-btn" onclick={createStudy} disabled={createStudyLoading}>
-							{createStudyLoading ? 'Expanding…' : '+ New study'}
-						</button>
-					</div>
-					{#if createStudyError}<div class="home-error">{createStudyError}</div>{/if}
-
-					<div class="study-grid">
-						{#each studies as s}
-							<div class="study-card" class:selected-card={s.id === selectedStudyId}>
-								<button class="card-open" onclick={() => openStudy(s.id)}>
-									<div class="card-label">{s.label ?? s.id}</div>
-									<div class="card-uuid">{s.id}</div>
-									{#if s._stale_run || s._stale_fit}
-										<div class="card-stale">⚠ stale</div>
-									{/if}
-									{#if s.run}
-										<div class="card-badge badge-run">run {s.run.timestamp?.slice(0,8) ?? ''}</div>
-									{/if}
-									{#if s.fit}
-										<div class="card-badge badge-fit">fit {s.fit.timestamp?.slice(0,8) ?? ''}</div>
-									{/if}
-								</button>
-								<div class="card-actions">
-									<button class="card-action" onclick={() => openDupDialog(s.id)} title="Duplicate">⎘</button>
-								</div>
-							</div>
-						{/each}
-
-						{#if studies.length === 0}
-							<div class="study-card card-empty">
-								<span>No studies yet.<br/>Click "+ New study" to create one.</span>
-							</div>
-						{/if}
-					</div>
-				</div>
-
-			{:else if activePage === 'topology'}
-				{#if model}
-					<div class="body">
-						<PropertiesPanel {model} {selected} {onpatch} {onadd} {ondelete} {ondeleteedge} />
-						<GraphView {model} {selected} onselect={(s) => (selected = s)} {onaddedge} groups={paramGroups} />
-					</div>
-				{/if}
-
-			{:else if activePage === 'inputs'}
-				{#if model}
-					<div class="body scrollable">
-						<InputsPanel {model} bind:inputs={simInputs} bind:range={simRange} bind:observations={simObservations} />
-					</div>
-				{/if}
-
-			{:else if activePage === 'run'}
-				{#if model}
-					<SimulationRun {model} inputs={simInputs} range={simRange} observations={simObservations} bind:solver={simSolver} {simStale} {onRunSuccess} />
-				{/if}
-
-			{:else if activePage === 'fit'}
-				{#if model}
-					<FitPanel {model} inputs={simInputs} range={simRange} observations={simObservations} groups={paramGroups} />
-				{/if}
-
-			{:else if activePage === 'debug'}
-				<div class="debug-view">
-					<pre>{JSON.stringify({ model, inputs: simInputs, range: simRange, solver: simSolver }, null, 2)}</pre>
-				</div>
-			{/if}
 		{/if}
 
 	</div>
@@ -874,6 +864,63 @@
 	}
 	.sim-tab:hover  { color: #94a3b8; background: none; }
 	.sim-tab.active { color: #e2e8f0; border-bottom-color: #3b82f6; }
+	.sim-tab-dev    { color: #334155; font-style: italic; }
+	.sim-tab-dev:hover { color: #64748b; }
+	.sim-tab-dev.active { color: #94a3b8; border-bottom-color: #475569; }
+
+	/* ── study save bar ── */
+	.study-save-bar {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 5px 12px;
+		border-bottom: 1px solid #1e293b;
+		background: #0f172a;
+		flex-shrink: 0;
+	}
+
+	.study-back-btn {
+		background: none;
+		border: none;
+		color: #475569;
+		font-size: 11px;
+		padding: 2px 6px;
+		cursor: pointer;
+		border-radius: 3px;
+		flex-shrink: 0;
+	}
+	.study-back-btn:hover { color: #94a3b8; background: #1e293b; }
+
+	.study-save-label {
+		flex: 1;
+		font-size: 11px;
+		font-weight: 600;
+		color: #94a3b8;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.study-save-btn {
+		background: none;
+		border: 1px solid #334155;
+		color: #475569;
+		font-size: 11px;
+		font-weight: 600;
+		padding: 3px 10px;
+		border-radius: 4px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+	.study-save-btn:hover:not(:disabled) { background: #1e293b; color: #94a3b8; }
+	.study-save-btn.dirty { border-color: #f59e0b; color: #fcd34d; }
+	.study-save-btn:disabled { opacity: 0.4; cursor: default; }
+
+	.study-save-error {
+		font-size: 10px;
+		color: #f87171;
+		flex-shrink: 0;
+	}
 
 	.sim-pane-body {
 		flex: 1;
@@ -994,6 +1041,24 @@
 	.ctrl-btn-run:hover { background: #4338ca; }
 
 	.ctrl-btn-fit { color: #64748b; }
+
+	/* ── studies tab (right pane) ── */
+	.studies-tab-content {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: 14px;
+		padding: 16px;
+		overflow-y: auto;
+	}
+
+	.studies-tab-header {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 10px;
+		flex-shrink: 0;
+	}
 
 	/* ── home views ── */
 	.home {
