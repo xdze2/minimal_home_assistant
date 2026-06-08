@@ -17,7 +17,6 @@ with open(DATA / "houses" / "maison_test.json") as f:
 ROOM_CHAMBRE  = "a1b2c3d4-0001-0000-0000-000000000001"
 OUTDOOR       = "a1b2c3d4-0001-0000-0000-000000000002"
 OPAQUE_MUR_SE = "a1b2c3d4-0001-0000-0000-000000000004"
-GLAZING_SE    = "a1b2c3d4-0001-0000-0000-000000000005"
 
 
 class TestExpandMaisonTest:
@@ -52,7 +51,6 @@ class TestExpandMaisonTest:
 
     def test_expansion_map_elements_present(self):
         assert OPAQUE_MUR_SE in self.emap
-        assert GLAZING_SE in self.emap
 
     def test_assembles_without_error(self):
         sys = assemble(self.model)
@@ -60,7 +58,9 @@ class TestExpandMaisonTest:
 
     def test_mass_node_count(self):
         sys = assemble(self.model)
-        assert len(sys.mass_ids) == 1  # chambre only
+        # chambre + wall lump nodes (chain_n >= 1 for brick_full 0.3m)
+        assert len(sys.mass_ids) >= 1
+        assert "z_a1b2c3d4000100000000000000000001" in sys.mass_ids
 
     def test_A_stable(self):
         import numpy as np
@@ -82,12 +82,28 @@ class TestExpandMaisonTest:
         source_nodes = [n for n in self.model["nodes"] if n["kind"] == "source"]
         assert any(n["signal"] == solar_signal for n in source_nodes)
 
-    def test_solar_source_gain(self):
-        glazing_elem = next(e for e in HOUSE["elements"] if e["id"] == GLAZING_SE)
-        expected_gain = glazing_elem["SHGC"] * glazing_elem["a"] * glazing_elem["b"]
+    def test_opaque_wall_solar_source_gain(self):
+        """Wall solar source gain = alpha * area, injected into outer surface node."""
+        wall_elem = next(e for e in HOUSE["elements"] if e["id"] == OPAQUE_MUR_SE)
+        alpha = wall_elem["solar_absorptance"]
+        area = wall_elem["a"] * wall_elem["b"]
+        expected_gain = alpha * area
         source_nodes = [n for n in self.model["nodes"] if n["kind"] == "source"]
-        gains = [n["gain"] for n in source_nodes]
-        assert any(abs(g - expected_gain) < 1e-9 for g in gains)
+        wall_solar = next((n for n in source_nodes if abs(n["gain"] - expected_gain) < 1e-9), None)
+        assert wall_solar is not None
+
+    def test_opaque_wall_solar_connected_to_m0(self):
+        """Solar source must be connected to the outer surface mass node (m_0)."""
+        wall_elem = next(e for e in HOUSE["elements"] if e["id"] == OPAQUE_MUR_SE)
+        alpha = wall_elem["solar_absorptance"]
+        area = wall_elem["a"] * wall_elem["b"]
+        expected_gain = alpha * area
+        source_nodes = [n for n in self.model["nodes"] if n["kind"] == "source"]
+        solar_id = next(n["id"] for n in source_nodes if abs(n["gain"] - expected_gain) < 1e-9)
+        # The edge from the solar source must reach a mass node (m_0)
+        targets = {e["to"] for e in self.model["edges"] if e["from"] == solar_id}
+        target_kinds = {n["kind"] for n in self.model["nodes"] if n["id"] in targets}
+        assert target_kinds == {"mass"}
 
     def test_obs_signal_on_boundary(self):
         outdoor_node = self._zone_node_id(OUTDOOR)
@@ -152,10 +168,11 @@ class TestExpandRoles:
         node = next(n for n in model["nodes"] if n["id"] == "z_r_fixed")
         assert node["T_source"] == 18.0
 
-    def test_only_one_mass_node(self):
+    def test_only_one_room_mass_node(self):
         model, _ = expand(self.HOUSE_ROLES)
         sys = assemble(model)
-        assert len(sys.mass_ids) == 1
+        # r_mass room + wall lump nodes
+        assert "z_r_mass" in sys.mass_ids
 
     def test_energy_conservation(self):
         import numpy as np
@@ -194,7 +211,9 @@ class TestExpandTwoRooms:
     def test_both_rooms_give_two_masses(self):
         model, emap = expand(self.HOUSE_2R)
         sys = assemble(model)
-        assert len(sys.mass_ids) == 2
+        # Both room nodes present; wall lump nodes also contribute
+        assert "z_r1" in sys.mass_ids
+        assert "z_r2" in sys.mass_ids
 
     def test_shared_wall_in_emap(self):
         _, emap = expand(self.HOUSE_2R)

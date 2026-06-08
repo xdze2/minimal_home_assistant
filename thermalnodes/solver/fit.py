@@ -66,14 +66,33 @@ def _parse_key(key: str) -> tuple[str, str]:
 
 
 def _patch_model(model: dict, params: dict[str, float]) -> dict:
-    """Return a deep copy of model with param values applied."""
+    """Return a deep copy of model with param values applied.
+
+    Supports two key formats:
+    - "node_id.field"         — patch a single node field directly
+    - "wall_label.R" / ".C"  — fan out to all lump nodes in a chained wall
+      (wall_chains entry maps label → {mass_ids, r_ids, chain_n})
+    """
     m = copy.deepcopy(model)
     nodes_by_id = {n["id"]: n for n in m["nodes"]}
+    wall_chains = m.get("wall_chains", {})
+
     for key, value in params.items():
         node_id, field_name = _parse_key(key)
-        if node_id not in nodes_by_id:
+
+        if node_id in wall_chains and field_name in ("R", "C"):
+            chain = wall_chains[node_id]
+            N = chain["chain_n"]
+            if field_name == "C":
+                for mid in chain["mass_ids"]:
+                    nodes_by_id[mid]["C"] = value / N
+            else:  # R — split across interior resistances
+                for rid in chain["r_ids"]:
+                    nodes_by_id[rid]["R"] = value / N
+        elif node_id in nodes_by_id:
+            nodes_by_id[node_id][field_name] = value
+        else:
             raise ValueError(f"Node '{node_id}' not found in model")
-        nodes_by_id[node_id][field_name] = value
     return m
 
 

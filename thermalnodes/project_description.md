@@ -133,7 +133,7 @@ Pure function, no I/O. Called on every run/fit request.
 |---|---|
 | `room` | one `mass` node (capacitance from volume × air + furniture factor) |
 | `outdoor` / `ground` | one `boundary` node (T forced from signal) |
-| `opaque` | resistance chain between the two zone nodes (R_ext + optional mass + R_int); solar source node if `solar_signal` set |
+| `opaque` | N identical RC lumps in series between the two zone nodes, with fixed surface resistances R_se and R_si on each end; `chain_n` derived from material properties |
 | `glazing` | one resistance (U·A) + solar source node |
 | `air_exchange` | one resistance (1 / ACH·V·ρCp) |
 
@@ -190,7 +190,7 @@ Uses `scipy.signal.cont2discrete(..., method='zoh')` + `scipy.signal.dlsim`.
 3. **`fit_mcmc`** — `emcee` ensemble sampler, 20% burn-in, auto-thinning by
    autocorrelation time. Returns posterior mean/std + acceptance rate.
 
-Param key format: `node_id.field_name` (e.g. `R_mur_SE_ext.R`, `chambre.C`).
+Param key format: `element_label.field_name` (e.g. `mur_SE.R`, `mur_SE.C`). For chained walls, `_patch_model()` maps the two element-level DOF `(R_wall, C_wall)` onto the N internal nodes before each iteration.
 
 ---
 
@@ -320,3 +320,15 @@ thermalnodes/
   is reusable across datasets and time ranges.
 - **Multi-house.** `houses/` directory, one file per house. House picker on
   home screen. Studies are embedded in their house file.
+- **Opaque wall discretization: N uniform lumps, 2 DOF fit.** Thick walls are
+  discretized into N identical RC lumps in series (`R_wall/N`, `C_wall/N` each),
+  flanked by fixed surface resistances R_se and R_si. `chain_n = max over layers
+  of ceil(d_layer / δ_layer)` where `δ = sqrt(2·α/ω)` at the 24 h period.
+  Fit parameters remain `(R_wall, C_wall)` per element regardless of N — the
+  layer stack informs the prior, not the node count. This keeps the model
+  identifiable and physically consistent with the sensor-based estimation
+  philosophy: exact layer geometry is unknown for old buildings; only effective
+  bulk properties can be inferred from temperature data. The N mass nodes give
+  correct thermal lag without adding fit DOF. m_0 (outer surface) and m_{N-1}
+  (inner surface) are accessible for future solar absorption and comfort
+  (radiant asymmetry) use cases.

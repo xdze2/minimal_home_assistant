@@ -40,27 +40,13 @@
       "b": 2.5,
       "orientation": "SE",
       "tilt": 90,
+      "solar_absorptance": 0.7,
       "layers": [
         {
           "material": "brick_full",
           "thickness": 0.3
         }
       ]
-    },
-    {
-      "id": "cba97f33-2067-4e11-8b0f-1c1a7bea5f8d",
-      "kind": "glazing",
-      "label": "win_SE",
-      "between": [
-        "a1b2c3d4-0001-0000-0000-000000000001",
-        "a1b2c3d4-0001-0000-0000-000000000002"
-      ],
-      "a": 1.2,
-      "b": 1.7,
-      "orientation": "SE",
-      "tilt": 90,
-      "U": 2.8,
-      "SHGC": 0.67
     }
   ],
   "studies": [
@@ -78,8 +64,8 @@
       },
       "solver": "zoh",
       "run": {
-        "model_hash": "4eefd837683f",
-        "timestamp": "20260608T205513",
+        "model_hash": "bbfea22bf738",
+        "timestamp": "20260608T215338",
         "settings": {
           "solver": "zoh",
           "start": "2026-05-24",

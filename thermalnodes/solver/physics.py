@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import uuid as _uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -60,6 +61,9 @@ class _Builder:
     nodes: list[dict] = field(default_factory=list)
     edges: list[dict] = field(default_factory=list)
     expansion_map: dict[str, list[str]] = field(default_factory=dict)
+    # wall_chains: element_label → {mass_ids, r_ids, chain_n}
+    # Used by _patch_model to fan out (element.R, element.C) to lump nodes.
+    wall_chains: dict[str, dict] = field(default_factory=dict)
     _node_ids: set[str] = field(default_factory=set)
 
     def _unique_id(self, base: str) -> str:
@@ -123,6 +127,38 @@ def _opaque_R_total(element: dict, materials: dict) -> float:
     area = element["a"] * element["b"]
     # Convert m²·K/W → K/W
     return (R_si + R_layers + R_se) / area
+
+
+def _opaque_C_total(element: dict, materials: dict) -> float:
+    """Total wall thermal capacitance [J/K] = area × Σ(ρ·cp·d) over layers."""
+    area = element["a"] * element["b"]
+    C = 0.0
+    for layer in element["layers"]:
+        mat = materials[layer["material"]]
+        C += mat["rho"] * mat["cp"] * layer["thickness"]
+    return C * area
+
+
+_OMEGA_24H = 2 * math.pi / 86400.0  # rad/s at 24h period
+
+
+def _opaque_chain_n(element: dict, materials: dict) -> int:
+    """Number of RC lumps needed to capture 24h thermal lag.
+
+    chain_n = max over layers of ceil(d_layer / δ_layer)
+    where δ = sqrt(2·α/ω), α = λ/(ρ·cp).
+    Layers with zero mass (air gaps etc.) contribute 0 and are ignored.
+    """
+    n = 1
+    for layer in element["layers"]:
+        mat = materials[layer["material"]]
+        rho_cp = mat["rho"] * mat["cp"]
+        if rho_cp == 0:
+            continue
+        alpha = mat["lambda"] / rho_cp
+        delta = math.sqrt(2 * alpha / _OMEGA_24H)
+        n = max(n, math.ceil(layer["thickness"] / delta))
+    return n
 
 
 def _zone_node_kind(zone: dict) -> str:
@@ -189,17 +225,119 @@ def _elem_base(element: dict) -> str:
     return element["id"].replace("-", "")
 
 
-def _expand_opaque(element: dict, materials: dict, zone_a: str, zone_b: str, builder: _Builder) -> None:
-    """Lumped opaque wall: single resistance node between zone_a and zone_b."""
-    R = _opaque_R_total(element, materials)
+def _is_outdoor_node(node_id: str, builder: _Builder) -> bool:
+    """Return True if the node is a boundary node representing outdoor/ground."""
+    node = next((n for n in builder.nodes if n["id"] == node_id), None)
+    return node is not None and node["kind"] == "boundary"
+
+
+def _expand_opaque(
+    element: dict,
+    materials: dict,
+    zone_a: str,
+    zone_b: str,
+    builder: _Builder,
+    outdoor_solar_signal: str | None = None,
+) -> None:
+    """Opaque wall: N identical RC lumps flanked by fixed surface resistances.
+
+    The chain runs from zone_a to zone_b; R_se is placed on the outdoor side,
+    R_si on the indoor side.  Solar gain is injected into the outer surface
+    mass node (the one adjacent to R_se).
+
+    Topology (N=2, zone_a=outdoor, zone_b=room):
+        outdoor — R_se — m_0(outer) — R/N — m_1(inner) — R_si — room
+                           C/N                  C/N
+                            ↑ solar gain
+    """
+    h_i = element.get("h_i", 7.7)
+    h_e = element.get("h_e", 25.0)
+    area = element["a"] * element["b"]
+    R_se = (1.0 / h_e) / area
+    R_si = (1.0 / h_i) / area
+
+    R_wall = _opaque_R_total(element, materials) - R_se - R_si
+    C_wall = _opaque_C_total(element, materials)
+    N = _opaque_chain_n(element, materials)
+
+    base = _elem_base(element)
     label = _safe_label(element)
-    r_id = builder.make_id(f"R_{_elem_base(element)}")
-    builder.add_node(
-        {"id": r_id, "kind": "resistance", "label": label, "R": R},
-        house_uuid=element["id"],
-    )
-    builder.add_edge(zone_a, r_id)
-    builder.add_edge(r_id, zone_b)
+    eid = element["id"]
+
+    # Determine which side is outdoor so R_se and solar are placed correctly.
+    # zone_a is outdoor if it is a boundary node (outdoor/ground are always boundary).
+    # If both or neither are boundary (two rooms), there is no outdoor surface:
+    # place R_se on zone_a side arbitrarily and skip solar injection.
+    a_is_outdoor = _is_outdoor_node(zone_a, builder)
+    b_is_outdoor = _is_outdoor_node(zone_b, builder)
+    outdoor_is_a = a_is_outdoor and not b_is_outdoor
+    outdoor_is_b = b_is_outdoor and not a_is_outdoor
+    has_outdoor_face = outdoor_is_a or outdoor_is_b
+
+    # Place R_se on the outdoor side, R_si on the indoor side
+    if outdoor_is_b:
+        # chain: zone_a(room) — R_si — lumps — R_se — zone_b(outdoor)
+        r_first = builder.make_id(f"Rsi_{base}")
+        builder.add_node({"id": r_first, "kind": "resistance", "label": f"{label} (Rsi)", "R": R_si}, house_uuid=eid)
+        r_last = builder.make_id(f"Rse_{base}")
+        builder.add_node({"id": r_last, "kind": "resistance", "label": f"{label} (Rse)", "R": R_se}, house_uuid=eid)
+    else:
+        # chain: zone_a(outdoor or room) — R_se — lumps — R_si — zone_b
+        r_first = builder.make_id(f"Rse_{base}")
+        builder.add_node({"id": r_first, "kind": "resistance", "label": f"{label} (Rse)", "R": R_se}, house_uuid=eid)
+        r_last = builder.make_id(f"Rsi_{base}")
+        builder.add_node({"id": r_last, "kind": "resistance", "label": f"{label} (Rsi)", "R": R_si}, house_uuid=eid)
+
+    builder.add_edge(zone_a, r_first)
+
+    mass_ids: list[str] = []
+    r_ids: list[str] = []
+    prev = r_first
+    for i in range(N):
+        m_id = builder.make_id(f"m_{base}_{i}")
+        builder.add_node({"id": m_id, "kind": "mass", "label": f"{label} [{i}]", "C": C_wall / N}, house_uuid=eid)
+        builder.add_edge(prev, m_id)
+        mass_ids.append(m_id)
+
+        if i < N - 1:
+            r_id = builder.make_id(f"R_{base}_{i}")
+            builder.add_node({"id": r_id, "kind": "resistance", "label": f"{label} (R{i})", "R": R_wall / N}, house_uuid=eid)
+            builder.add_edge(m_id, r_id)
+            r_ids.append(r_id)
+            prev = r_id
+        else:
+            prev = m_id
+
+    builder.add_edge(prev, r_last)
+    builder.add_edge(r_last, zone_b)
+
+    # Register chain for _patch_model fan-out: keyed by element label
+    builder.wall_chains[label] = {
+        "mass_ids": mass_ids,
+        "r_ids": r_ids,
+        "chain_n": N,
+        "R_wall": R_wall,
+        "C_wall": C_wall,
+    }
+
+    # Solar gain injected into the outer surface mass node
+    alpha = element.get("solar_absorptance", 0.0)
+    if alpha and outdoor_solar_signal and has_outdoor_face and mass_ids:
+        # Outer surface node: m_0 when zone_a is outdoor, m_{N-1} when zone_b is outdoor
+        outer_node = mass_ids[0] if outdoor_is_a else mass_ids[-1]
+        area = element["a"] * element["b"]
+        s_id = builder.make_id(f"solar_{base}")
+        builder.add_node(
+            {
+                "id": s_id,
+                "kind": "source",
+                "label": f"{label} (solar)",
+                "signal": outdoor_solar_signal,
+                "gain": alpha * area,
+            },
+            house_uuid=eid,
+        )
+        builder.add_edge(s_id, outer_node)
 
 
 def _expand_glazing(
@@ -308,7 +446,7 @@ def expand(house: dict) -> tuple[dict, dict[str, list[str]]]:
         zone_b = _ensure_zone_node(uuid_b, all_zones, builder)
 
         if kind == "opaque":
-            _expand_opaque(elem, materials, zone_a, zone_b, builder)
+            _expand_opaque(elem, materials, zone_a, zone_b, builder, outdoor_solar_signal)
         elif kind == "glazing":
             _expand_glazing(elem, zone_a, zone_b, builder, outdoor_solar_signal)
         elif kind == "air_exchange":
@@ -340,6 +478,7 @@ def expand(house: dict) -> tuple[dict, dict[str, list[str]]]:
         "name": house.get("label", "Expanded model"),
         "nodes": builder.nodes,
         "edges": builder.edges,
+        "wall_chains": builder.wall_chains,
     }
 
     return model, builder.expansion_map

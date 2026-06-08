@@ -105,42 +105,32 @@ described above.
 
 ## Backlog
 
-### Heavy wall — chain-N discretization
+### ~~Heavy wall — chain-N discretization~~ ✓ done (backend)
 
-For dense materials (concrete, brick, stone), a thick wall has significant
-thermal lag at the 24h period. The penetration depth criterion determines
-whether a wall needs chain discretization:
+**Implemented:**
+- `_opaque_chain_n()` — `max over layers of ceil(d/δ)` at 24h period, computed in `expand()`.
+- `_opaque_C_total()` — `area × Σ(ρ·cp·d)` per layer.
+- `_expand_opaque()` emits N identical RC lumps flanked by R_se / R_si.
+  Outdoor side is detected automatically from the boundary node type; R_se and
+  solar gain are placed on the correct side regardless of `between` order.
+- `solar_absorptance` field on opaque elements: injects `α·A·solar_signal` as a
+  source node into the outer surface mass node.
+- `_patch_model()` fans out element-level `(label.R, label.C)` fit params to all
+  N lump nodes via `model["wall_chains"]`.
+- `maison_test.json` updated: `solar_absorptance: 0.7` on Mur SE.
 
-```
-δ = sqrt(2·α/ω)    with α = λ/(ρ·c),  ω = 2π/86400 rad/s
-```
-
-Typical values at 24h period: concrete ~17 cm, brick ~15 cm, stone ~24 cm,
-insulation ~2 cm (but negligible mass anyway).
-
-**Design decisions:**
-- `chain_n = max(1, ceil(thickness / δ))` computed inside `expand()` from
-  element material properties — never stored, never a user input.
-- Thin layers and insulation stay lumped (`chain_n = 1`).
-- `_expand_opaque()` emits N nodes in series when `chain_n > 1`, splitting
-  R and C evenly: `r_i = R_wall/N`, `c_i = C_wall/N`.
-- Node IDs: `mur_sud_0`, `mur_sud_1`, … — internal, never exposed to the fit.
-
-**Fit reparametrization:**
-- Fit params remain `(R_wall, C_wall)` per element — 2 DOF regardless of N.
-- `_patch_model()` maps `(R_wall, C_wall)` → N node values inside the loop;
-  the expansion map (already built by `expand()`) records which nodes belong
-  to each element.
-- No performance regression: `expand()` still runs once; `assemble()` and
-  `simulate_zoh()` are called every iteration as before; matrix grows by
-  `N-1` state variables per chained wall (negligible).
-- Fit config schema: params named after elements (`"mur_sud.R"`, `"mur_sud.C"`),
-  not after internal nodes.
-
-**UI:**
-- Element row shows a small chain badge (e.g. `×3`) when `chain_n > 1`.
-- RC graph renders the N resistors/capacitors in series for chained walls.
-- Penetration depth is recomputed on every element edit (cheap).
+**UI — still to do:**
+- Opaque element row: show `chain_n` badge (e.g. `×3`) — call `POST /houses/{name}/expand`
+  or recompute client-side from layer data + material library.
+- Opaque element editor: add `solar_absorptance` field (0–1 slider or numeric
+  input, label "Solar absorptance α"). Tooltip: typical values — dark brick 0.7,
+  light render 0.3, white paint 0.15.
+- RC graph: render the N lump nodes + interior resistances visually in series
+  between the two zone nodes, with R_se/R_si on each end.
+- Simulation charts: wall surface node temperatures (m_outer, m_inner) are now
+  mass nodes in the output — they appear automatically in the temperature chart
+  but may need better labels (e.g. "Mur SE [outer]", "Mur SE [inner]") derived
+  from the node label in the model.
 
 ### Parallel/series resistance identifiability
 
