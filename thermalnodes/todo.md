@@ -7,122 +7,124 @@ Open work and changelog. For architecture + current state, see
 
 ## Current focus
 
-Physics layer (`solver/physics.py` + house-builder UI). See *Next up* below.
+**Prototype the new split-view workflow end-to-end.** Goal: pick rooms on the
+house → `expand()` → study spawned → forward run → results back on house. Get
+the loop working with minimal polish, then iterate.
+
+See *Prototype milestones* below. Architecture rationale in
+[project_description.md](project_description.md).
 
 ---
 
-## Next up — Physics layer
+## Prototype milestones
 
-The pure RC model is sound but has known identifiability problems (phase lag
-in thick walls, parameter explosion in parallel surfaces). Rationale in
-[project_description.md](project_description.md#why-the-physics-layer-matters).
+The loop we want working first:
 
-### Element vocabulary
+> Open house → click rooms → pick period → run → see T_in + per-element Q
+> projected back onto the house tiles → tweak detail level → re-run.
 
-Four kinds, distinguished by physics (not building part):
+Fit comes after.
 
-| Kind | Models | Fit knobs |
-|---|---|---|
-| `room` | air + furniture mass | `furniture_factor` |
-| `opaque` | thick layered stack (wall, roof, floor) | λ per material, α (solar), h_e, h_i |
-| `glazing` | thin transparent (window, velux) | U, SHGC |
-| `air_exchange` | infiltration + ventilation | ACH |
+### M1 — Split-view shell + mode switches
 
-Roof/wall/slab differ by `tilt` + `between: [room, "outdoor"|"ground"|other_room]`,
-not by kind. `air_exchange` is its own kind because it dominates losses in old
-houses and a fit without it is biased.
+1. Restructure `routes/+page.svelte` into split view: left nav + house pane +
+   study pane. Stack vertically below ~1200px.
+2. `HousePane.svelte` — `edit | simulate` mode switch at top. Edit mode = current
+   `HousePanel.svelte` behavior. Simulate mode = same tiles, swap to detail-level
+   chips + selection checkboxes (no results yet).
+3. `StudyPane.svelte` — `run | fit` mode switch + study header (id, dirty,
+   stale) + `[new] [load]` buttons. Run mode wraps existing `SimulationRun.svelte`;
+   fit wraps `FitPanel.svelte`.
+4. Left nav: Materials · House · Weather · Studies (the only items).
+5. Drop the global "Home" study browser; "Studies" left-nav item opens a list
+   that loads into the right pane.
 
-### House-model schema
+### M2 — Weather / location
 
-Top-level `materials` dict for shared parameters; `rooms` + `elements` lists.
-`between: [a, b]` is the topology — `a`, `b` are room ids or virtual zones
-(`outdoor`, `ground`). Dimensions as `a × b` [m] instead of `area` — works
-uniformly for walls (width × height), floors/roofs (width × depth or slope length),
-and windows (width × height).
+1. `house.json` schema additions: `location: {lat, lon, label}`,
+   `weather_source: "open_meteo"`, `periods: [{id, start, end}]`.
+2. `WeatherPanel.svelte` — location form + source picker + named-period editor.
+3. `GET /weather?lat=&lon=&start=&end=` — backend wrapper around open-meteo,
+   returns same shape as `/series`.
+4. Period dropdown in study pane reads `house.periods`.
 
-```json
-{
-  "materials": { "brick_full": { "lambda": 0.8, "rho": 1800, "cp": 840 } },
-  "rooms":    [ { "id": "chambre", "volume": 75 } ],
-  "elements": [
-    { "id": "mur_SE", "kind": "opaque", "between": ["chambre", "outdoor"],
-      "a": 4.5, "b": 3.0, "orientation": "SE", "tilt": 90,
-      "layers": [ { "material": "brick_full", "thickness": 0.40 } ] },
-    { "id": "win_SE", "kind": "glazing", "between": ["chambre", "outdoor"],
-      "a": 1.2, "b": 1.4, "U": 2.8, "SHGC": 0.67 },
-    { "id": "infil_chambre", "kind": "air_exchange", "between": ["chambre", "outdoor"],
-      "ach": 0.4 }
-  ]
-}
-```
+### M3 — Selection + `expand()` + study spawning
 
-### Implementation order
+1. `element.modeling: { detail: "lumped" | "2R1C" | "chain-N", n?: int }` field
+   on house schema (persistent, edited in Simulate mode).
+2. Selection state in `HousePane` (transient): which rooms are selected; per-element
+   opt-out. Selecting a room selects all its elements by default.
+3. **`solver/physics.py` — `expand(house, selection) → (rc_model, expansion_map)`**.
+   First pass: `opaque` (lumped + 2R1C), `glazing` (lumped), `room` (single C),
+   `air_exchange` (single R). Chain-N later.
+   - ISO 6946 `R_total = 1/h_i + Σ d/λ + 1/h_e`.
+   - `C = ρ·cp·thickness·area` for the lumped mass of a layered wall.
+   - Returns `expansion_map` keyed by element id (see project_description.md).
+4. `POST /house/expand` — preview endpoint (returns rc_model + expansion_map
+   without persisting).
+5. `POST /studies/from_house` — body: `{ selection, period_id_or_range, signals?,
+   priors? }` → writes a new study with embedded `model` + `expansion_map`.
+6. **`[new]` button** in study pane → modal: confirm rooms (pre-filled from
+   house selection), pick period, name the study → POST → load it.
 
-1. ~~**Schema** — JSON schema for house model (`schema/house_model.schema.json`)~~ ✓
-2. ~~**House UI tab** — room list + element cards + add forms (`HousePanel.svelte`)~~ ✓
-3. ~~**House persistence** — `GET /house` on mount, Save button + dirty indicator in nav~~ ✓
-4. ~~**Room dimensions** — replace single `volume` field with `a × b × c` inputs; volume computed~~ ✓
-5. **UA summary bar chart** — per-element `UA = a*b/R_total` [W/K] computed in JS
-   (ISO 6946: `R = 1/h_i + Σ d/λ + 1/h_e`); horizontal bars, color by kind;
-   shows which element dominates heat loss. No backend needed.
-6. **Material library extension** — add `category` field; add `brique_creuse`,
-   `stone_rubble`, `lime_plaster`, `wood_floor`, `tile_clay`, `concrete_slab`
-7. **`solver/physics.py`** — `expand(house) -> (rc_model, expansion_map)`
-   for `opaque` and `glazing` first; unit tests vs hand calcs
-8. **Wire into `assemble()`** as transparent pre-pass; existing RC studies
-   unchanged
-9. **Add `room` + `air_exchange` kinds** — completes the physics
-10. **Per-element heat-flow view** in Run tab — `Q_element(t) = ΔT / R_total`,
-    bar chart "which surface dominates?". First payoff.
-11. **Fit param keys in physical form** — `mur_SE.layers[0].lambda`,
-    `materials.brick_full.lambda`. Update `_patch_model()` in `fit.py` to
-    re-run `expand()` after patching.
-12. **Per-element fit badges** — element cards show fitted λ ± σ, click for
-    prior vs posterior.
+### M4 — Results projected back on house
 
-### R/UA computation — JS vs Python
+1. Persist last run result on the study JSON (already partially done for fit).
+2. `GET /studies/{id}/results_by_element` — projects time series through
+   `expansion_map`, returns `{element_id: {Q_mean, Q_peak, Q_series, T_mean?, ...}}`.
+3. Simulate-mode tiles consume that endpoint: badges (`Q_mean`, `Q_peak`),
+   color-tint by magnitude.
+4. Click a tile → filter the right-pane charts to that element's traces.
 
-The `R_total` formula (`1/h_i + Σ d/λ + 1/h_e`, ISO 6946) is stable enough to
-implement in JS for display without risk of meaningful drift from the Python
-solver. A shared API endpoint only makes sense once `physics.py` handles
-non-trivial cases (thermal bridges, non-uniform layers).
+### M5 — RC drawer + re-expand
 
-### Fit result persistence (folds in here)
+1. Collapsible `[RC graph ▼]` at the bottom of the study pane — wraps existing
+   `GraphView.svelte` on the embedded `model`.
+2. **Re-expand from house** action on study header — re-runs `expand()` against
+   the current house, replaces `model` + `expansion_map`, marks stale.
+3. Diff/warn if the new expansion drops nodes that had fitted values.
 
-Save fitted values back into the study JSON under `"fit_result"` (method,
-timestamp, cost, `{param_key: {fitted, sigma}}`). "Promote to priors" action:
-takes `fit_result.params`, sets `nominal = fitted`, tightens `sigma_log`,
-writes into `params`. Lets you fit on summer data and reuse as tight priors
-on winter data.
+### M6 — Fit polish
 
-API additions:
-- `POST /studies/{id}/save_fit`
-- `GET  /studies/{id}/fit_result`
-- `POST /studies/{id}/promote_priors`
+1. Fit-mode tile badges: post-fit `λ ± σ` per layer, color-coded by posterior
+   shift vs prior.
+2. Save fit result back into the study JSON under `fit_result`.
+3. **Promote to priors** — write `fit_result.params` back as tightened priors.
+4. API: `POST /studies/{id}/save_fit`, `POST /studies/{id}/promote_priors`.
+
+---
+
+## Carry-overs (do alongside or after M1–M6)
+
+- **UA summary bar chart** in Simulate mode — per-element `UA = a*b/R_total`,
+  horizontal bars, color by kind. Falls out of the `expand()` data naturally.
+- **Material library extension** — add `category` field; add `brique_creuse`,
+  `stone_rubble`, `lime_plaster`, `wood_floor`, `tile_clay`, `concrete_slab`.
+- **Materials panel** (left-nav) — browser/editor for the library.
+- **`GET /materials`** endpoint.
+- **Chain-N detail level** for thick walls (phase-lag-sensitive fits).
+- **Clean up legacy fields** in example study JSONs (`T_source`, `signal` on
+  boundary/source nodes — solver ignores them).
 
 ---
 
 ## Backlog (not committed)
 
 - **House UI v2** — 2D floor-plan-ish canvas (rooms as rectangles, walls as
-  edges). Much more work, much more intuitive. Layer on top of v1 only if v1
-  proves too tedious.
-- **LLM-assisted model builder** — user fills `house.json` with room
-  descriptions; LLM reads `house.json` + material library → generates an
-  initial study JSON.
+  edges). Layer on top of v1 only if v1 proves too tedious.
+- **LLM-assisted model builder** — house description → LLM → initial study.
 - **MCMC corner plot** — marginal histograms per param.
-- **Construction picker on edges** — populate R from material library.
-- **Material library browser panel.**
-- **Cross-room studies** — currently each study is one room. Multi-room with
-  shared `materials` is natural once the physics layer is in.
-- **`GET /materials`** endpoint.
-- **Clean up legacy fields** in example study JSONs (`T_source`, `signal` on
-  boundary/source nodes — solver ignores them).
+- **Multi-house** — re-introduce a house selector if/when needed (deliberately
+  out of scope for now).
 
 ---
 
 ## Changelog
 
+- **2026-06** — Direction shift: split-view layout (house pane + study pane),
+  `edit|simulate` and `run|fit` modes, single-house app, studies spawned from
+  house via `expand()`, `expansion_map` for results-on-house projection. See
+  *Prototype milestones* above.
 - **2026-06** — House persistence: `GET /house` on mount, Save button + dirty indicator
   (mirrors study save pattern); room dimensions `a × b × c` replacing `volume`
 - **2026-06** — House tab UI (`HousePanel.svelte`): room list, element cards

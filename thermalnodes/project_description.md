@@ -149,12 +149,30 @@ measurement/field?tag=value     # e.g. zigbee2mqtt/temperature?name=salon
 Signals are stored in the study `inputs` map (node id → signal name), **not** in
 the model topology. Keeps the graph reusable across time ranges and sensors.
 
-### `house.json` — defaults bag
+### `house.json` — source of truth for physics
+
+Single-house app: one `house.json` describes the building. Studies are spawned
+from it (see "House → study" below) and embed the expanded RC topology at
+creation time.
 
 ```json
 {
   "label": "Maison Machin",
-  "rooms": ["chambre", "salon", "cuisine", "bureau", "cave"],
+  "location": { "lat": 45.76, "lon": 4.83, "label": "Lyon" },
+  "weather_source": "open_meteo",
+  "materials": { "brick_full": { "lambda": 0.8, "rho": 1800, "cp": 840 } },
+  "rooms": [
+    { "id": "chambre", "a": 4.5, "b": 3.0, "c": 2.5 }
+  ],
+  "elements": [
+    { "id": "mur_SE", "kind": "opaque", "between": ["chambre", "outdoor"],
+      "a": 4.5, "b": 3.0, "orientation": "SE", "tilt": 90,
+      "layers": [ { "material": "brick_full", "thickness": 0.40 } ],
+      "modeling": { "detail": "2R1C" } }
+  ],
+  "periods": [
+    { "id": "jan_2024_cold", "start": "2024-01-01", "end": "2024-02-01" }
+  ],
   "defaults": {
     "inputs": { "exterior": "open_meteo/temperature_2m" },
     "solver": "zoh"
@@ -162,8 +180,49 @@ the model topology. Keeps the graph reusable across time ranges and sensors.
 }
 ```
 
-Future LLM input (handing the LLM a house description to bootstrap a study).
-Not a runtime dependency.
+- `location` + `weather_source` — single source of truth for `outdoor`. Studies
+  inherit; no per-study re-picking.
+- `element.modeling.detail` — persistent modeling choice (`lumped | 2R1C |
+  chain-N`). Selection of which elements/rooms a study covers is transient
+  (not saved on the house).
+- `periods` — named time ranges, reusable across studies.
+
+## House → study
+
+The house is the **authoring surface**; the study is a self-contained snapshot
+spawned from it. Flow:
+
+1. In House/Simulate mode, user selects rooms (and per-element opt-out for edge
+   cases) and confirms detail levels.
+2. Picks a period (from `house.periods` or custom) and signals (defaults from
+   `house.defaults`).
+3. Backend runs `expand(house, selection, modeling_choices) → (rc_model,
+   expansion_map)`.
+4. Writes a new study JSON: `{ id, label, rooms, model: rc_model, expansion_map,
+   start, end, inputs, observations, priors, result: null }`.
+5. Opens the study in the right pane.
+
+Editing the house **does not** retroactively change saved studies (studies are
+reproducible snapshots). An explicit **Re-expand from house** action on a study
+refreshes it from the current house description — surfaces drift instead of
+hiding it.
+
+### `expansion_map` — projection back to the house
+
+Stored in the study JSON alongside the topology:
+
+```json
+"expansion_map": {
+  "mur_SE": {
+    "rc_nodes": ["mur_SE_c0"],
+    "rc_edges": ["mur_SE_re", "mur_SE_ri"],
+    "fit_params": ["mur_SE.layers[0].lambda"]
+  }
+}
+```
+
+Enables Results-on-house: backend `GET /studies/{id}/results_by_element`
+projects time series + fit params through the map; UI tiles consume it.
 
 ### Files on disk
 
@@ -190,35 +249,87 @@ FastAPI on port 8001.
 | `GET  /house` / `POST /house` | read/write `house.json` |
 | `POST /simulate/run` | fetch inputs, run ivp or zoh, return `{t, nodes, meta}` |
 | `POST /fit/run` | fit NLS or MCMC, return fitted params + cost |
+| `POST /house/expand` | `(selection, period) → (rc_model, expansion_map)`; preview before creating study |
+| `POST /studies/from_house` | spawn a study from house selection + period |
+| `POST /studies/{id}/re_expand` | re-run `expand()` against current house, replace topology |
+| `GET  /studies/{id}/results_by_element` | project last run/fit through `expansion_map` |
+| `GET  /weather?lat=&lon=&start=&end=` | fetch weather series from configured source |
 
 ## UI
 
-SvelteKit + `@xyflow/svelte` + uPlot.
+SvelteKit + `@xyflow/svelte` + uPlot. Single-house app (no house selector;
+`house.json` is *the* house).
+
+### Layout — split view
 
 ```
-┌──────────────┬──────────────────────────────────────────┐
-│ miniha       │                                          │
-│ Home         │  Home: study browser (card grid)         │
-│ ──────────── │  or active tab content                   │
-│ study_id     │                                          │
-│   Topology   │                                          │
-│   Inputs     │                                          │
-│   Run        │                                          │
-│   Fit        │                                          │
-│ ──────────── │                                          │
-│  [Save]      │                                          │
-└──────────────┴──────────────────────────────────────────┘
+┌─ left nav ──┐ ┌─ house ──── [edit|simulate] ─┐ ┌─ study ── [run|fit] [new][load] ─┐
+│ Materials   │ │ ┌ location ─────────────────┐│ │ chambre_jan2024_2r1c  ● ⚠         │
+│ House       │ │ │ Lyon · 45.7,4.8          ││ │ ─────────────────────────────────│
+│ Weather     │ │ └───────────────────────────┘│ │ time range: Jan 1–Feb 1  [▼lib]  │
+│ Studies     │ │ ┌ room A ───────────────────┐│ │ [run ▶]                          │
+│             │ │ │ [wall S] [roof] [win]    ││ │ ─────────────────────────────────│
+│             │ │ └───────────────────────────┘│ │ Weather  ▁▂▃▄▅                  │
+│             │ │ ┌ room B ───────────────────┐│ │ T°       ──── (obs overlay)     │
+│             │ │ │ [wall S] [slab]          ││ │ Energy   per-element stacked    │
+│             │ │ └───────────────────────────┘│ │ Residuals (fit mode only)       │
+│             │ │                              │ │ ─────────────────────────────────│
+│             │ │                              │ │ [RC graph ▼]                    │
+└─────────────┘ └──────────────────────────────┘ └──────────────────────────────────┘
 ```
 
-- **Home** — card grid of all studies (examples + user), click to open, ⎘ to duplicate
-- **Topology** — node-graph editor (`@xyflow/svelte`) + properties panel
-- **Inputs** — date range, signal assignment per boundary/source, inline uPlot preview
-- **Run** — solver selector, Run button, temperature/input charts, solver metadata
-- **Fit** — observations + params tables, NLS/MCMC selector, fit results + overlay charts
+Two panes side by side: **house** (left, the noun) + **study** (right, the verb).
+Stacks vertically below ~1200px.
 
-Save is pinned at the bottom of the left nav. A stale/save cycle tracks dirty
-state: Save shows `●` in amber when unsaved, Run shows `⚠ Results are outdated`
-when sim config changed after the last run.
+### Left nav
+
+- **Materials** — library browser/editor
+- **House** — split-view (default landing)
+- **Weather** — location + weather source + period library
+- **Studies** — saved studies list (open into split-view with that study loaded)
+
+### House pane — modes
+
+Mode switch at the top: `edit | simulate`. Same element tiles, different badges
+and controls per mode.
+
+- **Edit** — dimensions, materials, orientation. Click a tile to open editor.
+- **Simulate** — detail-level chip (`lumped | 2R1C | chain-N`), computed `R_total`,
+  `UA`. Tiles are selectable; selection scopes the next "new study". After a run,
+  tiles show `Q_mean`, `Q_peak` badges (results projected back via the expansion map).
+
+Element selection is **transient** (not saved on the house); detail level is
+**persistent** (`element.modeling.detail` on the house JSON).
+
+### Study pane — modes
+
+Mode switch at the top: `run | fit`. Both modes show the same study header
+(id, dirty `●`, stale `⚠`) and time-range/period selector.
+
+- **Run** — forward-simulate, weather + T° + per-element energy charts.
+- **Fit** — observations + priors tables, NLS/MCMC selector, residuals chart,
+  fitted params overlaid back on house tiles.
+
+`[new]` creates a study from the current house selection (rooms + elements) +
+period; `[load]` opens the existing studies list. `[RC graph ▼]` expands a
+collapsible pane showing the full expanded RC topology — debug / fine-control
+view of what the solver sees.
+
+### Results-on-house
+
+After a run, the house pane projects results back onto element tiles via the
+study's `expansion_map`:
+
+- opaque/glazing/air_exchange → `Q_mean`, `Q_peak`, color-tinted by magnitude
+- rooms → `T_mean`, `T_range`, observed-vs-modelled sparkline if Fit ran
+- post-fit → `λ ± σ` badge per layer, color-coded by posterior shift vs prior
+
+Clicking a tile filters the right-pane charts to that element's traces.
+
+### Dirty / stale
+
+Save lives in the study pane header. `●` amber when unsaved. `⚠ stale` on the
+run button when sim config changed after the last run.
 
 ## Project structure
 
@@ -240,10 +351,16 @@ thermalnodes/
     main.py                     FastAPI app (studies, signals, simulate/*, fit/*)
     influx.py                   InfluxDB client
     config.py                   env-based config (MINIHA_INFLUX_* vars)
+  solver/
+    physics.py                  expand(house, selection) → (rc_model, expansion_map)
   ui/
     src/
-      routes/+page.svelte       app shell — home view + left nav + tab content
-      lib/GraphView.svelte      SvelteFlow canvas
+      routes/+page.svelte       app shell — left nav + split view
+      lib/HousePane.svelte      house pane (edit|simulate modes, room/element tiles)
+      lib/StudyPane.svelte      study pane (run|fit modes, charts, RC drawer)
+      lib/WeatherPanel.svelte   location + weather source + period library
+      lib/MaterialsPanel.svelte material library browser
+      lib/GraphView.svelte      SvelteFlow canvas (used inside RC drawer)
       lib/PropertiesPanel.svelte  node/edge inspector
       lib/InputsPanel.svelte    date range + signal assignment + preview
       lib/SimulationRun.svelte  fetch/run + results charts
@@ -266,7 +383,16 @@ thermalnodes/
 - **Fit config separate**: `{ params, obs_sigma, method }`. Log-normal priors.
   NLS first; MCMC can warm-start from NLS.
 - **Studies are self-contained**: full topology embedded, no inheritance. Duplicate
-  to vary.
+  to vary. Spawned from the house via `expand()`; embed `expansion_map` for
+  results-projection.
+- **Single house**: no house selector, no `/houses` list. `house.json` is *the*
+  house. Studies reference it implicitly via the embedded snapshot.
+- **House = noun, study = verb**: split-view layout, two panes side by side.
+  Modes (`edit|simulate`, `run|fit`) toggle controls/badges, not whole UIs.
+- **Selection is transient, detail is persistent**: which elements a study
+  covers belongs to the study; how each element is modeled belongs to the house.
+- **Location on the house, not the study**: avoids re-picking weather per
+  iteration.
 - **ZOH via scipy**: `cont2discrete` + `dlsim`, no custom matrix exponential.
 - **Thick walls at MVP**: 2R1C block (R_ext, mass, R_int). Already in
   `chambre_v1`.

@@ -1,13 +1,18 @@
 # thermalnodes
 
-Sub-project of [miniha](../README.md). Build and simulate thermal RC networks of
-buildings, room by room. Draw the topology on a node-graph canvas, assign signals
-from InfluxDB, run forward simulations, and fit model parameters to sensor data.
+Sub-project of [miniha](../README.md). Describe a house room-by-room, expand
+into a thermal RC network, run forward simulations against weather data, and
+fit model parameters to sensor data.
 
 ```
 [house description]  →  physics layer  →  RC graph  →  assembler  →  ODE
  material, area, λ       expand walls       R, C, edges    A, B matrices
 ```
+
+Single-house app. The UI is a **split view**: house pane on the left (the noun,
+modes: `edit | simulate`), study pane on the right (the verb, modes: `run | fit`).
+Studies are spawned from a house selection — pick rooms, pick a period, run.
+Results project back onto house element tiles via an expansion map.
 
 The miniha parent project handles **data capture and logging** (InfluxDB).
 thermalnodes consumes that data for **model identification**.
