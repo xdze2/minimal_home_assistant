@@ -60,22 +60,24 @@ and windows (width × height).
 
 1. ~~**Schema** — JSON schema for house model (`schema/house_model.schema.json`)~~ ✓
 2. ~~**House UI tab** — room list + element cards + add forms (`HousePanel.svelte`)~~ ✓
-3. **UA summary bar chart** — per-element `UA = a*b/R_total` [W/K] computed in JS
+3. ~~**House persistence** — `GET /house` on mount, Save button + dirty indicator in nav~~ ✓
+4. ~~**Room dimensions** — replace single `volume` field with `a × b × c` inputs; volume computed~~ ✓
+5. **UA summary bar chart** — per-element `UA = a*b/R_total` [W/K] computed in JS
    (ISO 6946: `R = 1/h_i + Σ d/λ + 1/h_e`); horizontal bars, color by kind;
    shows which element dominates heat loss. No backend needed.
-4. **Material library extension** — add `category` field; add `brique_creuse`,
+6. **Material library extension** — add `category` field; add `brique_creuse`,
    `stone_rubble`, `lime_plaster`, `wood_floor`, `tile_clay`, `concrete_slab`
-5. **`solver/physics.py`** — `expand(house) -> (rc_model, expansion_map)`
+7. **`solver/physics.py`** — `expand(house) -> (rc_model, expansion_map)`
    for `opaque` and `glazing` first; unit tests vs hand calcs
-6. **Wire into `assemble()`** as transparent pre-pass; existing RC studies
+8. **Wire into `assemble()`** as transparent pre-pass; existing RC studies
    unchanged
-7. **Add `room` + `air_exchange` kinds** — completes the physics
-8. **Per-element heat-flow view** in Run tab — `Q_element(t) = ΔT / R_total`,
-   bar chart "which surface dominates?". First payoff.
-9. **Fit param keys in physical form** — `mur_SE.layers[0].lambda`,
-   `materials.brick_full.lambda`. Update `_patch_model()` in `fit.py` to
-   re-run `expand()` after patching.
-10. **Per-element fit badges** — element cards show fitted λ ± σ, click for
+9. **Add `room` + `air_exchange` kinds** — completes the physics
+10. **Per-element heat-flow view** in Run tab — `Q_element(t) = ΔT / R_total`,
+    bar chart "which surface dominates?". First payoff.
+11. **Fit param keys in physical form** — `mur_SE.layers[0].lambda`,
+    `materials.brick_full.lambda`. Update `_patch_model()` in `fit.py` to
+    re-run `expand()` after patching.
+12. **Per-element fit badges** — element cards show fitted λ ± σ, click for
     prior vs posterior.
 
 ### R/UA computation — JS vs Python
@@ -121,6 +123,8 @@ API additions:
 
 ## Changelog
 
+- **2026-06** — House persistence: `GET /house` on mount, Save button + dirty indicator
+  (mirrors study save pattern); room dimensions `a × b × c` replacing `volume`
 - **2026-06** — House tab UI (`HousePanel.svelte`): room list, element cards
   (opaque/glazing/air_exchange), layer stack editor, `a × b` dimensions
 - **2026-06** — `schema/house_model.schema.json` v0.1: rooms, elements, materials;

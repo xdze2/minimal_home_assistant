@@ -68,15 +68,14 @@
   }
 
   // ── add room ──────────────────────────────────────────────────────────────
-  let addRoomId     = $state('');
-  let addRoomVolume = $state(30);
-  let addRoomError  = $state('');
+  let addRoomId    = $state('');
+  let addRoomError = $state('');
 
   function addRoom() {
     const id = addRoomId.trim();
     if (!id) { addRoomError = 'ID required'; return; }
     if (rooms.some(r => r.id === id)) { addRoomError = 'ID already used'; return; }
-    patchHouse({ rooms: [...rooms, { id, volume: addRoomVolume }] });
+    patchHouse({ rooms: [...rooms, { id, a: 4, b: 4, c: 2.5 }] });
     addRoomId    = '';
     addRoomError = '';
     selectedRoomId = id;
@@ -205,7 +204,7 @@
           onclick={() => selectedRoomId = room.id}
         >
           <span class="room-id">{room.id}</span>
-          <span class="room-vol">{room.volume} m³</span>
+          <span class="room-vol">{((room.a ?? 0) * (room.b ?? 0) * (room.c ?? 0)).toFixed(0)} m³</span>
           <button class="icon-btn del-room" onclick={(e) => { e.stopPropagation(); deleteRoom(room.id); }} title="Delete room">×</button>
         </div>
       {/each}
@@ -222,12 +221,8 @@
         <span>id</span>
         <input type="text" bind:value={addRoomId} placeholder="chambre" />
       </label>
-      <label class="field">
-        <span>volume (m³)</span>
-        <input type="number" bind:value={addRoomVolume} min="1" step="5" />
-      </label>
       {#if addRoomError}<div class="field-error">{addRoomError}</div>{/if}
-      <button class="add-btn" onclick={addRoom}>+ Room</button>
+      <button class="add-btn" onclick={addRoom}>Add</button>
     </div>
   </aside>
 
@@ -241,10 +236,21 @@
       <div class="room-header">
         <span class="room-header-id">{selectedRoomId}</span>
         <label class="inline-field">
-          <span>volume (m³)</span>
-          <input type="number" value={selectedRoom?.volume} min="1" step="1"
-            oninput={(e) => patchRoom(selectedRoomId, { volume: parseFloat(e.target.value) || 0 })} />
+          <span>a (m)</span>
+          <input type="number" value={selectedRoom?.a ?? ''} min="0.1" step="0.5"
+            oninput={(e) => patchRoom(selectedRoomId, { a: parseFloat(e.target.value) || 0 })} />
         </label>
+        <label class="inline-field">
+          <span>b (m)</span>
+          <input type="number" value={selectedRoom?.b ?? ''} min="0.1" step="0.5"
+            oninput={(e) => patchRoom(selectedRoomId, { b: parseFloat(e.target.value) || 0 })} />
+        </label>
+        <label class="inline-field">
+          <span>c (m)</span>
+          <input type="number" value={selectedRoom?.c ?? ''} min="0.1" step="0.1"
+            oninput={(e) => patchRoom(selectedRoomId, { c: parseFloat(e.target.value) || 0 })} />
+        </label>
+        <span class="room-vol-display">= {((selectedRoom?.a ?? 0) * (selectedRoom?.b ?? 0) * (selectedRoom?.c ?? 0)).toFixed(1)} m³</span>
         <label class="inline-field">
           <span>furniture factor</span>
           <input type="number" value={selectedRoom?.furniture_factor ?? 2.5} min="1" step="0.5"
@@ -536,7 +542,7 @@
           {#if newAirError}<div class="field-error">{newAirError}</div>{/if}
         {/if}
 
-        <button class="add-btn" onclick={addElement}>+ {newKind}</button>
+        <button class="add-btn" onclick={addElement}>Add</button>
       </div>
 
     {/if}
@@ -670,6 +676,14 @@
   }
   .inline-field input {
     width: 70px;
+  }
+
+  .room-vol-display {
+    font-size: 12px;
+    font-family: monospace;
+    color: #64748b;
+    white-space: nowrap;
+    padding-top: 14px;
   }
 
   .elements-list {

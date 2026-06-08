@@ -48,7 +48,45 @@
 	// ── current study state ───────────────────────────────────────────────────
 	let selectedStudyId  = $state(null);
 	let model            = $state(null);
-	let house            = $state({ schema_version: '0.1', id: 'new_house', rooms: [], elements: [] });
+	let house            = $state({ schema_version: '0.1', rooms: [], elements: [] });
+	let houseSavedSnapshot = $state(null);
+	const houseDirty = $derived(houseSavedSnapshot !== null && JSON.stringify(house) !== houseSavedSnapshot);
+	let houseSaveLoading = $state(false);
+	let houseSaveError   = $state(null);
+
+	async function loadHouse() {
+		try {
+			const res = await fetch(`${API}/house`);
+			if (!res.ok) throw new Error(res.statusText);
+			house = await res.json();
+			houseSavedSnapshot = JSON.stringify(house);
+		} catch (e) {
+			// house.json may not exist yet — start blank, treat as unsaved
+			houseSavedSnapshot = JSON.stringify(house);
+		}
+	}
+
+	async function saveHouse() {
+		houseSaveLoading = true;
+		houseSaveError   = null;
+		try {
+			const res = await fetch(`${API}/house`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(house),
+			});
+			if (!res.ok) {
+				const d = await res.json().catch(() => ({}));
+				throw new Error(d.detail ?? res.statusText);
+			}
+			houseSavedSnapshot = JSON.stringify(house);
+		} catch (e) {
+			houseSaveError = e.message;
+		} finally {
+			houseSaveLoading = false;
+		}
+	}
+
 	let customMaterials  = $state({});  // user-defined materials
 	let customConstants  = $state({});  // project-level constant overrides (h_i, h_e, …)
 	let simInputs        = $state({});
@@ -252,7 +290,7 @@
 	}
 
 	onMount(async () => {
-		await loadStudies();
+		await Promise.all([loadStudies(), loadHouse()]);
 	});
 </script>
 
@@ -343,6 +381,15 @@
 				{/each}
 			{/if}
 		</div>
+
+		{#if activeSection === 'house'}
+			<div class="nav-bottom">
+				{#if houseSaveError}<div class="nav-save-error">{houseSaveError}</div>{/if}
+				<button class="nav-save" class:dirty={houseDirty} onclick={saveHouse} disabled={houseSaveLoading}>
+					{houseSaveLoading ? 'Saving…' : `Save${houseDirty ? ' ●' : ''}`}
+				</button>
+			</div>
+		{/if}
 
 		{#if selectedStudyId && activeSection === 'studies'}
 			<div class="nav-bottom">
@@ -562,6 +609,13 @@
 	}
 	.nav-save:hover { background: #1e4976; }
 	.nav-save.dirty { border-color: #f59e0b; color: #fcd34d; }
+
+	.nav-save-error {
+		font-size: 10px;
+		color: #f87171;
+		margin-bottom: 4px;
+		word-break: break-word;
+	}
 
 	/* ── main area ── */
 	.main {

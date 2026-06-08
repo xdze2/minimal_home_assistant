@@ -1,10 +1,39 @@
 {
   "label": "Maison",
-  "rooms": ["chambre", "salon", "cuisine", "bureau", "cave"],
+  "rooms": [
+    {
+      "id": "chbr",
+      "volume": 30,
+      "a": 5,
+      "b": 5,
+      "c": 3,
+      "furniture_factor": 4.5
+    }
+  ],
   "defaults": {
     "inputs": {
       "exterior": "open_meteo/temperature_2m"
     },
     "solver": "zoh"
-  }
+  },
+  "elements": [
+    {
+      "id": "wall_1",
+      "kind": "opaque",
+      "between": [
+        "chbr",
+        "outdoor"
+      ],
+      "a": 4,
+      "b": 2.5,
+      "orientation": "SE",
+      "tilt": 90,
+      "layers": [
+        {
+          "material": "brick_full",
+          "thickness": 0.3
+        }
+      ]
+    }
+  ]
 }
