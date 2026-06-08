@@ -163,10 +163,11 @@ def create_study(name: str, body: dict) -> dict:
     """
     house = _load_house(name)
 
-    # Pre-populate inputs from house element signals
+    # Pre-populate inputs and observations from house element signals
     try:
         rc_model, _ = expand(house)
         auto_inputs: dict[str, str] = {}
+        auto_observations: dict[str, str] = {}
         for node in rc_model.get("nodes", []):
             if node["kind"] == "boundary":
                 t_src = node.get("T_source")
@@ -176,8 +177,14 @@ def create_study(name: str, body: dict) -> dict:
                 sig = node.get("signal")
                 if sig:
                     auto_inputs[node["id"]] = sig
+        # Mass nodes from rooms with obs_signal → observations
+        for room in house.get("rooms", []):
+            if room.get("role", "mass") == "mass" and room.get("obs_signal"):
+                node_id = f"z_{room['id'].replace('-', '')}"
+                auto_observations[node_id] = room["obs_signal"]
     except Exception:
         auto_inputs = {}
+        auto_observations = {}
 
     study_id = str(uuid.uuid4())
     label = (body.get("label") or "").strip() or house.get("label", study_id)
@@ -186,7 +193,7 @@ def create_study(name: str, body: dict) -> dict:
         "label":        label,
         "type":         body.get("type", "run"),
         "inputs":       auto_inputs,
-        "observations": {},
+        "observations": auto_observations,
         "start":        "",
         "end":          "",
         "solver":       "zoh",

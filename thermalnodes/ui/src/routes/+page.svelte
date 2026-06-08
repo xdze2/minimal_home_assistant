@@ -202,9 +202,19 @@
 	function loadStudyIntoState(study) {
 		const snap       = $state.snapshot(study);
 		simInputs        = snap.inputs ?? {};
-		simRange         = { start: snap.start ?? '', end: snap.end ?? '' };
 		simSolver        = snap.solver ?? 'zoh';
 		simObservations  = snap.observations ?? {};
+
+		const start = snap.start ?? '';
+		const end   = snap.end   ?? '';
+		if (start && end) {
+			// Switch to dates mode so the duration effect doesn't clobber the range
+			rangeMode = 'dates';
+			simRange  = { start, end };
+		} else {
+			simRange = { start, end };
+		}
+
 		lastSavedSnapshot = studySnapshot();
 		lastRunSnapshot   = null;
 	}
@@ -262,7 +272,6 @@
 	let simPaneTab  = $state('rc'); // 'rc' | 'studies' | 'sim'
 	let rangeMode   = $state('duration'); // 'dates' | 'duration'
 	let triggerRun  = $state(/** @type {(() => void) | null} */ (null));
-	let showInputs  = $state(false);
 
 	const DAY_PRESETS = [1, 2, 3, 5, 7, 10, 14, 21, 30, 60, 90];
 	let durationDays = $state(7);
@@ -603,7 +612,6 @@
 									{:else}
 										<button class="ctrl-btn ctrl-btn-fit" onclick={() => triggerRun?.()}>Fit</button>
 									{/if}
-									<button class="ctrl-btn" class:active={showInputs} onclick={() => (showInputs = !showInputs)}>Show inputs</button>
 								</div>
 							</div>
 

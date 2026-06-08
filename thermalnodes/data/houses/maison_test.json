@@ -42,10 +42,25 @@
       "tilt": 90,
       "layers": [
         {
-          "material": "rock_wool",
-          "thickness": 1
+          "material": "brick_full",
+          "thickness": 0.3
         }
       ]
+    },
+    {
+      "id": "cba97f33-2067-4e11-8b0f-1c1a7bea5f8d",
+      "kind": "glazing",
+      "label": "win_SE",
+      "between": [
+        "a1b2c3d4-0001-0000-0000-000000000001",
+        "a1b2c3d4-0001-0000-0000-000000000002"
+      ],
+      "a": 1.2,
+      "b": 1.7,
+      "orientation": "SE",
+      "tilt": 90,
+      "U": 2.8,
+      "SHGC": 0.67
     }
   ],
   "studies": [
@@ -58,11 +73,13 @@
       "inputs": {
         "z_a1b2c3d4000100000000000000000002": "open_meteo_historic/temperature_2m?location=home"
       },
-      "observations": {},
+      "observations": {
+        "z_a1b2c3d4000100000000000000000001": "sonoff_thermometer/temperature?ieee_addr=0x00124b002919774f&name=sensors/thE"
+      },
       "solver": "zoh",
       "run": {
-        "model_hash": "425ab6b8c6a2",
-        "timestamp": "20260608T203525",
+        "model_hash": "bbfea22bf738",
+        "timestamp": "20260608T205001",
         "settings": {
           "solver": "zoh",
           "start": "2026-05-24",
