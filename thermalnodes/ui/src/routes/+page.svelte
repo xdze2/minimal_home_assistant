@@ -382,14 +382,6 @@
 			{/if}
 		</div>
 
-		{#if activeSection === 'house'}
-			<div class="nav-bottom">
-				{#if houseSaveError}<div class="nav-save-error">{houseSaveError}</div>{/if}
-				<button class="nav-save" class:dirty={houseDirty} onclick={saveHouse} disabled={houseSaveLoading}>
-					{houseSaveLoading ? 'Saving…' : `Save${houseDirty ? ' ●' : ''}`}
-				</button>
-			</div>
-		{/if}
 
 		{#if selectedStudyId && activeSection === 'studies'}
 			<div class="nav-bottom">
@@ -414,8 +406,25 @@
 			</div>
 
 		{:else if activeSection === 'house'}
-			<div class="body">
-				<HousePanel {house} onchange={(h) => (house = h)} {customMaterials} />
+			<div class="house-split">
+				<div class="house-pane">
+					<HousePanel
+						{house}
+						onchange={(h) => (house = h)}
+						{customMaterials}
+						dirty={houseDirty}
+						saveLoading={houseSaveLoading}
+						saveError={houseSaveError}
+						onsave={saveHouse}
+						oncreatestudy={(ids) => console.log('create study with', ids)}
+					/>
+				</div>
+				<div class="study-pane">
+					<div class="study-pane-header">simulation</div>
+					<div class="study-pane-empty">
+						<span>no study yet</span>
+					</div>
+				</div>
 			</div>
 
 		{:else if activeSection === 'studies'}
@@ -624,6 +633,52 @@
 		flex-direction: column;
 		min-width: 0;
 		overflow: hidden;
+	}
+
+	/* ── house split view ── */
+	.house-split {
+		flex: 1;
+		display: flex;
+		min-height: 0;
+		overflow: hidden;
+	}
+
+	.house-pane {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		overflow: hidden;
+		border-right: 1px solid #1e293b;
+	}
+
+	.study-pane {
+		width: 340px;
+		flex-shrink: 0;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		overflow: hidden;
+		background: #111827;
+	}
+
+	.study-pane-header {
+		padding: 8px 14px;
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: #475569;
+		border-bottom: 1px solid #1e293b;
+		flex-shrink: 0;
+	}
+
+	.study-pane-empty {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: #334155;
+		font-size: 12px;
 	}
 
 	/* ── home view ── */

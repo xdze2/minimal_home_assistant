@@ -73,6 +73,23 @@ Fit comes after.
 
 `HousePanel.svelte` rewritten as a flat list. `house.json` migrated.
 
+### ~~M1b — House view: grid layout + icon toolbar + split view~~ ✓ done
+
+- CSS grid aligned columns: kind icon, label, connectivity, key figures,
+  include checkbox, chevron.
+- Add toolbar at top (room / opaque / glazing / air_exchange buttons).
+- Save button moved from sidenav into toolbar (right-aligned).
+- "Create study" button in toolbar; fires `oncreatestudy(selectedIds)`.
+- Include checkbox column per row (outdoor excluded); selection is local state.
+- Click entire row header to expand/collapse (no separate button).
+- Delete moved into expanded editor.
+- Split view: house pane (left, fills space) + simulation pane (right, 340px,
+  placeholder for now).
+- Key figures computed client-side: volume (rooms), area + UA (walls/glazing),
+  ACH (air exchange).
+
+UUID + label rename deferred to M1c (lower priority than M3).
+
 ### M2 — Periods
 
 Named time ranges, reusable across studies.
@@ -161,6 +178,10 @@ Named time ranges, reusable across studies.
 
 ## Changelog
 
+- **2026-06** — House view: grid + split view — CSS grid columns (icon, label,
+  connectivity, key figures, include checkbox); toolbar with add buttons, Save,
+  Create study; split layout with placeholder simulation pane; row-click to
+  expand; delete in editor; key figures client-side.
 - **2026-06** — House view: flat list (`HousePanel.svelte` rewrite) — rooms,
   elements, and `outdoor` as peer rows; inline expansion; `outdoor` element
   with `location` + `weather_source`; `house.json` migrated.
