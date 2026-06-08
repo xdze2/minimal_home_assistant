@@ -1,6 +1,6 @@
 {
   "name": "maison_test",
-  "label": "Maison test",
+  "label": "Chambre",
   "schema_version": "0.3",
   "rooms": [
     {
@@ -42,114 +42,34 @@
       "tilt": 90,
       "layers": [
         {
-          "material": "brick_full",
-          "thickness": 0.3
+          "material": "rock_wool",
+          "thickness": 1
         }
       ]
-    },
-    {
-      "id": "a1b2c3d4-0001-0000-0000-000000000005",
-      "kind": "glazing",
-      "label": "Fenêtre SE",
-      "between": [
-        "a1b2c3d4-0001-0000-0000-000000000001",
-        "a1b2c3d4-0001-0000-0000-000000000002"
-      ],
-      "a": 1.2,
-      "b": 1.7,
-      "orientation": "SE",
-      "tilt": 90,
-      "U": 2.8,
-      "SHGC": 0.67
     }
   ],
   "studies": [
     {
-      "id": "6baafa43-fa83-41ba-b75c-725998ef278f",
-      "label": "Maison test",
-      "model": {
-        "schema_version": "0.3",
-        "id": "expanded_775b2a09",
-        "name": "Maison test",
-        "nodes": [
-          {
-            "id": "z_a1b2c3d4000100000000000000000001",
-            "kind": "mass",
-            "label": "Chambre",
-            "C": 407430.0
-          },
-          {
-            "id": "z_a1b2c3d4000100000000000000000002",
-            "kind": "boundary",
-            "label": "Extérieur",
-            "T_source": "open_meteo_historic/temperature_2m?location=home"
-          },
-          {
-            "id": "R_a1b2c3d4000100000000000000000004",
-            "kind": "resistance",
-            "label": "Mur SE",
-            "R": 0.05448701298701299
-          },
-          {
-            "id": "R_a1b2c3d4000100000000000000000005",
-            "kind": "resistance",
-            "label": "Fenêtre SE (U)",
-            "R": 0.1750700280112045
-          },
-          {
-            "id": "solar_a1b2c3d4000100000000000000000005",
-            "kind": "source",
-            "label": "Fenêtre SE (solar)",
-            "signal": "open_meteo_historic/shortwave_radiation?location=home",
-            "gain": 1.3668
-          }
-        ],
-        "edges": [
-          {
-            "from": "z_a1b2c3d4000100000000000000000001",
-            "to": "R_a1b2c3d4000100000000000000000004"
-          },
-          {
-            "from": "R_a1b2c3d4000100000000000000000004",
-            "to": "z_a1b2c3d4000100000000000000000002"
-          },
-          {
-            "from": "z_a1b2c3d4000100000000000000000001",
-            "to": "R_a1b2c3d4000100000000000000000005"
-          },
-          {
-            "from": "R_a1b2c3d4000100000000000000000005",
-            "to": "z_a1b2c3d4000100000000000000000002"
-          },
-          {
-            "from": "solar_a1b2c3d4000100000000000000000005",
-            "to": "z_a1b2c3d4000100000000000000000001"
-          }
-        ]
-      },
-      "expansion_map": {
-        "a1b2c3d4-0001-0000-0000-000000000001": [
-          "z_a1b2c3d4000100000000000000000001"
-        ],
-        "a1b2c3d4-0001-0000-0000-000000000002": [
-          "z_a1b2c3d4000100000000000000000002"
-        ],
-        "a1b2c3d4-0001-0000-0000-000000000004": [
-          "R_a1b2c3d4000100000000000000000004"
-        ],
-        "a1b2c3d4-0001-0000-0000-000000000005": [
-          "R_a1b2c3d4000100000000000000000005",
-          "solar_a1b2c3d4000100000000000000000005"
-        ]
-      },
+      "id": "902204b2-be5d-4c25-b231-d021b94e2a4f",
+      "label": "Chambre",
+      "type": "run",
+      "start": "2026-05-24",
+      "end": "2026-05-31",
       "inputs": {
-        "z_a1b2c3d4000100000000000000000002": "open_meteo_historic/temperature_2m?location=home",
-        "solar_a1b2c3d4000100000000000000000005": "open_meteo_historic/shortwave_radiation?location=home"
+        "z_a1b2c3d4000100000000000000000002": "open_meteo_historic/temperature_2m?location=home"
       },
       "observations": {},
-      "start": "",
-      "end": "",
-      "solver": "zoh"
+      "solver": "zoh",
+      "run": {
+        "model_hash": "425ab6b8c6a2",
+        "timestamp": "20260608T203525",
+        "settings": {
+          "solver": "zoh",
+          "start": "2026-05-24",
+          "end": "2026-05-31",
+          "dt_minutes": 15
+        }
+      }
     }
   ]
 }

@@ -1,8 +1,73 @@
 {
   "label": "New house",
   "schema_version": "0.3",
-  "rooms": [],
-  "elements": [],
+  "rooms": [
+    {
+      "id": "a81a96b0-1222-4742-8423-a417a4c7f10e",
+      "label": "bureau",
+      "role": "mass",
+      "a": 3,
+      "b": 4,
+      "c": 2.5,
+      "obs_signal": "sonoff_thermometer/temperature?ieee_addr=0x00124b00291976e9&name=sensors/thA"
+    },
+    {
+      "id": "5aecd4bf-0ae8-4606-b5e8-25cae9ce9108",
+      "label": "Voisin",
+      "role": "fixed",
+      "a": 4,
+      "b": 4,
+      "c": 2.5
+    }
+  ],
+  "elements": [
+    {
+      "id": "78050131-bc8e-4d80-be05-26934ee30247",
+      "kind": "glazing",
+      "label": "E",
+      "between": [
+        "a81a96b0-1222-4742-8423-a417a4c7f10e",
+        "cbfa0cf9-9ce9-4867-af1e-1e8efd52bec2"
+      ],
+      "a": 1.2,
+      "b": 2,
+      "orientation": "NE",
+      "tilt": 90,
+      "U": 2.8,
+      "SHGC": 0.67
+    },
+    {
+      "id": "cbfa0cf9-9ce9-4867-af1e-1e8efd52bec2",
+      "kind": "outdoor",
+      "label": "",
+      "location": {
+        "lat": 48.85,
+        "lon": 2.35,
+        "label": "Paris"
+      },
+      "solar_signal": "open_meteo_historic/shortwave_radiation?location=home",
+      "obs_signal": "open_meteo_historic/temperature_2m?location=home"
+    },
+    {
+      "id": "1f56dd4b-7179-4534-af20-ed1cbddc9858",
+      "kind": "opaque",
+      "label": "N",
+      "between": [
+        "a81a96b0-1222-4742-8423-a417a4c7f10e",
+        "5aecd4bf-0ae8-4606-b5e8-25cae9ce9108"
+      ],
+      "a": 4,
+      "b": 3,
+      "orientation": "S",
+      "tilt": 90,
+      "layers": [
+        {
+          "material": "brick_full",
+          "thickness": 0.4
+        }
+      ]
+    }
+  ],
   "studies": [],
   "name": "new_house"
 }
