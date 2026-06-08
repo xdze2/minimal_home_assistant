@@ -137,24 +137,19 @@
 	}
 
 	// ── save study ────────────────────────────────────────────────────────────
-	let saveId         = $state('');
-	let saveDialogOpen = $state(false);
-	let saveLoading    = $state(false);
-	let saveError      = $state(null);
+	let saveLoading = $state(false);
+	let saveError   = $state(null);
 
-	function openSaveDialog() {
-		saveId    = selectedStudyMeta?.source === 'user' ? (selectedStudyId ?? '') : '';
-		saveError = null;
-		saveDialogOpen = true;
-	}
-
-	async function confirmSave() {
-		if (!saveId.trim()) return;
+	async function saveStudy() {
+		const targetId = selectedStudyMeta?.source === 'user'
+			? selectedStudyId
+			: crypto.randomUUID();
+		if (!targetId) return;
 		saveLoading = true;
 		saveError   = null;
 		const study = {
-			id:           saveId.trim(),
-			label:        model?.name ?? saveId.trim(),
+			id:           targetId,
+			label:        model?.name ?? targetId,
 			room:         selectedStudyMeta?.room ?? null,
 			model,
 			start:        simRange.start,
@@ -164,7 +159,7 @@
 			solver:       simSolver,
 		};
 		try {
-			const res = await fetch(`${API}/studies/${saveId.trim()}`, {
+			const res = await fetch(`${API}/studies/${targetId}`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify(study),
@@ -173,8 +168,7 @@
 				const d = await res.json().catch(() => ({}));
 				throw new Error(d.detail ?? res.statusText);
 			}
-			saveDialogOpen    = false;
-			selectedStudyId   = saveId.trim();
+			selectedStudyId   = targetId;
 			lastSavedSnapshot = studySnapshot();
 			await loadStudies();
 		} catch (e) {
@@ -188,14 +182,12 @@
 	let createStudyDialogOpen = $state(false);
 	let createStudyIds        = $state(/** @type {string[]} */ ([]));
 	let createStudyLabel      = $state('');
-	let createStudyId         = $state('');
 	let createStudyLoading    = $state(false);
 	let createStudyError      = $state(null);
 
 	function openCreateStudyDialog(ids) {
 		createStudyIds    = ids;
 		createStudyLabel  = '';
-		createStudyId     = '';
 		createStudyError  = null;
 		createStudyDialogOpen = true;
 	}
@@ -211,7 +203,6 @@
 					house:     house,
 					selection: createStudyIds,
 					label:     createStudyLabel.trim(),
-					study_id:  createStudyId.trim(),
 				}),
 			});
 			if (!res.ok) {
@@ -231,35 +222,31 @@
 
 	// ── duplicate study ───────────────────────────────────────────────────────
 	let dupSourceId    = $state(null);
-	let dupId          = $state('');
 	let dupDialogOpen  = $state(false);
 	let dupLoading     = $state(false);
 	let dupError       = $state(null);
 
 	function openDupDialog(sourceId) {
 		dupSourceId   = sourceId;
-		dupId         = `${sourceId}_copy`;
 		dupError      = null;
 		dupDialogOpen = true;
 	}
 
 	async function confirmDuplicate() {
-		if (!dupId.trim()) return;
 		dupLoading = true;
 		dupError   = null;
 		try {
 			const res = await fetch(`${API}/studies/${dupSourceId}/duplicate`, {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ new_id: dupId.trim() }),
 			});
 			if (!res.ok) {
 				const d = await res.json().catch(() => ({}));
 				throw new Error(d.detail ?? res.statusText);
 			}
+			const data = await res.json();
 			dupDialogOpen = false;
 			await loadStudies();
-			await openStudy(dupId.trim());
+			await openStudy(data.id);
 		} catch (e) {
 			dupError = e.message;
 		} finally {
@@ -355,37 +342,11 @@
 				Name
 				<input type="text" bind:value={createStudyLabel} placeholder="e.g. chambre winter run" />
 			</label>
-			<label class="dialog-label">
-				ID <span class="dialog-label-hint">(leave blank to auto-generate)</span>
-				<input type="text" bind:value={createStudyId} placeholder="e.g. chambre_winter_01" />
-			</label>
 			{#if createStudyError}<div class="dialog-error">{createStudyError}</div>{/if}
 			<div class="dialog-actions">
 				<button onclick={() => (createStudyDialogOpen = false)}>Cancel</button>
 				<button class="primary" onclick={confirmCreateStudy} disabled={createStudyLoading}>
 					{createStudyLoading ? 'Creating…' : 'Create'}
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
-
-<!-- ── save dialog ────────────────────────────────────────────────────────── -->
-{#if saveDialogOpen}
-	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-	<div class="dialog-backdrop" onclick={() => (saveDialogOpen = false)}>
-		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-		<div class="dialog" onclick={(e) => e.stopPropagation()}>
-			<div class="dialog-title">Save study</div>
-			<label class="dialog-label">
-				ID
-				<input type="text" bind:value={saveId} placeholder="e.g. chambre_jan_2024_2r1c" />
-			</label>
-			{#if saveError}<div class="dialog-error">{saveError}</div>{/if}
-			<div class="dialog-actions">
-				<button onclick={() => (saveDialogOpen = false)}>Cancel</button>
-				<button class="primary" onclick={confirmSave} disabled={saveLoading || !saveId.trim()}>
-					{saveLoading ? 'Saving…' : 'Save'}
 				</button>
 			</div>
 		</div>
@@ -399,14 +360,10 @@
 		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 		<div class="dialog" onclick={(e) => e.stopPropagation()}>
 			<div class="dialog-title">Duplicate study</div>
-			<label class="dialog-label">
-				New ID
-				<input type="text" bind:value={dupId} placeholder="e.g. chambre_feb_2024" />
-			</label>
 			{#if dupError}<div class="dialog-error">{dupError}</div>{/if}
 			<div class="dialog-actions">
 				<button onclick={() => (dupDialogOpen = false)}>Cancel</button>
-				<button class="primary" onclick={confirmDuplicate} disabled={dupLoading || !dupId.trim()}>
+				<button class="primary" onclick={confirmDuplicate} disabled={dupLoading}>
 					{dupLoading ? 'Duplicating…' : 'Duplicate'}
 				</button>
 			</div>
@@ -459,9 +416,10 @@
 
 		{#if selectedStudyId && activeSection === 'studies'}
 			<div class="nav-bottom">
-				<button class="nav-save" class:dirty={studyDirty} onclick={openSaveDialog}>
-					Save{studyDirty ? ' ●' : ''}
+				<button class="nav-save" class:dirty={studyDirty} onclick={saveStudy} disabled={saveLoading}>
+					{saveLoading ? 'Saving…' : `Save${studyDirty ? ' ●' : ''}`}
 				</button>
+				{#if saveError}<div class="nav-save-error">{saveError}</div>{/if}
 			</div>
 		{/if}
 	</nav>
@@ -521,7 +479,8 @@
 									{#each exampleStudies as s}
 										<div class="study-card" class:selected={s.id === selectedStudyId}>
 											<button class="card-open" onclick={() => openStudy(s.id)}>
-												<div class="card-id">{s.id}</div>
+												<div class="card-label">{s.label ?? s.id}</div>
+												<div class="card-uuid">{s.id}</div>
 												{#if s.room}<div class="card-room">{s.room}</div>{/if}
 												<div class="card-badge badge-example">example</div>
 											</button>
@@ -540,7 +499,8 @@
 								{#each userStudies as s}
 									<div class="study-card" class:selected={s.id === selectedStudyId}>
 										<button class="card-open" onclick={() => openStudy(s.id)}>
-											<div class="card-id">{s.id}</div>
+											<div class="card-label">{s.label ?? s.id}</div>
+											<div class="card-uuid">{s.id}</div>
 											{#if s.room}<div class="card-room">{s.room}</div>{/if}
 											<div class="card-badge badge-user">user</div>
 										</button>
@@ -828,11 +788,16 @@
 	}
 	.card-open:hover { background: #0f172a22; }
 
-	.card-id {
-		font-size: 12px;
-		font-family: monospace;
+	.card-label {
+		font-size: 13px;
 		font-weight: 600;
 		color: #e2e8f0;
+	}
+
+	.card-uuid {
+		font-size: 10px;
+		font-family: monospace;
+		color: #64748b;
 		word-break: break-all;
 	}
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -72,7 +73,6 @@ class FromHouseRequest(BaseModel):
     house: dict
     selection: list[str]
     label: str = ""
-    study_id: str = ""
 
 
 @app.post("/studies/from_house")
@@ -81,17 +81,12 @@ def post_studies_from_house(req: FromHouseRequest) -> dict:
 
     Returns {"ok": True, "id": study_id, "model": ...}.
     """
-    import uuid as _uuid_mod
-
     try:
         model, expansion_map = expand(req.house, req.selection)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    study_id = req.study_id.strip() or f"study_{_uuid_mod.uuid4().hex[:8]}"
-    if not _valid_id(study_id):
-        raise HTTPException(status_code=400, detail="Invalid study_id (alphanumeric, _ and - only)")
-
+    study_id = str(uuid.uuid4())
     label = req.label.strip() or model.get("name", study_id)
     model["name"] = label
 
@@ -165,19 +160,14 @@ def post_study(study_id: str, body: dict) -> dict:
     return {"ok": True, "id": study_id}
 
 
-class DuplicateRequest(BaseModel):
-    new_id: str
-
-
 @app.post("/studies/{study_id}/duplicate")
-def duplicate_study(study_id: str, req: DuplicateRequest) -> dict:
-    if not _valid_id(req.new_id):
-        raise HTTPException(status_code=400, detail="Invalid new_id")
+def duplicate_study(study_id: str) -> dict:
     source = get_study(study_id)  # raises 404 if not found
-    source["id"] = req.new_id
-    dest = STUDIES_DIR / f"{req.new_id}.json"
+    new_id = str(uuid.uuid4())
+    source["id"] = new_id
+    dest = STUDIES_DIR / f"{new_id}.json"
     dest.write_text(json.dumps(source, indent=2, ensure_ascii=False))
-    return {"ok": True, "id": req.new_id}
+    return {"ok": True, "id": new_id}
 
 
 # ── simulate ──────────────────────────────────────────────────────────────────

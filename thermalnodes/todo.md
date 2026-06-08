@@ -126,9 +126,6 @@ shows autocomplete fields backed by `GET /signals`.
    POST → open study in Topology tab.~~ ✓ done
 
 **Next in M3:**
-- Switch study IDs to UUID; `label` becomes the display name. Study cards
-  show label prominently, UUID as small monospace. Save dialog drops manual
-  ID entry (auto-generates UUID). Consistent with house element UUID scheme.
 - `element.modeling` detail field + detail-level chip per row.
 - Auto-select connected elements when a room is checked.
 
@@ -188,6 +185,10 @@ shows autocomplete fields backed by `GET /signals`.
 
 ## Changelog
 
+- **2026-06** — Study UUID (M3) — study IDs are now UUID4 (auto-generated,
+  never user-entered); `label` is the display name shown prominently on study
+  cards; save goes directly in-place (no dialog) for user studies, forks a new
+  UUID for examples; duplicate auto-generates UUID with no ID prompt.
 - **2026-06** — M3 partial: study spawning — `POST /house/expand` (preview),
   `POST /studies/from_house` (expand + persist); house toolbar "Create study"
   button opens modal (name + optional ID) → calls backend → opens new study.
