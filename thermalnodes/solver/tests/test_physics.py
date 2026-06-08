@@ -1,30 +1,28 @@
-"""Tests for solver/physics.py — expand(house, selection)."""
+"""Tests for solver/physics.py — expand(house)."""
 
 import json
 from pathlib import Path
 
 import pytest
 
-from thermalnodes.solver.physics import expand
+from thermalnodes.solver.physics import expand, model_hash
 from thermalnodes.solver.assemble import assemble
 
 DATA = Path(__file__).parents[2] / "data"
 
-with open(DATA / "house.json") as f:
+with open(DATA / "houses" / "maison_test.json") as f:
     HOUSE = json.load(f)
 
-# Convenience: UUIDs from house.json
+# Convenience: UUIDs from maison_test.json
 ROOM_CHAMBRE  = "a1b2c3d4-0001-0000-0000-000000000001"
 OUTDOOR       = "a1b2c3d4-0001-0000-0000-000000000002"
-GROUND        = "a1b2c3d4-0001-0000-0000-000000000003"
 OPAQUE_MUR_SE = "a1b2c3d4-0001-0000-0000-000000000004"
 GLAZING_SE    = "a1b2c3d4-0001-0000-0000-000000000005"
-AIR_EXCH      = "a1b2c3d4-0001-0000-0000-000000000006"
 
 
-class TestExpandChambreOnly:
+class TestExpandMaisonTest:
     def setup_method(self):
-        self.model, self.emap = expand(HOUSE, [ROOM_CHAMBRE])
+        self.model, self.emap = expand(HOUSE)
 
     def test_schema_version(self):
         assert self.model["schema_version"] == "0.3"
@@ -33,6 +31,7 @@ class TestExpandChambreOnly:
         return f"z_{uuid.replace('-', '')}"
 
     def test_chambre_is_mass(self):
+        """Room with role='mass' should produce a mass node."""
         kinds = {n["id"]: n["kind"] for n in self.model["nodes"]}
         chambre_node = self._zone_node_id(ROOM_CHAMBRE)
         assert chambre_node in kinds
@@ -54,7 +53,6 @@ class TestExpandChambreOnly:
     def test_expansion_map_elements_present(self):
         assert OPAQUE_MUR_SE in self.emap
         assert GLAZING_SE in self.emap
-        assert AIR_EXCH in self.emap
 
     def test_assembles_without_error(self):
         sys = assemble(self.model)
@@ -79,14 +77,12 @@ class TestExpandChambreOnly:
             assert abs(row_sum) < 1e-8, f"row {i} energy imbalance: {row_sum:.2e}"
 
     def test_solar_source_present(self):
-        """Glazing with SHGC should produce a solar source node referencing outdoor solar_signal."""
         outdoor_elem = next(e for e in HOUSE["elements"] if e["id"] == OUTDOOR)
         solar_signal = outdoor_elem.get("solar_signal")
         source_nodes = [n for n in self.model["nodes"] if n["kind"] == "source"]
         assert any(n["signal"] == solar_signal for n in source_nodes)
 
     def test_solar_source_gain(self):
-        """Glazing solar source gain should equal SHGC * area."""
         glazing_elem = next(e for e in HOUSE["elements"] if e["id"] == GLAZING_SE)
         expected_gain = glazing_elem["SHGC"] * glazing_elem["a"] * glazing_elem["b"]
         source_nodes = [n for n in self.model["nodes"] if n["kind"] == "source"]
@@ -94,37 +90,94 @@ class TestExpandChambreOnly:
         assert any(abs(g - expected_gain) < 1e-9 for g in gains)
 
     def test_obs_signal_on_boundary(self):
-        """outdoor boundary node T_source should reflect the obs_signal."""
         outdoor_node = self._zone_node_id(OUTDOOR)
         node = next(n for n in self.model["nodes"] if n["id"] == outdoor_node)
         outdoor_elem = next(e for e in HOUSE["elements"] if e["id"] == OUTDOOR)
         assert node["T_source"] == outdoor_elem["obs_signal"]
 
 
-class TestExpandEmptySelection:
-    def test_empty_selection_produces_no_mass(self):
-        model, emap = expand(HOUSE, [])
-        sys = assemble(model)
-        assert len(sys.mass_ids) == 0
+class TestExpandRoles:
+    """Verify that room role field controls node type."""
 
-    def test_empty_selection_model_valid(self):
-        model, emap = expand(HOUSE, [])
-        assert "nodes" in model
-        assert "edges" in model
+    HOUSE_ROLES = {
+        "schema_version": "0.3",
+        "label": "Roles test",
+        "materials": {
+            "brick": {"lambda": 0.8, "rho": 1800, "cp": 840}
+        },
+        "rooms": [
+            {"id": "r_mass",     "label": "Mass room",     "role": "mass",     "a": 4, "b": 4, "c": 2.5},
+            {"id": "r_boundary", "label": "Boundary room", "role": "boundary", "a": 3, "b": 4, "c": 2.5,
+             "obs_signal": "some/signal"},
+            {"id": "r_fixed",    "label": "Fixed room",    "role": "fixed",    "a": 3, "b": 3, "c": 2.5,
+             "T_fixed": 18.0},
+        ],
+        "elements": [
+            {"id": "out1", "kind": "outdoor", "label": "Ext",
+             "obs_signal": "open_meteo_historic/temperature_2m?location=home"},
+            {"id": "w1", "kind": "opaque", "label": "Wall mass-ext",
+             "between": ["r_mass", "out1"], "a": 4.0, "b": 2.5,
+             "layers": [{"material": "brick", "thickness": 0.2}]},
+            {"id": "w2", "kind": "opaque", "label": "Wall mass-boundary",
+             "between": ["r_mass", "r_boundary"], "a": 3.0, "b": 2.5,
+             "layers": [{"material": "brick", "thickness": 0.2}]},
+            {"id": "w3", "kind": "opaque", "label": "Wall mass-fixed",
+             "between": ["r_mass", "r_fixed"], "a": 3.0, "b": 2.5,
+             "layers": [{"material": "brick", "thickness": 0.2}]},
+        ],
+    }
+
+    def test_mass_room_is_mass(self):
+        model, _ = expand(self.HOUSE_ROLES)
+        kinds = {n["id"]: n["kind"] for n in model["nodes"]}
+        assert kinds["z_r_mass"] == "mass"
+
+    def test_boundary_room_is_boundary(self):
+        model, _ = expand(self.HOUSE_ROLES)
+        kinds = {n["id"]: n["kind"] for n in model["nodes"]}
+        assert kinds["z_r_boundary"] == "boundary"
+
+    def test_boundary_room_t_source_is_signal(self):
+        model, _ = expand(self.HOUSE_ROLES)
+        node = next(n for n in model["nodes"] if n["id"] == "z_r_boundary")
+        assert node["T_source"] == "some/signal"
+
+    def test_fixed_room_is_boundary(self):
+        model, _ = expand(self.HOUSE_ROLES)
+        kinds = {n["id"]: n["kind"] for n in model["nodes"]}
+        assert kinds["z_r_fixed"] == "boundary"
+
+    def test_fixed_room_t_source_is_constant(self):
+        model, _ = expand(self.HOUSE_ROLES)
+        node = next(n for n in model["nodes"] if n["id"] == "z_r_fixed")
+        assert node["T_source"] == 18.0
+
+    def test_only_one_mass_node(self):
+        model, _ = expand(self.HOUSE_ROLES)
+        sys = assemble(model)
+        assert len(sys.mass_ids) == 1
+
+    def test_energy_conservation(self):
+        import numpy as np
+        model, _ = expand(self.HOUSE_ROLES)
+        sys = assemble(model)
+        for i in range(len(sys.mass_ids)):
+            row_sum = sys.A[i, :].sum() + sys.B_boundary[i, :].sum()
+            assert abs(row_sum) < 1e-8, f"row {i} energy imbalance: {row_sum:.2e}"
 
 
 class TestExpandTwoRooms:
-    """House with two rooms: selecting both should wire the shared wall correctly."""
+    """House with two mass rooms: both wired together via a shared wall."""
 
     HOUSE_2R = {
-        "schema_version": "0.2",
+        "schema_version": "0.3",
         "label": "Two rooms",
         "materials": {
             "brick": {"lambda": 0.8, "rho": 1800, "cp": 840}
         },
         "rooms": [
-            {"id": "r1", "label": "Room1", "a": 4, "b": 4, "c": 2.5},
-            {"id": "r2", "label": "Room2", "a": 3, "b": 4, "c": 2.5},
+            {"id": "r1", "label": "Room1", "role": "mass", "a": 4, "b": 4, "c": 2.5},
+            {"id": "r2", "label": "Room2", "role": "mass", "a": 3, "b": 4, "c": 2.5},
         ],
         "elements": [
             {"id": "out1", "kind": "outdoor", "label": "Ext",
@@ -138,25 +191,35 @@ class TestExpandTwoRooms:
         ],
     }
 
-    def test_both_rooms_selected_gives_two_masses(self):
-        model, emap = expand(self.HOUSE_2R, ["r1", "r2"])
+    def test_both_rooms_give_two_masses(self):
+        model, emap = expand(self.HOUSE_2R)
         sys = assemble(model)
         assert len(sys.mass_ids) == 2
 
     def test_shared_wall_in_emap(self):
-        _, emap = expand(self.HOUSE_2R, ["r1", "r2"])
+        _, emap = expand(self.HOUSE_2R)
         assert "wall_shared" in emap
-
-    def test_one_room_selected_other_becomes_boundary(self):
-        model, emap = expand(self.HOUSE_2R, ["r1"])
-        sys = assemble(model)
-        assert len(sys.mass_ids) == 1
-        assert len(sys.boundary_ids) == 2  # r2 + outdoor
 
     def test_energy_conservation_two_rooms(self):
         import numpy as np
-        model, _ = expand(self.HOUSE_2R, ["r1", "r2"])
+        model, _ = expand(self.HOUSE_2R)
         sys = assemble(model)
         for i in range(len(sys.mass_ids)):
             row_sum = sys.A[i, :].sum() + sys.B_boundary[i, :].sum()
             assert abs(row_sum) < 1e-8, f"row {i} energy imbalance: {row_sum:.2e}"
+
+
+class TestModelHash:
+    def test_hash_is_12_chars(self):
+        elements = [{"id": "e1", "kind": "opaque"}]
+        h = model_hash(elements)
+        assert len(h) == 12
+
+    def test_hash_deterministic(self):
+        elements = [{"id": "e1", "kind": "opaque"}, {"b": 2, "a": 1}]
+        assert model_hash(elements) == model_hash(elements)
+
+    def test_hash_changes_on_modification(self):
+        e1 = [{"id": "e1", "R": 1.0}]
+        e2 = [{"id": "e1", "R": 2.0}]
+        assert model_hash(e1) != model_hash(e2)

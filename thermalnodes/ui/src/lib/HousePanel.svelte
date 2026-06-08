@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import SignalPicker from '$lib/SignalPicker.svelte';
 
-  let { house, onchange, customMaterials = {}, dirty = false, saveLoading = false, saveError = null, onsave = null, oncreatestudy = null } = $props();
+  let { house, onchange, customMaterials = {}, dirty = false, saveLoading = false, saveError = null, onsave = null, oncreatestudy = null, createStudyLoading = false, createStudyError = null } = $props();
 
   // ── signals autocomplete ──────────────────────────────────────────────────
   const API = 'http://localhost:8001';
@@ -149,15 +149,6 @@
   // ── expanded row ──────────────────────────────────────────────────────────
   let expandedId = $state(null);
 
-  // ── selection (for study) ─────────────────────────────────────────────────
-  let selected = $state(/** @type {Set<string>} */ (new Set()));
-
-  function toggleSelected(id) {
-    const next = new Set(selected);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    selected = next;
-  }
-
   function toggleExpand(id) {
     expandedId = expandedId === id ? null : id;
   }
@@ -168,7 +159,7 @@
     const defaultZone = zoneOptions.find(z => BOUNDARY_KINDS.includes(
       elements.find(e => e.id === z.id)?.kind
     ));
-    patchHouse({ rooms: [...rooms, { id, label: '', a: 4, b: 4, c: 2.5 }] });
+    patchHouse({ rooms: [...rooms, { id, label: '', role: 'mass', a: 4, b: 4, c: 2.5 }] });
     expandedId = id;
   }
 
@@ -268,8 +259,9 @@
         </button>
       {/if}
       {#if oncreatestudy}
-        <button class="toolbar-create" onclick={() => oncreatestudy(Array.from(selected))}>
-          Create study
+        {#if createStudyError}<span class="toolbar-save-error">{createStudyError}</span>{/if}
+        <button class="toolbar-create" onclick={() => oncreatestudy()} disabled={createStudyLoading}>
+          {createStudyLoading ? 'Expanding…' : 'Create study'}
         </button>
       {/if}
     </div>
@@ -283,7 +275,7 @@
     <span>connectivity</span>
     <span>key figures</span>
     <span class="col-signals"></span>
-    <span class="col-include">include</span>
+    <span class="col-role">role</span>
     <span></span>
   </div>
 
@@ -315,10 +307,12 @@
             {#if sigs.hasObs}<span class="sig-icon sig-obs" title="Observation signal: {item.obs_signal}">◉</span>{/if}
             {#if sigs.hasSolar}<span class="sig-icon sig-solar" title="Solar signal: {item.solar_signal}">☀</span>{/if}
           </span>
-          <span class="col-include" onclick={(e) => e.stopPropagation()}>
-            {#if !boundary}
-              <input type="checkbox" checked={selected.has(item.id)}
-                onchange={() => toggleSelected(item.id)} />
+          <span class="col-role">
+            {#if item._type === 'room' || item.kind === 'ground'}
+              {@const role = item.role ?? 'mass'}
+              <span class="role-badge role-{role}">{role}</span>
+            {:else if item.kind === 'outdoor'}
+              <span class="role-badge role-boundary">boundary</span>
             {/if}
           </span>
           <span class="row-chevron">{expanded ? '▲' : '▼'}</span>
@@ -329,6 +323,7 @@
           <div class="row-editor">
 
             {#if kind === 'room'}
+              {@const roomRole = item.role ?? 'mass'}
               <div class="field-row">
                 <label class="field">
                   <span>label</span>
@@ -337,45 +332,69 @@
                     placeholder="Room name" />
                 </label>
                 <label class="field">
-                  <span>a (m)</span>
-                  <input type="number" value={item.a} min="0.1" step="0.5"
-                    oninput={(e) => patchRoom(item.id, { a: parseFloat(e.target.value) || 0 })} />
+                  <span>role</span>
+                  <select value={roomRole}
+                    onchange={(e) => patchRoom(item.id, { role: e.target.value })}>
+                    <option value="mass">mass (solve T)</option>
+                    <option value="boundary">boundary (T from signal)</option>
+                    <option value="fixed">fixed (constant T)</option>
+                  </select>
                 </label>
-                <label class="field">
-                  <span>b (m)</span>
-                  <input type="number" value={item.b} min="0.1" step="0.5"
-                    oninput={(e) => patchRoom(item.id, { b: parseFloat(e.target.value) || 0 })} />
-                </label>
-                <label class="field">
-                  <span>c (m)</span>
-                  <input type="number" value={item.c} min="0.1" step="0.1"
-                    oninput={(e) => patchRoom(item.id, { c: parseFloat(e.target.value) || 0 })} />
-                </label>
-                <div class="field">
-                  <span>volume</span>
-                  <span class="computed-val">{((item.a ?? 0)*(item.b ?? 0)*(item.c ?? 0)).toFixed(1)} m³</span>
-                </div>
-                <label class="field">
-                  <span>furniture factor</span>
-                  <input type="number" value={item.furniture_factor ?? 2.5} min="1" step="0.5"
-                    oninput={(e) => patchRoom(item.id, { furniture_factor: parseFloat(e.target.value) || 1 })} />
-                </label>
+                {#if roomRole === 'mass' || roomRole === 'boundary'}
+                  <label class="field">
+                    <span>a (m)</span>
+                    <input type="number" value={item.a} min="0.1" step="0.5"
+                      oninput={(e) => patchRoom(item.id, { a: parseFloat(e.target.value) || 0 })} />
+                  </label>
+                  <label class="field">
+                    <span>b (m)</span>
+                    <input type="number" value={item.b} min="0.1" step="0.5"
+                      oninput={(e) => patchRoom(item.id, { b: parseFloat(e.target.value) || 0 })} />
+                  </label>
+                  <label class="field">
+                    <span>c (m)</span>
+                    <input type="number" value={item.c} min="0.1" step="0.1"
+                      oninput={(e) => patchRoom(item.id, { c: parseFloat(e.target.value) || 0 })} />
+                  </label>
+                  <div class="field">
+                    <span>volume</span>
+                    <span class="computed-val">{((item.a ?? 0)*(item.b ?? 0)*(item.c ?? 0)).toFixed(1)} m³</span>
+                  </div>
+                {/if}
+                {#if roomRole === 'mass'}
+                  <label class="field">
+                    <span>furniture factor</span>
+                    <input type="number" value={item.furniture_factor ?? 2.5} min="1" step="0.5"
+                      oninput={(e) => patchRoom(item.id, { furniture_factor: parseFloat(e.target.value) || 1 })} />
+                  </label>
+                {/if}
+                {#if roomRole === 'fixed'}
+                  <label class="field">
+                    <span>T fixed (°C)</span>
+                    <input type="number" value={item.T_fixed ?? 20} step="0.5"
+                      oninput={(e) => patchRoom(item.id, { T_fixed: parseFloat(e.target.value) })} />
+                  </label>
+                {/if}
               </div>
               <div class="signals-section">
                 <div class="signals-title">Signals</div>
                 <div class="field-row">
-                  <SignalPicker
-                    {signals}
-                    label="⤵ input (heat source)"
-                    value={item.input_signal ?? ''}
-                    onpick={(v) => patchRoom(item.id, { input_signal: v || undefined })}
-                  />
-                  <SignalPicker
-                    {signals}
-                    label="◉ observation (T° sensor)"
-                    value={item.obs_signal ?? ''}
-                    onpick={(v) => patchRoom(item.id, { obs_signal: v || undefined })}
-                  />
+                  {#if roomRole === 'mass'}
+                    <SignalPicker
+                      {signals}
+                      label="⤵ input (heat source)"
+                      value={item.input_signal ?? ''}
+                      onpick={(v) => patchRoom(item.id, { input_signal: v || undefined })}
+                    />
+                  {/if}
+                  {#if roomRole === 'mass' || roomRole === 'boundary'}
+                    <SignalPicker
+                      {signals}
+                      label="◉ observation (T° sensor)"
+                      value={item.obs_signal ?? ''}
+                      onpick={(v) => patchRoom(item.id, { obs_signal: v || undefined })}
+                    />
+                  {/if}
                 </div>
               </div>
 
@@ -593,6 +612,11 @@
                     oninput={(e) => patchElement(item.id, { label: e.target.value })}
                     placeholder="Ground zone name" />
                 </label>
+                <label class="field">
+                  <span>T fixed (°C)</span>
+                  <input type="number" value={item.T_fixed ?? 10} step="0.5"
+                    oninput={(e) => patchElement(item.id, { T_fixed: parseFloat(e.target.value) })} />
+                </label>
               </div>
             {/if}
 
@@ -702,11 +726,11 @@
   }
   .toolbar-create:hover { background: #15803d; }
 
-  /* ── grid columns: icon | label | connectivity | figures | signals | include | chevron ── */
+  /* ── grid columns: icon | label | connectivity | figures | signals | role | chevron ── */
   .grid-header,
   .row-header {
     display: grid;
-    grid-template-columns: 26px 1fr 1.4fr 1.6fr 36px 52px 20px;
+    grid-template-columns: 26px 1fr 1.4fr 1.6fr 36px 70px 20px;
     align-items: center;
     gap: 0;
   }
@@ -797,22 +821,25 @@
     white-space: nowrap;
   }
 
-  .col-include {
+  .col-role {
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 0 4px;
   }
 
-  .col-include input[type="checkbox"] {
-    width: 14px;
-    height: 14px;
-    cursor: pointer;
-    accent-color: #6366f1;
-    border: none;
-    padding: 0;
-    background: unset;
+  .role-badge {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 5px;
+    border-radius: 3px;
+    white-space: nowrap;
   }
+  .role-mass     { background: #1e3a5f; color: #93c5fd; }
+  .role-boundary { background: #14532d; color: #86efac; }
+  .role-fixed    { background: #3b0764; color: #d8b4fe; }
 
   .row-chevron {
     font-size: 10px;

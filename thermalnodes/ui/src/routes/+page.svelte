@@ -11,9 +11,9 @@
 	const API = 'http://localhost:8001';
 
 	// ── navigation ────────────────────────────────────────────────────────────
-	// activeSection: 'materials' | 'house' | 'studies'
+	// activeSection: 'materials' | 'houses' | 'house' | 'studies'
 	// activePage: sub-tab within studies: 'topology' | 'inputs' | 'run' | 'fit' | 'debug'
-	let activeSection = $state('house');
+	let activeSection = $state('houses');
 	let activePage    = $state('topology');
 
 	const STUDY_TABS = [
@@ -27,53 +27,57 @@
 		{ id: 'debug', label: 'JSON' },
 	];
 
-	// ── studies list ──────────────────────────────────────────────────────────
-	let studies      = $state([]);
-	let studiesError = $state(null);
+	// ── houses list ───────────────────────────────────────────────────────────
+	let housesList     = $state([]);
+	let housesError    = $state(null);
 
-	async function loadStudies() {
+	async function loadHousesList() {
 		try {
-			const res = await fetch(`${API}/studies`);
+			const res = await fetch(`${API}/houses`);
 			if (!res.ok) throw new Error(res.statusText);
-			studies      = await res.json();
-			studiesError = null;
+			housesList  = await res.json();
+			housesError = null;
 		} catch (e) {
-			studiesError = e.message;
+			housesError = e.message;
 		}
 	}
 
-	const exampleStudies = $derived(studies.filter((s) => s.source === 'example'));
-	const userStudies    = $derived(studies.filter((s) => s.source === 'user'));
-
-	// ── current study state ───────────────────────────────────────────────────
-	let selectedStudyId  = $state(null);
-	let model            = $state(null);
-	let house            = $state({ schema_version: '0.1', rooms: [], elements: [] });
+	// ── current house ─────────────────────────────────────────────────────────
+	let houseName          = $state(null);  // name of the currently open house
+	let house              = $state(null);
 	let houseSavedSnapshot = $state(null);
 	const houseDirty = $derived(houseSavedSnapshot !== null && JSON.stringify(house) !== houseSavedSnapshot);
 	let houseSaveLoading = $state(false);
 	let houseSaveError   = $state(null);
 
-	async function loadHouse() {
+	async function loadHouse(name) {
 		try {
-			const res = await fetch(`${API}/house`);
+			const res = await fetch(`${API}/houses/${name}`);
 			if (!res.ok) throw new Error(res.statusText);
-			house = await res.json();
+			house              = await res.json();
+			houseName          = name;
 			houseSavedSnapshot = JSON.stringify(house);
 		} catch (e) {
-			// house.json may not exist yet — start blank, treat as unsaved
-			houseSavedSnapshot = JSON.stringify(house);
+			alert(`Failed to load house: ${e.message}`);
 		}
 	}
 
+	async function openHouse(name) {
+		await loadHouse(name);
+		activeSection = 'house';
+	}
+
 	async function saveHouse() {
+		if (!houseName) return;
 		houseSaveLoading = true;
 		houseSaveError   = null;
+		// Strip computed fields (_model_hash, _stale_*) before saving
+		const toSave = stripComputed(house);
 		try {
-			const res = await fetch(`${API}/house`, {
-				method: 'POST',
+			const res = await fetch(`${API}/houses/${houseName}`, {
+				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(house),
+				body: JSON.stringify(toSave),
 			});
 			if (!res.ok) {
 				const d = await res.json().catch(() => ({}));
@@ -87,14 +91,58 @@
 		}
 	}
 
-	let customMaterials  = $state({});  // user-defined materials
-	let customConstants  = $state({});  // project-level constant overrides (h_i, h_e, …)
+	function stripComputed(obj) {
+		if (Array.isArray(obj)) return obj.map(stripComputed);
+		if (obj && typeof obj === 'object') {
+			const out = {};
+			for (const [k, v] of Object.entries(obj)) {
+				if (!k.startsWith('_')) out[k] = stripComputed(v);
+			}
+			return out;
+		}
+		return obj;
+	}
+
+	async function createNewHouse() {
+		try {
+			const res = await fetch(`${API}/houses`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					label: 'New house',
+					schema_version: '0.3',
+					rooms: [],
+					elements: [],
+					studies: [],
+				}),
+			});
+			if (!res.ok) {
+				const d = await res.json().catch(() => ({}));
+				throw new Error(d.detail ?? res.statusText);
+			}
+			const data = await res.json();
+			await loadHousesList();
+			await openHouse(data.name);
+		} catch (e) {
+			alert(`Failed to create house: ${e.message}`);
+		}
+	}
+
+	let customMaterials  = $state({});
+	let customConstants  = $state({});
+
+	// ── studies (embedded in house) ───────────────────────────────────────────
+	const studies = $derived(house?.studies ?? []);
+
+	// ── current study state ───────────────────────────────────────────────────
+	let selectedStudyId  = $state(null);
+	let model            = $state(null);
 	let simInputs        = $state({});
 	let simRange         = $state({ start: '', end: '' });
 	let simSolver        = $state('zoh');
-	let simObservations  = $state({});  // mass_node_id → signal name (key present = measured)
+	let simObservations  = $state({});
 
-	const selectedStudyMeta = $derived(studies.find((s) => s.id === selectedStudyId));
+	const selectedStudy = $derived(studies.find((s) => s.id === selectedStudyId));
 
 	// ── stale / dirty tracking ────────────────────────────────────────────────
 	let lastSavedSnapshot = $state(null);
@@ -111,27 +159,22 @@
 		lastRunSnapshot = studySnapshot();
 	}
 
-	async function loadStudy(id) {
-		try {
-			const res   = await fetch(`${API}/studies/${id}`);
-			if (!res.ok) throw new Error(res.statusText);
-			const study = await res.json();
-			selectedStudyId  = id;
-			model            = structuredClone(study.model ?? study);
-			simInputs        = structuredClone(study.inputs ?? {});
-			simRange         = { start: study.start ?? '', end: study.end ?? '' };
-			simSolver        = study.solver ?? 'zoh';
-			simObservations  = structuredClone(study.observations ?? {});
-			selected         = null;
-			lastSavedSnapshot = studySnapshot();
-			lastRunSnapshot   = null;
-		} catch (e) {
-			alert(`Failed to load study: ${e.message}`);
-		}
+	function loadStudyIntoState(study) {
+		model            = structuredClone(study.model ?? study);
+		simInputs        = structuredClone(study.inputs ?? {});
+		simRange         = { start: study.start ?? '', end: study.end ?? '' };
+		simSolver        = study.solver ?? 'zoh';
+		simObservations  = structuredClone(study.observations ?? {});
+		selected         = null;
+		lastSavedSnapshot = studySnapshot();
+		lastRunSnapshot   = null;
 	}
 
-	async function openStudy(id) {
-		await loadStudy(id);
+	async function openStudy(studyId) {
+		const study = studies.find((s) => s.id === studyId);
+		if (!study) return;
+		selectedStudyId = studyId;
+		loadStudyIntoState(study);
 		activeSection = 'studies';
 		activePage    = 'topology';
 	}
@@ -141,16 +184,12 @@
 	let saveError   = $state(null);
 
 	async function saveStudy() {
-		const targetId = selectedStudyMeta?.source === 'user'
-			? selectedStudyId
-			: crypto.randomUUID();
-		if (!targetId) return;
+		if (!houseName || !selectedStudyId) return;
 		saveLoading = true;
 		saveError   = null;
-		const study = {
-			id:           targetId,
-			label:        model?.name ?? targetId,
-			room:         selectedStudyMeta?.room ?? null,
+		const studyPayload = {
+			id:           selectedStudyId,
+			label:        model?.name ?? selectedStudyId,
 			model,
 			start:        simRange.start,
 			end:          simRange.end,
@@ -158,19 +197,21 @@
 			observations: simObservations,
 			solver:       simSolver,
 		};
+		// Preserve run/fit records from existing study
+		if (selectedStudy?.run) studyPayload.run = selectedStudy.run;
+		if (selectedStudy?.fit) studyPayload.fit = selectedStudy.fit;
 		try {
-			const res = await fetch(`${API}/studies/${targetId}`, {
-				method: 'POST',
+			const res = await fetch(`${API}/houses/${houseName}/studies/${selectedStudyId}`, {
+				method: 'PUT',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(study),
+				body: JSON.stringify(studyPayload),
 			});
 			if (!res.ok) {
 				const d = await res.json().catch(() => ({}));
 				throw new Error(d.detail ?? res.statusText);
 			}
-			selectedStudyId   = targetId;
 			lastSavedSnapshot = studySnapshot();
-			await loadStudies();
+			await loadHouse(houseName);
 		} catch (e) {
 			saveError = e.message;
 		} finally {
@@ -184,10 +225,9 @@
 	let triggerRun  = $state(/** @type {(() => void) | null} */ (null));
 	let showInputs  = $state(false);
 
-	// log-scale day presets: 1, 2, 3, 5, 7, 10, 14, 21, 30, 60, 90
 	const DAY_PRESETS = [1, 2, 3, 5, 7, 10, 14, 21, 30, 60, 90];
 	let durationDays = $state(7);
-	let durationStart = $state(''); // ISO date YYYY-MM-DD
+	let durationStart = $state('');
 
 	function isoDate(d) { return d.toISOString().slice(0, 10); }
 
@@ -205,26 +245,23 @@
 	let createStudyLoading = $state(false);
 	let createStudyError   = $state(null);
 
-	async function createStudy(ids) {
+	async function createStudy() {
+		if (!houseName) return;
 		createStudyLoading = true;
 		createStudyError   = null;
 		try {
-			const res = await fetch(`${API}/studies/from_house`, {
+			const res = await fetch(`${API}/houses/${houseName}/studies`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					house:     house,
-					selection: ids,
-					label:     '',
-				}),
+				body: JSON.stringify({ label: '' }),
 			});
 			if (!res.ok) {
 				const d = await res.json().catch(() => ({}));
 				throw new Error(d.detail ?? res.statusText);
 			}
 			const data = await res.json();
-			await loadStudies();
-			await loadStudy(data.id);
+			await loadHouse(houseName);
+			await openStudy(data.id);
 			simPaneTab = 'run';
 		} catch (e) {
 			createStudyError = e.message;
@@ -246,10 +283,11 @@
 	}
 
 	async function confirmDuplicate() {
+		if (!houseName || !dupSourceId) return;
 		dupLoading = true;
 		dupError   = null;
 		try {
-			const res = await fetch(`${API}/studies/${dupSourceId}/duplicate`, {
+			const res = await fetch(`${API}/houses/${houseName}/studies/${dupSourceId}/duplicate`, {
 				method: 'POST',
 			});
 			if (!res.ok) {
@@ -258,7 +296,7 @@
 			}
 			const data = await res.json();
 			dupDialogOpen = false;
-			await loadStudies();
+			await loadHouse(houseName);
 			await openStudy(data.id);
 		} catch (e) {
 			dupError = e.message;
@@ -268,7 +306,7 @@
 	}
 
 	// ── param groups (identifiability) ───────────────────────────────────────
-	let paramGroups = $state([]);  // list[list[str]] from /fit/preview-groups
+	let paramGroups = $state([]);
 
 	async function refreshGroups(currentModel) {
 		if (!currentModel) { paramGroups = []; return; }
@@ -287,7 +325,7 @@
 				body: JSON.stringify({ model: currentModel, param_keys: keys }),
 			});
 			if (res.ok) paramGroups = await res.json();
-		} catch { /* silently ignore — groups are cosmetic */ }
+		} catch { /* silently ignore */ }
 	}
 
 	$effect(() => { refreshGroups(model); });
@@ -335,7 +373,7 @@
 	}
 
 	onMount(async () => {
-		await Promise.all([loadStudies(), loadHouse()]);
+		await loadHousesList();
 	});
 </script>
 
@@ -371,14 +409,21 @@
 			<button class="nav-item" class:active={activeSection === 'materials'} onclick={() => (activeSection = 'materials')}>
 				Materials
 			</button>
-			<button class="nav-item" class:active={activeSection === 'house'} onclick={() => (activeSection = 'house')}>
+			<button class="nav-item" class:active={activeSection === 'houses' || activeSection === 'house'} onclick={() => (activeSection = houseName ? 'house' : 'houses')}>
 				House
 			</button>
 			<button class="nav-item" class:active={activeSection === 'studies'} onclick={() => (activeSection = 'studies')}>
 				Studies
 			</button>
 
-			<!-- study sub-tabs, shown when a study is selected and in studies section -->
+			<!-- house sub-nav -->
+			{#if (activeSection === 'house' || activeSection === 'studies') && houseName}
+				<div class="nav-divider"></div>
+				<button class="nav-item nav-back" onclick={() => { houseName = null; house = null; selectedStudyId = null; model = null; activeSection = 'houses'; }}>← all houses</button>
+				<div class="nav-house-name">{house?.label ?? houseName}</div>
+			{/if}
+
+			<!-- study sub-tabs -->
 			{#if selectedStudyId && activeSection === 'studies'}
 				<div class="nav-divider"></div>
 				<button class="nav-item nav-back" onclick={() => { selectedStudyId = null; model = null; }}>← all studies</button>
@@ -400,7 +445,6 @@
 				{/each}
 			{/if}
 		</div>
-
 
 		{#if selectedStudyId && activeSection === 'studies'}
 			<div class="nav-bottom">
@@ -425,18 +469,58 @@
 				/>
 			</div>
 
-		{:else if activeSection === 'house'}
+		{:else if activeSection === 'houses'}
+			<!-- ── house picker ── -->
+			<div class="home">
+				<div class="home-header">
+					{#if housesError}
+						<span class="api-warn">⚠ API unreachable — {housesError}</span>
+					{:else}
+						<span class="home-title">Houses</span>
+					{/if}
+					<button class="home-new-btn" onclick={createNewHouse}>+ New house</button>
+				</div>
+
+				<div class="house-grid">
+					{#each housesList as h}
+						<div class="house-card" class:selected={h.name === houseName}>
+							<button class="card-open" onclick={() => openHouse(h.name)}>
+								<div class="card-label">{h.label ?? h.name}</div>
+								<div class="card-name">{h.name}</div>
+								<div class="card-meta">
+									<span>{h.n_rooms} room{h.n_rooms !== 1 ? 's' : ''}</span>
+									<span>·</span>
+									<span>{h.n_elements} element{h.n_elements !== 1 ? 's' : ''}</span>
+									<span>·</span>
+									<span>{h.n_studies} stud{h.n_studies !== 1 ? 'ies' : 'y'}</span>
+								</div>
+								<div class="card-hash"># {h.model_hash}</div>
+							</button>
+						</div>
+					{/each}
+
+					{#if housesList.length === 0 && !housesError}
+						<div class="card-empty">
+							<span>No houses yet.<br/>Click "+ New house" to create one.</span>
+						</div>
+					{/if}
+				</div>
+			</div>
+
+		{:else if activeSection === 'house' && house}
 			<div class="house-split">
 				<div class="house-pane">
 					<HousePanel
 						{house}
-						onchange={(h) => (house = h)}
+						onchange={(h) => (house = { ...h, _model_hash: house._model_hash, studies: house.studies })}
 						{customMaterials}
 						dirty={houseDirty}
 						saveLoading={houseSaveLoading}
 						saveError={houseSaveError}
 						onsave={saveHouse}
-						oncreatestudy={(ids) => createStudy(ids)}
+						oncreatestudy={createStudy}
+						{createStudyLoading}
+						{createStudyError}
 					/>
 				</div>
 				<div class="study-pane">
@@ -453,7 +537,6 @@
 						{:else if model}
 							<!-- ── control bar ── -->
 							<div class="sim-controls">
-								<!-- row 1: date range -->
 								<div class="sim-ctrl-row sim-ctrl-range">
 									{#if rangeMode === 'dates'}
 										<input class="ctrl-date" type="date"
@@ -487,13 +570,11 @@
 									{/if}
 								</div>
 
-								<!-- row 2: solver -->
 								<div class="sim-ctrl-row">
 									<label class="ctrl-radio"><input type="radio" bind:group={simSolver} value="ivp" /><span>IVP (BDF)</span></label>
 									<label class="ctrl-radio"><input type="radio" bind:group={simSolver} value="zoh" /><span>ZOH</span></label>
 								</div>
 
-								<!-- row 3: actions -->
 								<div class="sim-ctrl-row">
 									<button class="ctrl-btn ctrl-btn-run" onclick={() => triggerRun?.()}>Run</button>
 									<button class="ctrl-btn ctrl-btn-fit" disabled>Fit</button>
@@ -501,7 +582,6 @@
 								</div>
 							</div>
 
-							<!-- charts -->
 							<div class="sim-pane-body scrollable">
 								<SimulationRun
 									{model}
@@ -531,64 +611,45 @@
 				</div>
 			</div>
 
-		{:else if activeSection === 'studies'}
+		{:else if activeSection === 'studies' && house}
 			{#if !selectedStudyId || activePage === 'browse'}
 				<!-- ── study browser ── -->
 				<div class="home">
 					<div class="home-header">
-						{#if studiesError}
-							<span class="api-warn">⚠ API unreachable — {studiesError}</span>
-						{:else}
-							<span class="home-title">Studies</span>
-						{/if}
+						<span class="home-title">Studies — {house.label ?? houseName}</span>
+						<button class="home-new-btn" onclick={createStudy} disabled={createStudyLoading}>
+							{createStudyLoading ? 'Expanding…' : '+ New study'}
+						</button>
 					</div>
+					{#if createStudyError}<div class="home-error">{createStudyError}</div>{/if}
 
-					<div class="home-groups">
-						{#if exampleStudies.length > 0}
-							<div class="study-group">
-								<div class="group-label">examples/</div>
-								<div class="study-grid">
-									{#each exampleStudies as s}
-										<div class="study-card" class:selected={s.id === selectedStudyId}>
-											<button class="card-open" onclick={() => openStudy(s.id)}>
-												<div class="card-label">{s.label ?? s.id}</div>
-												<div class="card-uuid">{s.id}</div>
-												{#if s.room}<div class="card-room">{s.room}</div>{/if}
-												<div class="card-badge badge-example">example</div>
-											</button>
-											<div class="card-actions">
-												<button class="card-action" onclick={() => openDupDialog(s.id)} title="Duplicate">⎘</button>
-											</div>
-										</div>
-									{/each}
+					<div class="study-grid">
+						{#each studies as s}
+							<div class="study-card" class:selected-card={s.id === selectedStudyId}>
+								<button class="card-open" onclick={() => openStudy(s.id)}>
+									<div class="card-label">{s.label ?? s.id}</div>
+									<div class="card-uuid">{s.id}</div>
+									{#if s._stale_run || s._stale_fit}
+										<div class="card-stale">⚠ stale</div>
+									{/if}
+									{#if s.run}
+										<div class="card-badge badge-run">run {s.run.timestamp?.slice(0,8) ?? ''}</div>
+									{/if}
+									{#if s.fit}
+										<div class="card-badge badge-fit">fit {s.fit.timestamp?.slice(0,8) ?? ''}</div>
+									{/if}
+								</button>
+								<div class="card-actions">
+									<button class="card-action" onclick={() => openDupDialog(s.id)} title="Duplicate">⎘</button>
 								</div>
 							</div>
-						{/if}
+						{/each}
 
-						<div class="study-group">
-							<div class="group-label">user/</div>
-							<div class="study-grid">
-								{#each userStudies as s}
-									<div class="study-card" class:selected={s.id === selectedStudyId}>
-										<button class="card-open" onclick={() => openStudy(s.id)}>
-											<div class="card-label">{s.label ?? s.id}</div>
-											<div class="card-uuid">{s.id}</div>
-											{#if s.room}<div class="card-room">{s.room}</div>{/if}
-											<div class="card-badge badge-user">user</div>
-										</button>
-										<div class="card-actions">
-											<button class="card-action" onclick={() => openDupDialog(s.id)} title="Duplicate">⎘</button>
-										</div>
-									</div>
-								{/each}
-
-								{#if userStudies.length === 0}
-									<div class="study-card card-empty">
-										<span>No user studies yet.<br/>Duplicate an example to start.</span>
-									</div>
-								{/if}
+						{#if studies.length === 0}
+							<div class="study-card card-empty">
+								<span>No studies yet.<br/>Click "+ New study" to create one.</span>
 							</div>
-						</div>
+						{/if}
 					</div>
 				</div>
 
@@ -698,6 +759,16 @@
 		margin: 8px 12px;
 	}
 
+	.nav-house-name {
+		font-size: 11px;
+		font-weight: 600;
+		color: #e2e8f0;
+		padding: 0 16px 4px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
 	.nav-study-id {
 		font-size: 10px;
 		font-family: monospace;
@@ -766,16 +837,6 @@
 		min-height: 0;
 		overflow: hidden;
 		background: #111827;
-	}
-
-	.study-pane-header {
-		padding: 8px 14px;
-		font-size: 10px;
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-		color: #475569;
-		border-bottom: 1px solid #1e293b;
-		flex-shrink: 0;
 	}
 
 	.study-pane-empty {
@@ -934,7 +995,7 @@
 
 	.ctrl-btn-fit { color: #64748b; }
 
-	/* ── home view ── */
+	/* ── home views ── */
 	.home {
 		flex: 1;
 		display: flex;
@@ -956,33 +1017,35 @@
 		color: #f1f5f9;
 	}
 
+	.home-new-btn {
+		background: #1e3a5f;
+		color: #93c5fd;
+		border: 1px solid #1e4976;
+		border-radius: 4px;
+		padding: 5px 12px;
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.home-new-btn:hover:not(:disabled) { background: #1e4976; }
+	.home-new-btn:disabled { opacity: 0.5; cursor: default; }
+
+	.home-error {
+		font-size: 12px;
+		color: #f87171;
+	}
+
 	.api-warn { font-size: 13px; color: #f59e0b; }
 
-	.home-groups {
-		display: flex;
-		flex-direction: column;
-		gap: 28px;
-	}
-
-	.study-group { display: flex; flex-direction: column; gap: 12px; }
-
-	.group-label {
-		font-size: 11px;
-		font-family: monospace;
-		font-weight: 700;
-		color: #94a3b8;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-	}
-
-	.study-grid {
+	/* ── house grid ── */
+	.house-grid {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 12px;
 	}
 
-	.study-card {
-		width: 200px;
+	.house-card {
+		width: 220px;
 		background: #1e293b;
 		border: 1px solid #334155;
 		border-radius: 8px;
@@ -991,8 +1054,8 @@
 		flex-direction: column;
 		transition: border-color 0.15s;
 	}
-	.study-card:hover { border-color: #475569; }
-	.study-card.selected { border-color: #3b82f6; }
+	.house-card:hover { border-color: #475569; }
+	.house-card.selected { border-color: #3b82f6; }
 
 	.card-open {
 		background: none;
@@ -1013,6 +1076,46 @@
 		color: #e2e8f0;
 	}
 
+	.card-name {
+		font-size: 10px;
+		font-family: monospace;
+		color: #64748b;
+	}
+
+	.card-meta {
+		display: flex;
+		gap: 4px;
+		font-size: 11px;
+		color: #94a3b8;
+		flex-wrap: wrap;
+	}
+
+	.card-hash {
+		font-size: 9px;
+		font-family: monospace;
+		color: #475569;
+	}
+
+	/* ── study grid ── */
+	.study-grid {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 12px;
+	}
+
+	.study-card {
+		width: 200px;
+		background: #1e293b;
+		border: 1px solid #334155;
+		border-radius: 8px;
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+		transition: border-color 0.15s;
+	}
+	.study-card:hover { border-color: #475569; }
+	.study-card.selected-card { border-color: #3b82f6; }
+
 	.card-uuid {
 		font-size: 10px;
 		font-family: monospace;
@@ -1020,9 +1123,9 @@
 		word-break: break-all;
 	}
 
-	.card-room {
-		font-size: 11px;
-		color: #94a3b8;
+	.card-stale {
+		font-size: 10px;
+		color: #f59e0b;
 	}
 
 	.card-badge {
@@ -1035,8 +1138,8 @@
 		align-self: flex-start;
 		margin-top: 2px;
 	}
-	.badge-example { background: #1e3a5f; color: #93c5fd; }
-	.badge-user    { background: #14532d; color: #86efac; }
+	.badge-run { background: #1e3a5f; color: #93c5fd; }
+	.badge-fit { background: #14532d; color: #86efac; }
 
 	.card-actions {
 		border-top: 1px solid #334155;
@@ -1080,18 +1183,6 @@
 		min-height: 0;
 	}
 	.body.scrollable { overflow-y: auto; }
-
-	.placeholder {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		color: #94a3b8;
-		gap: 8px;
-	}
-	.placeholder h2 { margin: 0; font-size: 20px; color: #f1f5f9; }
-	.placeholder p  { margin: 0; font-size: 14px; }
 
 	.debug-view {
 		flex: 1;
@@ -1150,41 +1241,7 @@
 		color: #f1f5f9;
 	}
 
-	.dialog-label {
-		display: flex;
-		flex-direction: column;
-		gap: 5px;
-		font-size: 11px;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		color: #94a3b8;
-	}
-
-	.dialog-label input {
-		background: #0f172a;
-		color: #e2e8f0;
-		border: 1px solid #334155;
-		border-radius: 4px;
-		padding: 6px 8px;
-		font-size: 13px;
-		font-family: monospace;
-	}
-	.dialog-label input:focus { outline: none; border-color: #6366f1; }
-
 	.dialog-error { font-size: 12px; color: #f87171; }
-
-	.dialog-info {
-		font-size: 12px;
-		color: #94a3b8;
-	}
-
-	.dialog-label-hint {
-		font-size: 10px;
-		color: #475569;
-		text-transform: none;
-		letter-spacing: 0;
-		font-weight: 400;
-	}
 
 	.dialog-actions {
 		display: flex;

@@ -71,7 +71,7 @@ where `<type>` is `run` or `fit`. Referenced by filename in the study JSON.
 ### ~~M2 — Element signals~~ ✓ done
 ### ~~M3 — `expand()` + study spawning~~ ✓ done
 
-### M4 — New data model migration
+### ~~M4 — New data model migration~~ ✓ done
 
 Migrate from the current study-centric layout to the house-centric model
 described above.
@@ -120,6 +120,15 @@ described above.
 ---
 
 ## Changelog
+
+- **2026-06** — M4: New data model — `houses/` directory replaces single `house.json`; houses
+  have embedded studies; `GET /houses`, `GET /houses/{name}`, `PUT /houses/{name}`,
+  `POST /houses/{name}/studies`, `PUT/DELETE /houses/{name}/studies/{id}` endpoints;
+  `expand()` drops `selection` arg — room/element `role` field (`mass`|`boundary`|`fixed`)
+  controls node type; `model_hash()` (SHA-256 of elements, 12 hex chars) computed on every
+  save and stored on run/fit results with stale flag; `house_name`+`study_id` context on
+  `/simulate/run` and `/fit/run` persists result record into house JSON; UI: multi-house
+  picker home screen, studies embedded in house, role badge + role selector in HousePanel.
 
 - **2026-06** — House split view UI — simulation pane reworked: 1/3 house + 2/3
   sim split; toolbar add-buttons on own row; "Create study" fires immediately

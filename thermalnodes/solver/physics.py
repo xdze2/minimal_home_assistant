@@ -1,12 +1,13 @@
 """House model → RC network expansion.
 
-expand(house, selection) → (model_dict, expansion_map)
+expand(house) → (model_dict, expansion_map)
 
-selection: list of room/element UUIDs to include as active zones.
-  - Selected rooms become mass nodes.
-  - Unselected rooms referenced by a selected element become boundary nodes.
-  - outdoor/ground elements referenced by any selected element become boundary nodes.
-  - Elements where both sides are unselected are skipped entirely.
+Each room/element carries a `role` field:
+  - "mass"     : temperature is unknown, solved for (default for rooms)
+  - "boundary" : temperature is prescribed by an input signal (obs_signal)
+  - "fixed"    : temperature is a known constant (e.g. ground = 10 °C)
+
+outdoor/ground elements are always boundary nodes regardless of role.
 
 expansion_map: { house_uuid → list[rc_node_id] }
   Maps each house room/element UUID to the RC node ids it produced.
@@ -14,6 +15,7 @@ expansion_map: { house_uuid → list[rc_node_id] }
 
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid as _uuid
 from dataclasses import dataclass, field
@@ -45,6 +47,12 @@ _RSI_EXTERIOR = 1.0 / 25.0  # h_e = 25.0 W/(m²·K)
 _RHO_AIR = 1.2        # kg/m³
 _CP_AIR  = 1006.0     # J/(kg·K)
 _CP_AIR_KJ = _CP_AIR / 3600.0  # J/(kg·K) → Wh/(kg·K), used for ACH [h⁻¹] arithmetic
+
+
+def model_hash(elements: list) -> str:
+    """SHA-256 of canonical JSON of elements list, first 12 hex chars."""
+    canonical = json.dumps(elements, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(canonical.encode()).hexdigest()[:12]
 
 
 @dataclass
@@ -110,10 +118,22 @@ def _opaque_R_total(element: dict, materials: dict) -> float:
     return (R_si + R_layers + R_se) / area
 
 
+def _zone_node_kind(zone: dict) -> str:
+    """Determine RC node kind from zone role + element kind."""
+    kind = zone.get("kind")  # None for rooms
+    if kind in ("outdoor", "ground"):
+        return "boundary"
+    role = zone.get("role", "mass")
+    if role == "boundary":
+        return "boundary"
+    if role == "fixed":
+        return "boundary"  # fixed T → boundary with constant T_source
+    return "mass"
+
+
 def _ensure_zone_node(
     zone_uuid: str,
-    all_zones: dict[str, dict],   # uuid → room or element dict
-    selected: set[str],
+    all_zones: dict[str, dict],
     builder: _Builder,
 ) -> str:
     """Ensure a zone (room, outdoor, ground) has a node; return its node id."""
@@ -124,28 +144,34 @@ def _ensure_zone_node(
 
     zone = all_zones[zone_uuid]
     kind = zone.get("kind")  # None for rooms
+    role = zone.get("role", "mass")
 
     if kind in ("outdoor", "ground"):
-        # Always a boundary node
         if kind == "outdoor":
             T_source = zone.get("obs_signal") or "outdoor"
         else:
-            T_source = 10.0  # ground: fixed 10 °C placeholder
+            T_source = zone.get("T_fixed", 10.0)
         builder.add_node(
             {"id": node_id, "kind": "boundary", "label": _safe_label(zone), "T_source": T_source},
             house_uuid=zone_uuid,
         )
-    elif zone_uuid in selected:
-        # Selected room → mass node
-        C = _room_capacitance(zone)
+    elif role == "boundary":
+        T_source = zone.get("obs_signal") or zone.get("T_fixed", 20.0)
         builder.add_node(
-            {"id": node_id, "kind": "mass", "label": _safe_label(zone), "C": C},
+            {"id": node_id, "kind": "boundary", "label": _safe_label(zone), "T_source": T_source},
+            house_uuid=zone_uuid,
+        )
+    elif role == "fixed":
+        T_source = zone.get("T_fixed", 20.0)
+        builder.add_node(
+            {"id": node_id, "kind": "boundary", "label": _safe_label(zone), "T_source": T_source},
             house_uuid=zone_uuid,
         )
     else:
-        # Unselected room → boundary node (temperature prescribed externally)
+        # role == "mass" (default)
+        C = _room_capacitance(zone)
         builder.add_node(
-            {"id": node_id, "kind": "boundary", "label": _safe_label(zone), "T_source": 20.0},
+            {"id": node_id, "kind": "mass", "label": _safe_label(zone), "C": C},
             house_uuid=zone_uuid,
         )
 
@@ -173,12 +199,7 @@ def _expand_glazing(
     element: dict, zone_a: str, zone_b: str, builder: _Builder,
     outdoor_solar_signal: str | None = None,
 ) -> None:
-    """Glazing: single resistance (from U-value) + optional solar source.
-
-    Solar gain is included when the outdoor element has a solar_signal and the
-    glazing has a SHGC value.  The source node carries gain = SHGC * area so
-    the solver multiplies the raw irradiance [W/m²] by the effective aperture.
-    """
+    """Glazing: single resistance (from U-value) + optional solar source."""
     area = element["a"] * element["b"]
     R = 1.0 / (element["U"] * area)
     label = _safe_label(element)
@@ -190,7 +211,6 @@ def _expand_glazing(
     builder.add_edge(zone_a, r_id)
     builder.add_edge(r_id, zone_b)
 
-    # Solar gain source into the interior zone (zone_a)
     if element.get("SHGC") and outdoor_solar_signal:
         shgc = element["SHGC"]
         s_id = builder.make_id(f"solar_{_elem_base(element)}")
@@ -210,7 +230,7 @@ def _expand_glazing(
 def _expand_air_exchange(
     element: dict, room: dict, zone_a: str, zone_b: str, builder: _Builder
 ) -> None:
-    """Air exchange (infiltration/ventilation): R = 1 / (ṁ·cp) with ṁ = ρ·V·ACH/3600."""
+    """Air exchange (infiltration/ventilation): R = 1 / (ṁ·cp)."""
     V = _room_volume(room)
     ach = element["ach"]
     m_dot = _RHO_AIR * V * ach / 3600.0   # kg/s
@@ -226,84 +246,71 @@ def _expand_air_exchange(
     builder.add_edge(r_id, zone_b)
 
 
-def expand(house: dict, selection: list[str]) -> tuple[dict, dict[str, list[str]]]:
+def expand(house: dict) -> tuple[dict, dict[str, list[str]]]:
     """Expand a house model dict into an RC network model dict + expansion_map.
 
-    Parameters
-    ----------
-    house:     HouseModel dict (schema v0.2).
-    selection: UUIDs of rooms/elements to include as active (mass) nodes.
-               Unselected rooms that are connected to selected elements become
-               boundary nodes. outdoor/ground are always boundary nodes.
+    Each room/element's `role` field controls node type:
+      - "mass"     → mass node (temperature solved)
+      - "boundary" → boundary node (T prescribed by obs_signal)
+      - "fixed"    → boundary node (T fixed to T_fixed constant)
+    outdoor/ground elements are always boundary nodes.
 
     Returns
     -------
     model:          RC network dict conforming to model.schema.json v0.3.
     expansion_map:  { house_uuid → [rc_node_ids] }
     """
-    selected = set(selection)
     materials = {**_MATERIAL_LIBRARY, **house.get("materials", {})}
 
     # Build a flat lookup: uuid → room or element dict
     all_zones: dict[str, dict] = {}
-    for room in house["rooms"]:
+    for room in house.get("rooms", []):
         all_zones[room["id"]] = room
-    for elem in house["elements"]:
+    for elem in house.get("elements", []):
         all_zones[elem["id"]] = elem
 
     builder = _Builder()
 
-    # Find the outdoor element's solar_signal (if any) for use by glazing nodes
+    # Find the outdoor element's solar_signal for glazing nodes
     outdoor_solar_signal: str | None = None
-    for elem in house["elements"]:
+    for elem in house.get("elements", []):
         if elem.get("kind") == "outdoor" and elem.get("solar_signal"):
             outdoor_solar_signal = elem["solar_signal"]
             break
 
-    # --- Rooms: create zone nodes for all rooms referenced in the selection
-    # We also create nodes for outdoor/ground lazily as elements are processed.
-    # Pre-create nodes for all selected rooms now so _ensure_zone_node finds them.
-    for room in house["rooms"]:
-        if room["id"] in selected:
-            _ensure_zone_node(room["id"], all_zones, selected, builder)
+    # Pre-create all room zone nodes
+    for room in house.get("rooms", []):
+        _ensure_zone_node(room["id"], all_zones, builder)
 
-    # --- Elements
-    for elem in house["elements"]:
+    # Elements
+    for elem in house.get("elements", []):
         kind = elem["kind"]
 
         if kind in ("outdoor", "ground"):
-            # Created on demand when referenced by another element
-            continue
+            continue  # created on demand when referenced
 
         between = elem.get("between", [])
         if len(between) != 2:
             continue
 
         uuid_a, uuid_b = between[0], between[1]
-        zone_a_selected = uuid_a in selected
-        zone_b_selected = uuid_b in selected
 
-        # Skip if neither side is a selected room
-        if not (zone_a_selected or zone_b_selected):
-            continue
-
-        zone_a = _ensure_zone_node(uuid_a, all_zones, selected, builder)
-        zone_b = _ensure_zone_node(uuid_b, all_zones, selected, builder)
+        # Skip if both sides are mass nodes that don't exist yet
+        # (shouldn't happen since we pre-create rooms, but be safe)
+        zone_a = _ensure_zone_node(uuid_a, all_zones, builder)
+        zone_b = _ensure_zone_node(uuid_b, all_zones, builder)
 
         if kind == "opaque":
             _expand_opaque(elem, materials, zone_a, zone_b, builder)
         elif kind == "glazing":
             _expand_glazing(elem, zone_a, zone_b, builder, outdoor_solar_signal)
         elif kind == "air_exchange":
-            # Need the room to compute volume; pick the side that is a room
-            room_uuid = uuid_a if uuid_a in {r["id"] for r in house["rooms"]} else uuid_b
+            room_uuid = uuid_a if uuid_a in {r["id"] for r in house.get("rooms", [])} else uuid_b
             room_dict = all_zones[room_uuid]
             _expand_air_exchange(elem, room_dict, zone_a, zone_b, builder)
 
-    # --- Room signals (input_signal → source node, obs_signal noted in expansion_map)
-    for room in house["rooms"]:
-        if room["id"] not in selected:
-            continue
+    # Room input signals → source nodes
+    for room in house.get("rooms", []):
         zone_id = f"z_{room['id'].replace('-', '')}"
         if room.get("input_signal"):
             src_id = builder.make_id(f"Q_{room['id'].replace('-', '')}")
