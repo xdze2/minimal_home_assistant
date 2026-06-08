@@ -99,7 +99,7 @@ Signals use the existing InfluxDB URI format (`measurement/field?tag=val`).
 Collapsed row shows `⤵` / `◉` icons when signals are set; expanded editor
 shows autocomplete fields backed by `GET /signals`.
 
-### ~~M3 — Selection + `expand()` + study spawning~~ ✓ done (partial)
+### ~~M3 — Selection + `expand()` + study spawning~~ ✓ done (partial, UI continued)
 
 1. `element.modeling: { detail: "lumped" | "2R1C" | "chain-N", n?: int }`
    field on house schema (persistent). ← deferred
@@ -185,6 +185,12 @@ shows autocomplete fields backed by `GET /signals`.
 
 ## Changelog
 
+- **2026-06** — House split view UI — simulation pane reworked: 1/3 house + 2/3
+  sim split; toolbar add-buttons on own row; "Create study" fires immediately
+  (no name dialog); sim pane has two tabs: *Simulation* (date range picker with
+  duration presets + solver radios + Run/Fit/Show-inputs bar + charts) and *RC
+  graph*; `SimulationRun` gains `hideControls` / `onready` props so the pane
+  owns the control bar while the component owns chart state.
 - **2026-06** — Study UUID (M3) — study IDs are now UUID4 (auto-generated,
   never user-entered); `label` is the display name shown prominently on study
   cards; save goes directly in-place (no dialog) for user studies, forks a new

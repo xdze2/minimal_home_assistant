@@ -239,37 +239,39 @@
 
   <!-- ── toolbar ───────────────────────────────────────────────────────────── -->
   <div class="toolbar">
-    <span class="toolbar-label">Add</span>
-    {#each [
-      { kind: 'room',         icon: '⬜', tip: 'Add room' },
-      { kind: 'opaque',       icon: '▬',  tip: 'Add wall / roof / floor' },
-      { kind: 'glazing',      icon: '◻',  tip: 'Add window / door' },
-      { kind: 'air_exchange', icon: '≋',  tip: 'Add air exchange' },
-      { kind: 'outdoor',      icon: '☁',  tip: 'Add outdoor zone' },
-      { kind: 'ground',       icon: '▓',  tip: 'Add ground zone' },
-    ] as btn}
-      <button
-        class="toolbar-btn kind-btn-{btn.kind}"
-        onclick={() => btn.kind === 'room' ? addRoom() : addElement(btn.kind)}
-        title={btn.tip}
-      >
-        <span class="tb-icon">{btn.icon}</span>
-        <span class="tb-text">{btn.tip.replace('Add ', '')}</span>
-      </button>
-    {/each}
-
-    <div class="toolbar-sep"></div>
-    {#if onsave}
-      {#if saveError}<span class="toolbar-save-error">{saveError}</span>{/if}
-      <button class="toolbar-save" class:dirty onclick={onsave} disabled={saveLoading}>
-        {saveLoading ? 'Saving…' : dirty ? 'Save ●' : 'Save'}
-      </button>
-    {/if}
-    {#if oncreatestudy}
-      <button class="toolbar-create" onclick={() => oncreatestudy(Array.from(selected))}>
-        Create study
-      </button>
-    {/if}
+    <div class="toolbar-row">
+      <span class="toolbar-label">Add</span>
+      {#each [
+        { kind: 'room',         icon: '⬜', tip: 'Add room' },
+        { kind: 'opaque',       icon: '▬',  tip: 'Add wall / roof / floor' },
+        { kind: 'glazing',      icon: '◻',  tip: 'Add window / door' },
+        { kind: 'air_exchange', icon: '≋',  tip: 'Add air exchange' },
+        { kind: 'outdoor',      icon: '☁',  tip: 'Add outdoor zone' },
+        { kind: 'ground',       icon: '▓',  tip: 'Add ground zone' },
+      ] as btn}
+        <button
+          class="toolbar-btn kind-btn-{btn.kind}"
+          onclick={() => btn.kind === 'room' ? addRoom() : addElement(btn.kind)}
+          title={btn.tip}
+        >
+          <span class="tb-icon">{btn.icon}</span>
+          <span class="tb-text">{btn.tip.replace('Add ', '')}</span>
+        </button>
+      {/each}
+    </div>
+    <div class="toolbar-row">
+      {#if onsave}
+        {#if saveError}<span class="toolbar-save-error">{saveError}</span>{/if}
+        <button class="toolbar-save" class:dirty onclick={onsave} disabled={saveLoading}>
+          {saveLoading ? 'Saving…' : dirty ? 'Save ●' : 'Save'}
+        </button>
+      {/if}
+      {#if oncreatestudy}
+        <button class="toolbar-create" onclick={() => oncreatestudy(Array.from(selected))}>
+          Create study
+        </button>
+      {/if}
+    </div>
   </div>
 
   <datalist id="signal-list-house">
@@ -626,11 +628,18 @@
   /* ── toolbar ── */
   .toolbar {
     display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 14px;
+    flex-direction: column;
+    gap: 4px;
+    padding: 7px 14px;
     border-bottom: 1px solid #1e293b;
     flex-shrink: 0;
+  }
+
+  .toolbar-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
   }
 
   .toolbar-label {
@@ -666,11 +675,7 @@
   .tb-icon { font-size: 14px; line-height: 1; }
   .tb-text { font-size: 11px; }
 
-  .toolbar-sep {
-    flex: 1;
-  }
-
-  .toolbar-save {
+.toolbar-save {
     padding: 4px 12px;
     border-radius: 5px;
     border: 1px solid #334155;

@@ -10,13 +10,6 @@
       "c": 3,
       "furniture_factor": 4.5,
       "obs_signal": "sonoff_thermometer/humidity?ieee_addr=0x00124b00291976e9&name=sensors/thA"
-    },
-    {
-      "id": "f04cc5d3-680d-4510-95f3-575db56f9c1a",
-      "label": "",
-      "a": 4,
-      "b": 4,
-      "c": 2.5
     }
   ],
   "elements": [

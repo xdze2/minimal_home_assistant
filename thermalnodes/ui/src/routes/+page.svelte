@@ -178,21 +178,34 @@
 		}
 	}
 
-	// ── create study from house ───────────────────────────────────────────────
-	let createStudyDialogOpen = $state(false);
-	let createStudyIds        = $state(/** @type {string[]} */ ([]));
-	let createStudyLabel      = $state('');
-	let createStudyLoading    = $state(false);
-	let createStudyError      = $state(null);
+	// ── simulation pane (house view) ─────────────────────────────────────────
+	let simPaneTab  = $state('sim'); // 'sim' | 'rc'
+	let rangeMode   = $state('duration'); // 'dates' | 'duration'
+	let triggerRun  = $state(/** @type {(() => void) | null} */ (null));
+	let showInputs  = $state(false);
 
-	function openCreateStudyDialog(ids) {
-		createStudyIds    = ids;
-		createStudyLabel  = '';
-		createStudyError  = null;
-		createStudyDialogOpen = true;
+	// log-scale day presets: 1, 2, 3, 5, 7, 10, 14, 21, 30, 60, 90
+	const DAY_PRESETS = [1, 2, 3, 5, 7, 10, 14, 21, 30, 60, 90];
+	let durationDays = $state(7);
+	let durationStart = $state(''); // ISO date YYYY-MM-DD
+
+	function isoDate(d) { return d.toISOString().slice(0, 10); }
+
+	function applyDuration() {
+		if (!durationStart) return;
+		const start = new Date(durationStart + 'T00:00:00');
+		const end   = new Date(start);
+		end.setDate(end.getDate() + durationDays);
+		simRange = { start: isoDate(start), end: isoDate(end) };
 	}
 
-	async function confirmCreateStudy() {
+	$effect(() => { durationDays; durationStart; applyDuration(); });
+
+	// ── create study from house ───────────────────────────────────────────────
+	let createStudyLoading = $state(false);
+	let createStudyError   = $state(null);
+
+	async function createStudy(ids) {
 		createStudyLoading = true;
 		createStudyError   = null;
 		try {
@@ -201,8 +214,8 @@
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					house:     house,
-					selection: createStudyIds,
-					label:     createStudyLabel.trim(),
+					selection: ids,
+					label:     '',
 				}),
 			});
 			if (!res.ok) {
@@ -210,9 +223,9 @@
 				throw new Error(d.detail ?? res.statusText);
 			}
 			const data = await res.json();
-			createStudyDialogOpen = false;
 			await loadStudies();
-			await openStudy(data.id);
+			await loadStudy(data.id);
+			simPaneTab = 'run';
 		} catch (e) {
 			createStudyError = e.message;
 		} finally {
@@ -328,31 +341,6 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-<!-- ── create study dialog ────────────────────────────────────────────────── -->
-{#if createStudyDialogOpen}
-	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-	<div class="dialog-backdrop" onclick={() => (createStudyDialogOpen = false)}>
-		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-		<div class="dialog" onclick={(e) => e.stopPropagation()}>
-			<div class="dialog-title">Create study from house</div>
-			<div class="dialog-info">
-				{createStudyIds.length} element{createStudyIds.length !== 1 ? 's' : ''} selected
-			</div>
-			<label class="dialog-label">
-				Name
-				<input type="text" bind:value={createStudyLabel} placeholder="e.g. chambre winter run" />
-			</label>
-			{#if createStudyError}<div class="dialog-error">{createStudyError}</div>{/if}
-			<div class="dialog-actions">
-				<button onclick={() => (createStudyDialogOpen = false)}>Cancel</button>
-				<button class="primary" onclick={confirmCreateStudy} disabled={createStudyLoading}>
-					{createStudyLoading ? 'Creating…' : 'Create'}
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
-
 <!-- ── duplicate dialog ──────────────────────────────────────────────────── -->
 {#if dupDialogOpen}
 	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
@@ -448,14 +436,98 @@
 						saveLoading={houseSaveLoading}
 						saveError={houseSaveError}
 						onsave={saveHouse}
-						oncreatestudy={(ids) => openCreateStudyDialog(ids)}
+						oncreatestudy={(ids) => createStudy(ids)}
 					/>
 				</div>
 				<div class="study-pane">
-					<div class="study-pane-header">simulation</div>
-					<div class="study-pane-empty">
-						<span>no study yet</span>
+					<div class="study-pane-tabs">
+						<button class="sim-tab" class:active={simPaneTab === 'sim'} onclick={() => (simPaneTab = 'sim')}>Simulation</button>
+						<button class="sim-tab" class:active={simPaneTab === 'rc'}  onclick={() => (simPaneTab = 'rc')}>RC graph</button>
 					</div>
+
+					{#if simPaneTab === 'sim'}
+						{#if createStudyLoading}
+							<div class="study-pane-empty"><span>expanding…</span></div>
+						{:else if createStudyError}
+							<div class="study-pane-empty study-pane-error"><span>{createStudyError}</span></div>
+						{:else if model}
+							<!-- ── control bar ── -->
+							<div class="sim-controls">
+								<!-- row 1: date range -->
+								<div class="sim-ctrl-row sim-ctrl-range">
+									{#if rangeMode === 'dates'}
+										<input class="ctrl-date" type="date"
+											value={simRange.start}
+											oninput={(e) => (simRange = { ...simRange, start: e.currentTarget.value })}
+											title="Start"
+										/>
+										<span class="ctrl-range-sep">→</span>
+										<input class="ctrl-date" type="date"
+											value={simRange.end}
+											oninput={(e) => (simRange = { ...simRange, end: e.currentTarget.value })}
+											title="End"
+										/>
+										<button class="ctrl-mode-toggle" onclick={() => (rangeMode = 'duration')} title="Switch to duration mode">⇄</button>
+									{:else}
+										<input class="ctrl-date ctrl-date-start" type="date"
+											bind:value={durationStart}
+											title="Start"
+										/>
+										<div class="ctrl-presets">
+											{#each DAY_PRESETS as d}
+												<button class="ctrl-preset" class:active={durationDays === d} onclick={() => (durationDays = d)}>{d}d</button>
+											{/each}
+										</div>
+										<input class="ctrl-date ctrl-date-end" type="date"
+											value={simRange.end}
+											readonly
+											title="End (computed)"
+										/>
+										<button class="ctrl-mode-toggle" onclick={() => (rangeMode = 'dates')} title="Switch to start/end mode">⇄</button>
+									{/if}
+								</div>
+
+								<!-- row 2: solver -->
+								<div class="sim-ctrl-row">
+									<label class="ctrl-radio"><input type="radio" bind:group={simSolver} value="ivp" /><span>IVP (BDF)</span></label>
+									<label class="ctrl-radio"><input type="radio" bind:group={simSolver} value="zoh" /><span>ZOH</span></label>
+								</div>
+
+								<!-- row 3: actions -->
+								<div class="sim-ctrl-row">
+									<button class="ctrl-btn ctrl-btn-run" onclick={() => triggerRun?.()}>Run</button>
+									<button class="ctrl-btn ctrl-btn-fit" disabled>Fit</button>
+									<button class="ctrl-btn" class:active={showInputs} onclick={() => (showInputs = !showInputs)}>Show inputs</button>
+								</div>
+							</div>
+
+							<!-- charts -->
+							<div class="sim-pane-body scrollable">
+								<SimulationRun
+									{model}
+									inputs={simInputs}
+									range={simRange}
+									observations={simObservations}
+									bind:solver={simSolver}
+									{simStale}
+									{onRunSuccess}
+									hideControls={true}
+									onready={(fn) => (triggerRun = fn)}
+								/>
+							</div>
+						{:else}
+							<div class="study-pane-empty"><span>create a study first</span></div>
+						{/if}
+
+					{:else if simPaneTab === 'rc'}
+						{#if model}
+							<div class="sim-pane-body">
+								<GraphView {model} selected={null} onselect={() => {}} onaddedge={() => {}} groups={paramGroups} />
+							</div>
+						{:else}
+							<div class="study-pane-empty"><span>no model</span></div>
+						{/if}
+					{/if}
 				</div>
 			</div>
 
@@ -687,8 +759,8 @@
 	}
 
 	.study-pane {
-		width: 340px;
-		flex-shrink: 0;
+		flex: 2;
+		min-width: 0;
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
@@ -714,6 +786,152 @@
 		color: #334155;
 		font-size: 12px;
 	}
+
+	.study-pane-error { color: #f87171 !important; }
+
+	.study-pane-tabs {
+		display: flex;
+		flex-shrink: 0;
+		border-bottom: 1px solid #1e293b;
+		background: #111827;
+	}
+
+	.sim-tab {
+		flex: 1;
+		background: none;
+		border: none;
+		border-bottom: 2px solid transparent;
+		color: #64748b;
+		font-size: 11px;
+		font-weight: 500;
+		padding: 7px 4px 5px;
+		cursor: pointer;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		border-radius: 0;
+		transition: color 0.1s, border-color 0.1s;
+	}
+	.sim-tab:hover  { color: #94a3b8; background: none; }
+	.sim-tab.active { color: #e2e8f0; border-bottom-color: #3b82f6; }
+
+	.sim-pane-body {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		overflow: hidden;
+	}
+	.sim-pane-body.scrollable { overflow-y: auto; }
+
+	/* ── simulation control bar ── */
+	.sim-controls {
+		display: flex;
+		flex-direction: column;
+		gap: 0;
+		border-bottom: 1px solid #1e293b;
+		flex-shrink: 0;
+		background: #111827;
+	}
+
+	.sim-ctrl-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 7px 12px;
+		border-bottom: 1px solid #0f172a;
+	}
+	.sim-ctrl-row:last-child { border-bottom: none; }
+
+	.sim-ctrl-range {
+		flex-wrap: wrap;
+		gap: 5px;
+	}
+
+	.ctrl-date {
+		background: #0f172a;
+		color: #e2e8f0;
+		border: 1px solid #334155;
+		border-radius: 3px;
+		padding: 4px 6px;
+		font-size: 12px;
+		font-family: monospace;
+		flex: 1;
+		min-width: 110px;
+	}
+	.ctrl-date:focus         { outline: none; border-color: #6366f1; }
+	.ctrl-date[readonly]     { color: #64748b; }
+
+	.ctrl-range-sep {
+		color: #475569;
+		font-size: 12px;
+		flex-shrink: 0;
+	}
+
+	.ctrl-presets {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 3px;
+		flex: 1;
+	}
+
+	.ctrl-preset {
+		background: #1e293b;
+		border: 1px solid #334155;
+		color: #64748b;
+		font-size: 10px;
+		font-family: monospace;
+		padding: 3px 6px;
+		border-radius: 3px;
+		cursor: pointer;
+		min-width: 28px;
+		text-align: center;
+	}
+	.ctrl-preset:hover  { background: #273548; color: #94a3b8; }
+	.ctrl-preset.active { background: #334155; color: #e2e8f0; border-color: #6366f1; }
+
+	.ctrl-mode-toggle {
+		background: none;
+		border: 1px solid #334155;
+		color: #475569;
+		font-size: 13px;
+		padding: 3px 7px;
+		border-radius: 3px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+	.ctrl-mode-toggle:hover { color: #94a3b8; background: #1e293b; }
+
+	.ctrl-radio {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		cursor: pointer;
+		margin-right: 6px;
+	}
+	.ctrl-radio span { font-size: 12px; color: #e2e8f0; }
+
+	.ctrl-btn {
+		font-size: 12px;
+		font-weight: 600;
+		padding: 5px 14px;
+		border-radius: 4px;
+		border: 1px solid #334155;
+		background: #1e293b;
+		color: #94a3b8;
+		cursor: pointer;
+	}
+	.ctrl-btn:hover:not(:disabled) { background: #273548; color: #e2e8f0; }
+	.ctrl-btn:disabled              { opacity: 0.35; cursor: default; }
+	.ctrl-btn.active                { background: #334155; color: #e2e8f0; }
+
+	.ctrl-btn-run {
+		background: #4f46e5;
+		border-color: #4338ca;
+		color: #f1f5f9;
+	}
+	.ctrl-btn-run:hover { background: #4338ca; }
+
+	.ctrl-btn-fit { color: #64748b; }
 
 	/* ── home view ── */
 	.home {

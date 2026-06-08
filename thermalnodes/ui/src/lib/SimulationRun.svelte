@@ -13,7 +13,11 @@
 		solver       = $bindable('zoh'),
 		simStale     = false,
 		onRunSuccess = () => {},
+		hideControls = false,
+		onready      = /** @type {(fn: () => void) => void} */ (() => {}),
 	} = $props();
+
+	$effect(() => { onready(runSimulation); });
 
 	// ── simulation ────────────────────────────────────────────────────────────
 	let simLoading   = $state(false);
@@ -277,9 +281,9 @@
 </script>
 
 <div class="run-panel">
-	<!-- action bar -->
+	<!-- action bar (hidden when parent owns controls) -->
+	{#if !hideControls}
 	<div class="action-bar">
-		<!-- solver picker -->
 		<div class="solver-group">
 			<label class="radio-label">
 				<input type="radio" bind:group={solver} value="ivp" />
@@ -290,11 +294,11 @@
 				<span>ZOH</span>
 			</label>
 		</div>
-
 		<button class="run-btn" onclick={runSimulation} disabled={simLoading}>
 			{simLoading ? 'Running…' : simResult && simStale ? 'Re-run' : 'Run simulation'}
 		</button>
 	</div>
+	{/if}
 
 	<!-- results -->
 	<div class="results">
