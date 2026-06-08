@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from thermalnodes.solver.assemble import assemble, assemble_file
+from thermalnodes.solver.assemble import assemble
 
 DATA = Path(__file__).parents[2] / "data" / "examples"
 

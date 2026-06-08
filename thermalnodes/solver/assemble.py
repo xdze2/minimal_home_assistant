@@ -145,9 +145,3 @@ def assemble(model: dict) -> AssembledSystem:
         boundary_ids=boundary_ids,
         source_ids=source_ids,
     )
-
-
-def assemble_file(path: str | Path) -> AssembledSystem:
-    with open(path) as f:
-        model = json.load(f)
-    return assemble(model)

@@ -1,14 +1,12 @@
 """Forward simulation for thermalnodes.
 
-Three solvers:
+Two solvers:
   simulate_ivp  — scipy solve_ivp BDF, good for stiff systems and exploration
   simulate_zoh  — matrix-exponential ZOH, exact for piecewise-constant inputs; fast for optimisation
-  simulate_mock — sinusoidal fake output for UI development (no model matrices used)
 """
 
 from __future__ import annotations
 
-import math
 import time
 from dataclasses import dataclass
 
@@ -232,40 +230,3 @@ def simulate_zoh(
         message="ok",
     )
 
-
-def simulate_mock(
-    system: AssembledSystem,
-    start: str,
-    end: str,
-    dt_minutes: int = 15,
-) -> SimResult:
-    """Return fake sinusoidal temperatures for every mass node.
-
-    Does not use the model matrices at all — purely for UI development.
-    """
-    import datetime
-
-    t0 = datetime.datetime.fromisoformat(start).timestamp()
-    t1 = datetime.datetime.fromisoformat(end).timestamp()
-    dt = dt_minutes * 60
-    t = np.arange(t0, t1, dt, dtype=float)
-
-    t_start = time.perf_counter()
-    temps: dict[str, np.ndarray] = {}
-    for idx, mass_id in enumerate(system.mass_ids):
-        phase = idx * math.pi / max(len(system.mass_ids), 1)
-        daily = 3.0 * np.sin(2 * math.pi * (t - t0) / 86400 + phase)
-        slow  = 2.0 * np.sin(2 * math.pi * (t - t0) / (10 * 86400) + phase)
-        temps[mass_id] = 18.0 + daily + slow
-    elapsed = time.perf_counter() - t_start
-
-    return SimResult(
-        t=t,
-        temps=temps,
-        solver="mock",
-        elapsed_s=elapsed,
-        n_steps=None,
-        n_rhs_evals=None,
-        success=True,
-        message="mock",
-    )

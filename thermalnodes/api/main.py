@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from .influx import fetch_series, list_signals
 from ..solver.assemble import assemble
-from ..solver.simulate import simulate_ivp, simulate_zoh, simulate_mock
+from ..solver.simulate import simulate_ivp, simulate_zoh
 from ..solver.fit import build_forward, fit_nls, fit_mcmc
 from ..solver.identifiability import group_params
 from ..solver.physics import expand
@@ -257,34 +257,6 @@ def post_simulate_run(req: SimulateRequest) -> dict:
             "success": result.success,
             "message": result.message,
         },
-    }
-
-
-@app.post("/simulate")
-def post_simulate(req: SimulateRequest) -> dict:
-    """Run a simulation and return temperature time-series per mass node.
-
-    Returns:
-        { "t": [ISO strings], "nodes": { mass_id: [float, ...] } }
-    """
-    try:
-        system = assemble(req.model)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Model assembly error: {e}") from e
-
-    try:
-        result = simulate_mock(system, req.start, req.end)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Simulation error: {e}") from e
-
-    import datetime
-    t_iso = [
-        datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).isoformat()
-        for ts in result.t
-    ]
-    return {
-        "t": t_iso,
-        "nodes": {mid: list(arr) for mid, arr in result.temps.items()},
     }
 
 
