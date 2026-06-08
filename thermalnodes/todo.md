@@ -69,25 +69,9 @@ The loop we want working first:
 
 Fit comes after.
 
-### M1 — House view: flat list
+### ~~M1 — House view: flat list~~ ✓ done
 
-Refactor `HousePanel.svelte` from room-sidebar + filtered-elements to a single
-flat list of all house items.
-
-1. Render order: rooms and elements interleaved, grouped visually by proximity
-   (rooms first, then their connected elements, but no nesting in the DOM).
-2. Each row: `[kind badge]  id  summary  [▼ edit]  [×]`
-3. Expanded inline editor — same fields as the current card editor.
-4. **`outdoor` row** at the bottom of the list (or top — decide by feel).
-   Expanded editor: `location.lat`, `location.lon`, `location.label`,
-   `weather_source` dropdown (`open_meteo` only for now).
-5. Add-element form: remove the room pre-selection requirement; `between[0]`
-   is now a dropdown of all rooms + `outdoor` + `ground`.
-6. Remove the rooms sidebar entirely. Rooms are just rows with kind `room`
-   and inline `a × b × c` editing.
-7. Migrate `house.json`: add `{ "id": "outdoor", "kind": "outdoor",
-   "location": {...}, "weather_source": "open_meteo" }` to `elements`;
-   remove top-level `location` / `weather_source` if present.
+`HousePanel.svelte` rewritten as a flat list. `house.json` migrated.
 
 ### M2 — Periods
 
@@ -177,6 +161,9 @@ Named time ranges, reusable across studies.
 
 ## Changelog
 
+- **2026-06** — House view: flat list (`HousePanel.svelte` rewrite) — rooms,
+  elements, and `outdoor` as peer rows; inline expansion; `outdoor` element
+  with `location` + `weather_source`; `house.json` migrated.
 - **2026-06** — Design update: flat element list (drop room-sidebar nesting),
   `outdoor` as explicit element with location + weather_source, split-view
   deferred to backlog.

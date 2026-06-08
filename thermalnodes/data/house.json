@@ -3,7 +3,6 @@
   "rooms": [
     {
       "id": "chbr",
-      "volume": 30,
       "a": 5,
       "b": 5,
       "c": 3,
@@ -48,6 +47,16 @@
       "tilt": 90,
       "U": 2.8,
       "SHGC": 0.67
+    },
+    {
+      "id": "outdoor",
+      "kind": "outdoor",
+      "location": {
+        "lat": 45.76,
+        "lon": 4.83,
+        "label": "Lyon"
+      },
+      "weather_source": "open_meteo"
     }
   ]
 }

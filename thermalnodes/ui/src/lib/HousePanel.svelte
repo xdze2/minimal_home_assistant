@@ -1,10 +1,4 @@
 <script>
-  /**
-   * Props:
-   *   house: the house model object (reactive, bound from parent)
-   *   onchange: (newHouse) => void
-   *   customMaterials: user-defined materials from MaterialsPanel
-   */
   let { house, onchange, customMaterials = {} } = $props();
 
   const BUILTIN_MATERIALS = {
@@ -25,22 +19,21 @@
   };
 
   const ORIENTATIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const WEATHER_SOURCES = ['open_meteo'];
 
-  // ── derived helpers ───────────────────────────────────────────────────────
+  // ── derived ───────────────────────────────────────────────────────────────
   const rooms    = $derived(house?.rooms    ?? []);
   const elements = $derived(house?.elements ?? []);
   const materials = $derived({ ...BUILTIN_MATERIALS, ...(customMaterials ?? {}), ...(house?.materials ?? {}) });
 
-  // ── selected room ─────────────────────────────────────────────────────────
-  let selectedRoomId = $state(null);
-  const selectedRoom = $derived(rooms.find(r => r.id === selectedRoomId) ?? null);
+  const outdoorEl = $derived(elements.find(e => e.kind === 'outdoor') ?? null);
 
-  // elements for the selected room
-  const roomElements = $derived(
-    selectedRoomId
-      ? elements.filter(el => el.between?.includes(selectedRoomId))
-      : []
-  );
+  // zones available for the "between" dropdowns
+  const zoneOptions = $derived([
+    ...rooms.map(r => r.id),
+    'outdoor',
+    'ground',
+  ]);
 
   // ── patch helpers ─────────────────────────────────────────────────────────
   function patchHouse(patch) {
@@ -55,8 +48,17 @@
     patchHouse({ elements: elements.map(el => el.id === id ? { ...el, ...patch } : el) });
   }
 
-  function deleteElement(id) {
-    patchHouse({ elements: elements.filter(el => el.id !== id) });
+  function patchOutdoor(patch) {
+    if (outdoorEl) {
+      patchElement('outdoor', patch);
+    } else {
+      patchHouse({ elements: [...elements, { id: 'outdoor', kind: 'outdoor', ...patch }] });
+    }
+  }
+
+  function patchOutdoorLocation(patch) {
+    const loc = { ...(outdoorEl?.location ?? {}), ...patch };
+    patchOutdoor({ location: loc });
   }
 
   function deleteRoom(id) {
@@ -64,110 +66,17 @@
       rooms:    rooms.filter(r => r.id !== id),
       elements: elements.filter(el => !el.between?.includes(id)),
     });
-    if (selectedRoomId === id) selectedRoomId = null;
   }
 
-  // ── add room ──────────────────────────────────────────────────────────────
-  let addRoomId    = $state('');
-  let addRoomError = $state('');
-
-  function addRoom() {
-    const id = addRoomId.trim();
-    if (!id) { addRoomError = 'ID required'; return; }
-    if (rooms.some(r => r.id === id)) { addRoomError = 'ID already used'; return; }
-    patchHouse({ rooms: [...rooms, { id, a: 4, b: 4, c: 2.5 }] });
-    addRoomId    = '';
-    addRoomError = '';
-    selectedRoomId = id;
+  function deleteElement(id) {
+    patchHouse({ elements: elements.filter(el => el.id !== id) });
   }
 
-  // ── add element form ──────────────────────────────────────────────────────
-  let newKind = $state('opaque');
-
-  // opaque
-  let newOpaqueId    = $state('');
-  let newOpaqueA     = $state(4.0);
-  let newOpaqueB     = $state(2.5);
-  let newOpaqueZoneB = $state('outdoor');
-  let newOpaqueOri   = $state('S');
-  let newOpaqueTilt  = $state(90);
-  let newOpaqueMat   = $state('brick_full');
-  let newOpaqueThick = $state(0.2);
-  let newOpaqueError = $state('');
-
-  // glazing
-  let newGlazId    = $state('');
-  let newGlazA     = $state(1.2);
-  let newGlazB     = $state(1.4);
-  let newGlazZoneB = $state('outdoor');
-  let newGlazOri   = $state('S');
-  let newGlazU     = $state(2.8);
-  let newGlazSHGC  = $state(0.67);
-  let newGlazError = $state('');
-
-  // air_exchange
-  let newAirId    = $state('');
-  let newAirZoneB = $state('outdoor');
-  let newAirAch   = $state(0.4);
-  let newAirError = $state('');
-
-  function addElement() {
-    if (!selectedRoomId) return;
-
-    if (newKind === 'opaque') {
-      const id = newOpaqueId.trim() || `wall_${elements.length + 1}`;
-      if (elements.some(e => e.id === id)) { newOpaqueError = 'ID already used'; return; }
-      patchHouse({ elements: [...elements, {
-        id, kind: 'opaque',
-        between: [selectedRoomId, newOpaqueZoneB],
-        a: newOpaqueA, b: newOpaqueB,
-        orientation: newOpaqueOri,
-        tilt: newOpaqueTilt,
-        layers: [{ material: newOpaqueMat, thickness: newOpaqueThick }],
-      }] });
-      newOpaqueId = '';
-      newOpaqueError = '';
-
-    } else if (newKind === 'glazing') {
-      const id = newGlazId.trim() || `win_${elements.length + 1}`;
-      if (elements.some(e => e.id === id)) { newGlazError = 'ID already used'; return; }
-      patchHouse({ elements: [...elements, {
-        id, kind: 'glazing',
-        between: [selectedRoomId, newGlazZoneB],
-        a: newGlazA, b: newGlazB,
-        orientation: newGlazOri,
-        tilt: 90,
-        U: newGlazU,
-        SHGC: newGlazSHGC,
-      }] });
-      newGlazId = '';
-      newGlazError = '';
-
-    } else if (newKind === 'air_exchange') {
-      const id = newAirId.trim() || `air_${elements.length + 1}`;
-      if (elements.some(e => e.id === id)) { newAirError = 'ID already used'; return; }
-      patchHouse({ elements: [...elements, {
-        id, kind: 'air_exchange',
-        between: [selectedRoomId, newAirZoneB],
-        ach: newAirAch,
-      }] });
-      newAirId = '';
-      newAirError = '';
-    }
-  }
-
-  // ── zone options for "between" dropdown ───────────────────────────────────
-  const otherZones = $derived([
-    'outdoor', 'ground',
-    ...rooms.filter(r => r.id !== selectedRoomId).map(r => r.id),
-  ]);
-
-  // ── layer editing ─────────────────────────────────────────────────────────
-  function patchLayer(elId, layerIdx, patch) {
+  // ── layer helpers ─────────────────────────────────────────────────────────
+  function patchLayer(elId, idx, patch) {
     patchHouse({ elements: elements.map(el => {
       if (el.id !== elId) return el;
-      const layers = el.layers.map((l, i) => i === layerIdx ? { ...l, ...patch } : l);
-      return { ...el, layers };
+      return { ...el, layers: el.layers.map((l, i) => i === idx ? { ...l, ...patch } : l) };
     })});
   }
 
@@ -178,297 +87,403 @@
     })});
   }
 
-  function deleteLayer(elId, layerIdx) {
+  function deleteLayer(elId, idx) {
     patchHouse({ elements: elements.map(el => {
       if (el.id !== elId) return el;
-      return { ...el, layers: el.layers.filter((_, i) => i !== layerIdx) };
+      return { ...el, layers: el.layers.filter((_, i) => i !== idx) };
     })});
   }
 
-  // ── expanded element (for inline editing) ─────────────────────────────────
-  let expandedElId = $state(null);
+  // ── expanded row ──────────────────────────────────────────────────────────
+  let expandedId = $state(null);  // room id, element id, or 'outdoor'
+
+  function toggleExpand(id) {
+    expandedId = expandedId === id ? null : id;
+  }
+
+  // ── add room ──────────────────────────────────────────────────────────────
+  let newRoomId    = $state('');
+  let newRoomError = $state('');
+
+  function addRoom() {
+    const id = newRoomId.trim();
+    if (!id) { newRoomError = 'ID required'; return; }
+    if (rooms.some(r => r.id === id)) { newRoomError = 'ID already used'; return; }
+    patchHouse({ rooms: [...rooms, { id, a: 4, b: 4, c: 2.5 }] });
+    newRoomId = '';
+    newRoomError = '';
+    expandedId = id;
+  }
+
+  // ── add element ───────────────────────────────────────────────────────────
+  let showAddForm = $state(false);
+  let newKind     = $state('opaque');
+  let newId       = $state('');
+  let newBetween0 = $state('');
+  let newBetween1 = $state('outdoor');
+  let newA        = $state(4.0);
+  let newB        = $state(2.5);
+  let newOri      = $state('S');
+  let newTilt     = $state(90);
+  let newMat      = $state('brick_full');
+  let newThick    = $state(0.2);
+  let newU        = $state(2.8);
+  let newSHGC     = $state(0.67);
+  let newAch      = $state(0.4);
+  let newElError  = $state('');
+
+  $effect(() => {
+    // default between[0] to first room when rooms change
+    if (newBetween0 === '' && rooms.length > 0) newBetween0 = rooms[0].id;
+  });
+
+  function addElement() {
+    const id = newId.trim() || `${newKind}_${elements.length + 1}`;
+    if (elements.some(e => e.id === id)) { newElError = 'ID already used'; return; }
+    if (!newBetween0) { newElError = 'Select a room for "from"'; return; }
+
+    let el;
+    if (newKind === 'opaque') {
+      el = { id, kind: 'opaque', between: [newBetween0, newBetween1],
+             a: newA, b: newB, orientation: newOri, tilt: newTilt,
+             layers: [{ material: newMat, thickness: newThick }] };
+    } else if (newKind === 'glazing') {
+      el = { id, kind: 'glazing', between: [newBetween0, newBetween1],
+             a: newA, b: newB, orientation: newOri, tilt: 90,
+             U: newU, SHGC: newSHGC };
+    } else {
+      el = { id, kind: 'air_exchange', between: [newBetween0, newBetween1], ach: newAch };
+    }
+    patchHouse({ elements: [...elements, el] });
+    newId = '';
+    newElError = '';
+    showAddForm = false;
+    expandedId = id;
+  }
+
+  // ── flat ordered list: rooms first, then non-outdoor elements, then outdoor ─
+  const flatItems = $derived([
+    ...rooms.map(r => ({ _type: 'room', ...r })),
+    ...elements.filter(e => e.kind !== 'outdoor'),
+    ...(outdoorEl ? [outdoorEl] : [{ id: 'outdoor', kind: 'outdoor' }]),
+  ]);
 </script>
 
 <div class="house-panel">
 
-  <!-- ── left: rooms list ──────────────────────────────────────────────────── -->
-  <aside class="rooms-sidebar">
-    <div class="sidebar-title">Rooms</div>
+  <!-- ── flat list ──────────────────────────────────────────────────────────── -->
+  <div class="list">
+    {#each flatItems as item (item.id)}
+      {@const isRoom = item._type === 'room'}
+      {@const isOutdoor = item.kind === 'outdoor'}
+      {@const expanded = expandedId === item.id}
 
-    <div class="rooms-list">
-      {#each rooms as room}
-        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-        <div
-          class="room-row"
-          class:selected={room.id === selectedRoomId}
-          onclick={() => selectedRoomId = room.id}
-        >
-          <span class="room-id">{room.id}</span>
-          <span class="room-vol">{((room.a ?? 0) * (room.b ?? 0) * (room.c ?? 0)).toFixed(0)} m³</span>
-          <button class="icon-btn del-room" onclick={(e) => { e.stopPropagation(); deleteRoom(room.id); }} title="Delete room">×</button>
+      <div class="row" class:expanded class:row-room={isRoom} class:row-outdoor={isOutdoor}>
+
+        <!-- ── row header ── -->
+        <div class="row-header">
+          <span class="kind-badge kind-{isRoom ? 'room' : item.kind}">{isRoom ? 'room' : item.kind}</span>
+          <span class="row-id">{item.id}</span>
+
+          <!-- summary chips -->
+          {#if isRoom}
+            <span class="summary">{item.a ?? '?'} × {item.b ?? '?'} × {item.c ?? '?'} m</span>
+          {:else if item.kind === 'opaque'}
+            <span class="summary">{item.between?.[0]} ↔ {item.between?.[1]}</span>
+            <span class="summary">{item.orientation ?? '—'} · {((item.a ?? 0)*(item.b ?? 0)).toFixed(1)} m²</span>
+          {:else if item.kind === 'glazing'}
+            <span class="summary">{item.between?.[0]} ↔ {item.between?.[1]}</span>
+            <span class="summary">U={item.U} · {((item.a ?? 0)*(item.b ?? 0)).toFixed(2)} m²</span>
+          {:else if item.kind === 'air_exchange'}
+            <span class="summary">{item.between?.[0]} ↔ {item.between?.[1]}</span>
+            <span class="summary">{item.ach} ACH</span>
+          {:else if isOutdoor}
+            <span class="summary">{item.location?.label ?? '—'} · {item.location?.lat ?? '?'},{item.location?.lon ?? '?'}</span>
+            <span class="summary">{item.weather_source ?? '—'}</span>
+          {/if}
+
+          <span class="row-spacer"></span>
+          <button class="icon-btn" onclick={() => toggleExpand(item.id)} title="Edit">
+            {expanded ? '▲' : '▼'}
+          </button>
+          {#if !isOutdoor}
+            <button class="icon-btn del-btn" onclick={() => isRoom ? deleteRoom(item.id) : deleteElement(item.id)} title="Delete">×</button>
+          {/if}
         </div>
-      {/each}
 
-      {#if rooms.length === 0}
-        <div class="empty-hint">No rooms yet</div>
-      {/if}
-    </div>
+        <!-- ── inline editor ── -->
+        {#if expanded}
+          <div class="row-editor">
 
-    <!-- add room form -->
-    <div class="add-room-form">
-      <div class="form-title">Add room</div>
-      <label class="field">
-        <span>id</span>
-        <input type="text" bind:value={addRoomId} placeholder="chambre" />
-      </label>
-      {#if addRoomError}<div class="field-error">{addRoomError}</div>{/if}
-      <button class="add-btn" onclick={addRoom}>Add</button>
-    </div>
-  </aside>
+            {#if isRoom}
+              <div class="field-row">
+                <label class="field">
+                  <span>a (m)</span>
+                  <input type="number" value={item.a} min="0.1" step="0.5"
+                    oninput={(e) => patchRoom(item.id, { a: parseFloat(e.target.value) || 0 })} />
+                </label>
+                <label class="field">
+                  <span>b (m)</span>
+                  <input type="number" value={item.b} min="0.1" step="0.5"
+                    oninput={(e) => patchRoom(item.id, { b: parseFloat(e.target.value) || 0 })} />
+                </label>
+                <label class="field">
+                  <span>c (m)</span>
+                  <input type="number" value={item.c} min="0.1" step="0.1"
+                    oninput={(e) => patchRoom(item.id, { c: parseFloat(e.target.value) || 0 })} />
+                </label>
+                <div class="field">
+                  <span>volume</span>
+                  <span class="computed-val">{((item.a ?? 0)*(item.b ?? 0)*(item.c ?? 0)).toFixed(1)} m³</span>
+                </div>
+                <label class="field">
+                  <span>furniture factor</span>
+                  <input type="number" value={item.furniture_factor ?? 2.5} min="1" step="0.5"
+                    oninput={(e) => patchRoom(item.id, { furniture_factor: parseFloat(e.target.value) || 1 })} />
+                </label>
+              </div>
 
-  <!-- ── right: elements for selected room ────────────────────────────────── -->
-  <div class="elements-area">
-    {#if !selectedRoomId}
-      <div class="no-selection">Select a room to see its elements</div>
+            {:else if item.kind === 'opaque'}
+              <div class="field-row">
+                <label class="field">
+                  <span>from</span>
+                  <select value={item.between?.[0]}
+                    onchange={(e) => patchElement(item.id, { between: [e.target.value, item.between[1]] })}>
+                    {#each zoneOptions as z}<option value={z}>{z}</option>{/each}
+                  </select>
+                </label>
+                <label class="field">
+                  <span>to</span>
+                  <select value={item.between?.[1]}
+                    onchange={(e) => patchElement(item.id, { between: [item.between[0], e.target.value] })}>
+                    {#each zoneOptions as z}<option value={z}>{z}</option>{/each}
+                  </select>
+                </label>
+                <label class="field">
+                  <span>a (m)</span>
+                  <input type="number" value={item.a} min="0.1" step="0.1"
+                    oninput={(e) => patchElement(item.id, { a: parseFloat(e.target.value) || 0 })} />
+                </label>
+                <label class="field">
+                  <span>b (m)</span>
+                  <input type="number" value={item.b} min="0.1" step="0.1"
+                    oninput={(e) => patchElement(item.id, { b: parseFloat(e.target.value) || 0 })} />
+                </label>
+                <div class="field">
+                  <span>area</span>
+                  <span class="computed-val">{((item.a ?? 0)*(item.b ?? 0)).toFixed(2)} m²</span>
+                </div>
+                <label class="field">
+                  <span>orientation</span>
+                  <select value={item.orientation ?? 'S'}
+                    onchange={(e) => patchElement(item.id, { orientation: e.target.value })}>
+                    {#each ORIENTATIONS as o}<option value={o}>{o}</option>{/each}
+                  </select>
+                </label>
+                <label class="field">
+                  <span>tilt (°)</span>
+                  <input type="number" value={item.tilt ?? 90} min="0" max="90" step="5"
+                    oninput={(e) => patchElement(item.id, { tilt: parseFloat(e.target.value) || 90 })} />
+                </label>
+              </div>
+              <div class="layers-section">
+                <div class="layers-title">Layers (interior → exterior)</div>
+                {#each item.layers ?? [] as layer, i}
+                  <div class="layer-row">
+                    <span class="layer-num">{i + 1}</span>
+                    <label class="field">
+                      <span>material</span>
+                      <select value={layer.material}
+                        onchange={(e) => patchLayer(item.id, i, { material: e.target.value })}>
+                        {#each Object.entries(materials) as [id, m]}
+                          <option value={id}>{m.name ?? id}</option>
+                        {/each}
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span>thickness (m)</span>
+                      <input type="number" value={layer.thickness} min="0.001" step="0.01"
+                        oninput={(e) => patchLayer(item.id, i, { thickness: parseFloat(e.target.value) || 0.01 })} />
+                    </label>
+                    <button class="icon-btn del-btn" onclick={() => deleteLayer(item.id, i)} title="Remove">×</button>
+                  </div>
+                {/each}
+                <button class="add-layer-btn" onclick={() => addLayer(item.id)}>+ Layer</button>
+              </div>
 
-    {:else}
-      <!-- room header + editable fields -->
-      <div class="room-header">
-        <span class="room-header-id">{selectedRoomId}</span>
-        <label class="inline-field">
-          <span>a (m)</span>
-          <input type="number" value={selectedRoom?.a ?? ''} min="0.1" step="0.5"
-            oninput={(e) => patchRoom(selectedRoomId, { a: parseFloat(e.target.value) || 0 })} />
-        </label>
-        <label class="inline-field">
-          <span>b (m)</span>
-          <input type="number" value={selectedRoom?.b ?? ''} min="0.1" step="0.5"
-            oninput={(e) => patchRoom(selectedRoomId, { b: parseFloat(e.target.value) || 0 })} />
-        </label>
-        <label class="inline-field">
-          <span>c (m)</span>
-          <input type="number" value={selectedRoom?.c ?? ''} min="0.1" step="0.1"
-            oninput={(e) => patchRoom(selectedRoomId, { c: parseFloat(e.target.value) || 0 })} />
-        </label>
-        <span class="room-vol-display">= {((selectedRoom?.a ?? 0) * (selectedRoom?.b ?? 0) * (selectedRoom?.c ?? 0)).toFixed(1)} m³</span>
-        <label class="inline-field">
-          <span>furniture factor</span>
-          <input type="number" value={selectedRoom?.furniture_factor ?? 2.5} min="1" step="0.5"
-            oninput={(e) => patchRoom(selectedRoomId, { furniture_factor: parseFloat(e.target.value) || 1 })} />
-        </label>
-      </div>
+            {:else if item.kind === 'glazing'}
+              <div class="field-row">
+                <label class="field">
+                  <span>from</span>
+                  <select value={item.between?.[0]}
+                    onchange={(e) => patchElement(item.id, { between: [e.target.value, item.between[1]] })}>
+                    {#each zoneOptions as z}<option value={z}>{z}</option>{/each}
+                  </select>
+                </label>
+                <label class="field">
+                  <span>to</span>
+                  <select value={item.between?.[1]}
+                    onchange={(e) => patchElement(item.id, { between: [item.between[0], e.target.value] })}>
+                    {#each zoneOptions as z}<option value={z}>{z}</option>{/each}
+                  </select>
+                </label>
+                <label class="field">
+                  <span>a (m)</span>
+                  <input type="number" value={item.a} min="0.1" step="0.1"
+                    oninput={(e) => patchElement(item.id, { a: parseFloat(e.target.value) || 0 })} />
+                </label>
+                <label class="field">
+                  <span>b (m)</span>
+                  <input type="number" value={item.b} min="0.1" step="0.1"
+                    oninput={(e) => patchElement(item.id, { b: parseFloat(e.target.value) || 0 })} />
+                </label>
+                <div class="field">
+                  <span>area</span>
+                  <span class="computed-val">{((item.a ?? 0)*(item.b ?? 0)).toFixed(2)} m²</span>
+                </div>
+                <label class="field">
+                  <span>orientation</span>
+                  <select value={item.orientation ?? 'S'}
+                    onchange={(e) => patchElement(item.id, { orientation: e.target.value })}>
+                    {#each ORIENTATIONS as o}<option value={o}>{o}</option>{/each}
+                  </select>
+                </label>
+                <label class="field">
+                  <span>U (W/m²K)</span>
+                  <input type="number" value={item.U} min="0.1" step="0.1"
+                    oninput={(e) => patchElement(item.id, { U: parseFloat(e.target.value) || 0 })} />
+                </label>
+                <label class="field">
+                  <span>SHGC</span>
+                  <input type="number" value={item.SHGC} min="0" max="1" step="0.01"
+                    oninput={(e) => patchElement(item.id, { SHGC: parseFloat(e.target.value) || 0 })} />
+                </label>
+              </div>
 
-      <!-- elements list -->
-      <div class="elements-list">
-        {#each roomElements as el}
-          <div class="el-card" class:expanded={expandedElId === el.id}>
+            {:else if item.kind === 'air_exchange'}
+              <div class="field-row">
+                <label class="field">
+                  <span>from</span>
+                  <select value={item.between?.[0]}
+                    onchange={(e) => patchElement(item.id, { between: [e.target.value, item.between[1]] })}>
+                    {#each zoneOptions as z}<option value={z}>{z}</option>{/each}
+                  </select>
+                </label>
+                <label class="field">
+                  <span>to</span>
+                  <select value={item.between?.[1]}
+                    onchange={(e) => patchElement(item.id, { between: [item.between[0], e.target.value] })}>
+                    {#each zoneOptions as z}<option value={z}>{z}</option>{/each}
+                  </select>
+                </label>
+                <label class="field">
+                  <span>ACH (h⁻¹)</span>
+                  <input type="number" value={item.ach} min="0.01" step="0.1"
+                    oninput={(e) => patchElement(item.id, { ach: parseFloat(e.target.value) || 0 })} />
+                </label>
+              </div>
 
-            <!-- card header -->
-            <div class="el-header">
-              <span class="kind-badge kind-{el.kind}">{el.kind}</span>
-              <span class="el-id">{el.id}</span>
-              <span class="el-between">→ {el.between?.[1]}</span>
-              <button class="icon-btn" onclick={() => expandedElId = expandedElId === el.id ? null : el.id}
-                title="Edit">{expandedElId === el.id ? '▲' : '▼'}</button>
-              <button class="icon-btn del-el" onclick={() => deleteElement(el.id)} title="Delete">×</button>
-            </div>
-
-            <!-- summary line -->
-            {#if expandedElId !== el.id}
-              <div class="el-summary">
-                {#if el.kind === 'opaque'}
-                  {el.a} × {el.b} m = {(el.a * el.b).toFixed(1)} m² · {el.orientation ?? '—'} · {el.layers?.length ?? 0} layer(s)
-                {:else if el.kind === 'glazing'}
-                  {el.a} × {el.b} m = {(el.a * el.b).toFixed(2)} m² · U={el.U} · SHGC={el.SHGC}
-                {:else if el.kind === 'air_exchange'}
-                  {el.ach} ACH
-                {/if}
+            {:else if isOutdoor}
+              <div class="field-row">
+                <label class="field">
+                  <span>label</span>
+                  <input type="text" value={item.location?.label ?? ''}
+                    oninput={(e) => patchOutdoorLocation({ label: e.target.value })} />
+                </label>
+                <label class="field">
+                  <span>lat</span>
+                  <input type="number" value={item.location?.lat ?? ''} step="0.01"
+                    oninput={(e) => patchOutdoorLocation({ lat: parseFloat(e.target.value) })} />
+                </label>
+                <label class="field">
+                  <span>lon</span>
+                  <input type="number" value={item.location?.lon ?? ''} step="0.01"
+                    oninput={(e) => patchOutdoorLocation({ lon: parseFloat(e.target.value) })} />
+                </label>
+                <label class="field">
+                  <span>weather source</span>
+                  <select value={item.weather_source ?? 'open_meteo'}
+                    onchange={(e) => patchOutdoor({ weather_source: e.target.value })}>
+                    {#each WEATHER_SOURCES as s}<option value={s}>{s}</option>{/each}
+                  </select>
+                </label>
               </div>
             {/if}
 
-            <!-- expanded editor -->
-            {#if expandedElId === el.id}
-              <div class="el-editor">
-
-                {#if el.kind === 'opaque'}
-                  <div class="field-row">
-                    <label class="field">
-                      <span>a (m)</span>
-                      <input type="number" value={el.a} min="0.1" step="0.1"
-                        oninput={(e) => patchElement(el.id, { a: parseFloat(e.target.value) || 0 })} />
-                    </label>
-                    <label class="field">
-                      <span>b (m)</span>
-                      <input type="number" value={el.b} min="0.1" step="0.1"
-                        oninput={(e) => patchElement(el.id, { b: parseFloat(e.target.value) || 0 })} />
-                    </label>
-                    <label class="field area-display">
-                      <span>area</span>
-                      <span class="computed-val">{((el.a ?? 0) * (el.b ?? 0)).toFixed(2)} m²</span>
-                    </label>
-                    <label class="field">
-                      <span>orientation</span>
-                      <select value={el.orientation ?? 'S'}
-                        onchange={(e) => patchElement(el.id, { orientation: e.target.value })}>
-                        {#each ORIENTATIONS as o}<option value={o}>{o}</option>{/each}
-                      </select>
-                    </label>
-                    <label class="field">
-                      <span>tilt (°)</span>
-                      <input type="number" value={el.tilt ?? 90} min="0" max="90" step="5"
-                        oninput={(e) => patchElement(el.id, { tilt: parseFloat(e.target.value) || 90 })} />
-                    </label>
-                    <label class="field">
-                      <span>connects to</span>
-                      <select value={el.between?.[1] ?? 'outdoor'}
-                        onchange={(e) => patchElement(el.id, { between: [el.between[0], e.target.value] })}>
-                        {#each otherZones as z}<option value={z}>{z}</option>{/each}
-                      </select>
-                    </label>
-                  </div>
-
-                  <!-- layers -->
-                  <div class="layers-section">
-                    <div class="layers-title">Layers (interior → exterior)</div>
-                    {#each el.layers ?? [] as layer, i}
-                      <div class="layer-row">
-                        <span class="layer-num">{i + 1}</span>
-                        <label class="field">
-                          <span>material</span>
-                          <select value={layer.material}
-                            onchange={(e) => patchLayer(el.id, i, { material: e.target.value })}>
-                            {#each Object.entries(materials) as [id, m]}
-                              <option value={id}>{m.name ?? id}</option>
-                            {/each}
-                          </select>
-                        </label>
-                        <label class="field">
-                          <span>thickness (m)</span>
-                          <input type="number" value={layer.thickness} min="0.001" step="0.01"
-                            oninput={(e) => patchLayer(el.id, i, { thickness: parseFloat(e.target.value) || 0.01 })} />
-                        </label>
-                        <button class="icon-btn del-el" onclick={() => deleteLayer(el.id, i)} title="Remove layer">×</button>
-                      </div>
-                    {/each}
-                    <button class="add-layer-btn" onclick={() => addLayer(el.id)}>+ Layer</button>
-                  </div>
-
-                {:else if el.kind === 'glazing'}
-                  <div class="field-row">
-                    <label class="field">
-                      <span>a (m)</span>
-                      <input type="number" value={el.a} min="0.1" step="0.1"
-                        oninput={(e) => patchElement(el.id, { a: parseFloat(e.target.value) || 0 })} />
-                    </label>
-                    <label class="field">
-                      <span>b (m)</span>
-                      <input type="number" value={el.b} min="0.1" step="0.1"
-                        oninput={(e) => patchElement(el.id, { b: parseFloat(e.target.value) || 0 })} />
-                    </label>
-                    <label class="field area-display">
-                      <span>area</span>
-                      <span class="computed-val">{((el.a ?? 0) * (el.b ?? 0)).toFixed(2)} m²</span>
-                    </label>
-                    <label class="field">
-                      <span>U (W/m²K)</span>
-                      <input type="number" value={el.U} min="0.1" step="0.1"
-                        oninput={(e) => patchElement(el.id, { U: parseFloat(e.target.value) || 0 })} />
-                    </label>
-                    <label class="field">
-                      <span>SHGC</span>
-                      <input type="number" value={el.SHGC} min="0" max="1" step="0.01"
-                        oninput={(e) => patchElement(el.id, { SHGC: parseFloat(e.target.value) || 0 })} />
-                    </label>
-                    <label class="field">
-                      <span>orientation</span>
-                      <select value={el.orientation ?? 'S'}
-                        onchange={(e) => patchElement(el.id, { orientation: e.target.value })}>
-                        {#each ORIENTATIONS as o}<option value={o}>{o}</option>{/each}
-                      </select>
-                    </label>
-                    <label class="field">
-                      <span>connects to</span>
-                      <select value={el.between?.[1] ?? 'outdoor'}
-                        onchange={(e) => patchElement(el.id, { between: [el.between[0], e.target.value] })}>
-                        {#each otherZones as z}<option value={z}>{z}</option>{/each}
-                      </select>
-                    </label>
-                  </div>
-
-                {:else if el.kind === 'air_exchange'}
-                  <div class="field-row">
-                    <label class="field">
-                      <span>ACH (h⁻¹)</span>
-                      <input type="number" value={el.ach} min="0.01" step="0.1"
-                        oninput={(e) => patchElement(el.id, { ach: parseFloat(e.target.value) || 0 })} />
-                    </label>
-                    <label class="field">
-                      <span>connects to</span>
-                      <select value={el.between?.[1] ?? 'outdoor'}
-                        onchange={(e) => patchElement(el.id, { between: [el.between[0], e.target.value] })}>
-                        {#each otherZones as z}<option value={z}>{z}</option>{/each}
-                      </select>
-                    </label>
-                  </div>
-                {/if}
-
-              </div>
-            {/if}
           </div>
-        {/each}
-
-        {#if roomElements.length === 0}
-          <div class="empty-hint">No elements for this room yet</div>
         {/if}
       </div>
+    {/each}
+  </div>
 
-      <!-- add element form -->
+  <!-- ── add area ───────────────────────────────────────────────────────────── -->
+  <div class="add-area">
+
+    <!-- add room (always visible, compact) -->
+    <div class="add-room-inline">
+      <span class="add-label">Add room</span>
+      <input type="text" bind:value={newRoomId} placeholder="id, e.g. salon"
+        onkeydown={(e) => e.key === 'Enter' && addRoom()} />
+      {#if newRoomError}<span class="field-error">{newRoomError}</span>{/if}
+      <button onclick={addRoom}>Add room</button>
+    </div>
+
+    <!-- add element toggle -->
+    <button class="add-el-toggle" onclick={() => { showAddForm = !showAddForm; newElError = ''; }}>
+      {showAddForm ? '▲ Cancel' : '+ Add element'}
+    </button>
+
+    {#if showAddForm}
       <div class="add-el-form">
-        <div class="form-title">Add element to <em>{selectedRoomId}</em></div>
-
         <div class="kind-tabs">
           {#each ['opaque', 'glazing', 'air_exchange'] as k}
             <button class="kind-tab" class:active={newKind === k} onclick={() => newKind = k}>{k}</button>
           {/each}
         </div>
 
-        {#if newKind === 'opaque'}
-          <div class="field-row">
-            <label class="field">
-              <span>id (optional)</span>
-              <input type="text" bind:value={newOpaqueId} placeholder="mur_S" />
-            </label>
+        <div class="field-row">
+          <label class="field">
+            <span>id (opt.)</span>
+            <input type="text" bind:value={newId} placeholder="auto" />
+          </label>
+          <label class="field">
+            <span>from</span>
+            <select bind:value={newBetween0}>
+              {#each zoneOptions as z}<option value={z}>{z}</option>{/each}
+            </select>
+          </label>
+          <label class="field">
+            <span>to</span>
+            <select bind:value={newBetween1}>
+              {#each zoneOptions as z}<option value={z}>{z}</option>{/each}
+            </select>
+          </label>
+
+          {#if newKind === 'opaque' || newKind === 'glazing'}
             <label class="field">
               <span>a (m)</span>
-              <input type="number" bind:value={newOpaqueA} min="0.1" step="0.1" />
+              <input type="number" bind:value={newA} min="0.1" step="0.1" />
             </label>
             <label class="field">
               <span>b (m)</span>
-              <input type="number" bind:value={newOpaqueB} min="0.1" step="0.1" />
-            </label>
-            <label class="field area-display">
-              <span>area</span>
-              <span class="computed-val">{(newOpaqueA * newOpaqueB).toFixed(2)} m²</span>
-            </label>
-            <label class="field">
-              <span>connects to</span>
-              <select bind:value={newOpaqueZoneB}>
-                {#each otherZones as z}<option value={z}>{z}</option>{/each}
-              </select>
+              <input type="number" bind:value={newB} min="0.1" step="0.1" />
             </label>
             <label class="field">
               <span>orientation</span>
-              <select bind:value={newOpaqueOri}>
+              <select bind:value={newOri}>
                 {#each ORIENTATIONS as o}<option value={o}>{o}</option>{/each}
               </select>
             </label>
+          {/if}
+
+          {#if newKind === 'opaque'}
             <label class="field">
               <span>tilt (°)</span>
-              <input type="number" bind:value={newOpaqueTilt} min="0" max="90" step="5" />
+              <input type="number" bind:value={newTilt} min="0" max="90" step="5" />
             </label>
             <label class="field">
               <span>material</span>
-              <select bind:value={newOpaqueMat}>
+              <select bind:value={newMat}>
                 {#each Object.entries(materials) as [id, m]}
                   <option value={id}>{m.name ?? id}</option>
                 {/each}
@@ -476,276 +491,93 @@
             </label>
             <label class="field">
               <span>thickness (m)</span>
-              <input type="number" bind:value={newOpaqueThick} min="0.01" step="0.05" />
+              <input type="number" bind:value={newThick} min="0.01" step="0.05" />
             </label>
-          </div>
-          {#if newOpaqueError}<div class="field-error">{newOpaqueError}</div>{/if}
-
-        {:else if newKind === 'glazing'}
-          <div class="field-row">
-            <label class="field">
-              <span>id (optional)</span>
-              <input type="text" bind:value={newGlazId} placeholder="win_S" />
-            </label>
-            <label class="field">
-              <span>a (m)</span>
-              <input type="number" bind:value={newGlazA} min="0.1" step="0.1" />
-            </label>
-            <label class="field">
-              <span>b (m)</span>
-              <input type="number" bind:value={newGlazB} min="0.1" step="0.1" />
-            </label>
-            <label class="field area-display">
-              <span>area</span>
-              <span class="computed-val">{(newGlazA * newGlazB).toFixed(2)} m²</span>
-            </label>
-            <label class="field">
-              <span>connects to</span>
-              <select bind:value={newGlazZoneB}>
-                {#each otherZones as z}<option value={z}>{z}</option>{/each}
-              </select>
-            </label>
-            <label class="field">
-              <span>orientation</span>
-              <select bind:value={newGlazOri}>
-                {#each ORIENTATIONS as o}<option value={o}>{o}</option>{/each}
-              </select>
-            </label>
+          {:else if newKind === 'glazing'}
             <label class="field">
               <span>U (W/m²K)</span>
-              <input type="number" bind:value={newGlazU} min="0.1" step="0.1" />
+              <input type="number" bind:value={newU} min="0.1" step="0.1" />
             </label>
             <label class="field">
               <span>SHGC</span>
-              <input type="number" bind:value={newGlazSHGC} min="0" max="1" step="0.01" />
+              <input type="number" bind:value={newSHGC} min="0" max="1" step="0.01" />
             </label>
-          </div>
-          {#if newGlazError}<div class="field-error">{newGlazError}</div>{/if}
-
-        {:else if newKind === 'air_exchange'}
-          <div class="field-row">
-            <label class="field">
-              <span>id (optional)</span>
-              <input type="text" bind:value={newAirId} placeholder="infil" />
-            </label>
-            <label class="field">
-              <span>connects to</span>
-              <select bind:value={newAirZoneB}>
-                {#each otherZones as z}<option value={z}>{z}</option>{/each}
-              </select>
-            </label>
+          {:else if newKind === 'air_exchange'}
             <label class="field">
               <span>ACH (h⁻¹)</span>
-              <input type="number" bind:value={newAirAch} min="0.01" step="0.1" />
+              <input type="number" bind:value={newAch} min="0.01" step="0.1" />
             </label>
-          </div>
-          {#if newAirError}<div class="field-error">{newAirError}</div>{/if}
-        {/if}
+          {/if}
+        </div>
 
+        {#if newElError}<div class="field-error">{newElError}</div>{/if}
         <button class="add-btn" onclick={addElement}>Add</button>
       </div>
-
     {/if}
   </div>
+
 </div>
 
 <style>
   .house-panel {
-    display: flex;
     flex: 1;
+    display: flex;
+    flex-direction: column;
     min-height: 0;
     overflow: hidden;
   }
 
-  /* ── rooms sidebar ── */
-  .rooms-sidebar {
-    width: 200px;
-    flex-shrink: 0;
-    background: #1e293b;
-    border-right: 1px solid #334155;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .sidebar-title {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #94a3b8;
-    padding: 14px 14px 8px;
-    border-bottom: 1px solid #334155;
-    flex-shrink: 0;
-  }
-
-  .rooms-list {
+  /* ── flat list ── */
+  .list {
     flex: 1;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding: 6px 0;
-  }
-
-  .room-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 12px;
-    cursor: pointer;
-    border-left: 3px solid transparent;
-    transition: background 0.1s;
-  }
-  .room-row:hover    { background: #243447; }
-  .room-row.selected { background: #243447; border-left-color: #6366f1; }
-
-  .room-id {
-    flex: 1;
-    font-size: 12px;
-    font-family: monospace;
-    color: #e2e8f0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .room-vol {
-    font-size: 11px;
-    color: #94a3b8;
-    flex-shrink: 0;
-  }
-
-  .add-room-form {
-    border-top: 1px solid #334155;
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    flex-shrink: 0;
-  }
-
-  /* ── elements area ── */
-  .elements-area {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    overflow: hidden;
-  }
-
-  .no-selection {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #94a3b8;
-    font-size: 13px;
-  }
-
-  .room-header {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 10px 20px;
-    background: #1e293b;
-    border-bottom: 1px solid #334155;
-    flex-shrink: 0;
-  }
-
-  .room-header-id {
-    font-size: 14px;
-    font-weight: 700;
-    font-family: monospace;
-    color: #f1f5f9;
-    flex-shrink: 0;
-  }
-
-  .inline-field {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-shrink: 0;
-  }
-  .inline-field > span {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    color: #94a3b8;
-    white-space: nowrap;
-  }
-  .inline-field input {
-    width: 70px;
-  }
-
-  .room-vol-display {
-    font-size: 12px;
-    font-family: monospace;
-    color: #64748b;
-    white-space: nowrap;
-    padding-top: 14px;
-  }
-
-  .elements-list {
-    flex: 1;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
+    gap: 4px;
     padding: 12px 16px;
   }
 
-  .empty-hint {
-    color: #94a3b8;
-    font-size: 12px;
-    padding: 16px 0;
-  }
-
-  /* ── element cards ── */
-  .el-card {
+  .row {
     background: #1e293b;
     border: 1px solid #334155;
     border-radius: 6px;
     overflow: hidden;
   }
-  .el-card.expanded { border-color: #6366f1; }
+  .row.expanded       { border-color: #6366f1; }
+  .row.row-room       { border-left: 3px solid #6366f1; }
+  .row.row-outdoor    { border-left: 3px solid #0ea5e9; }
 
-  .el-header {
+  .row-header {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 12px;
+    padding: 7px 10px;
   }
 
-  .el-id {
+  .row-id {
     font-size: 12px;
     font-family: monospace;
+    font-weight: 600;
     color: #e2e8f0;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .el-between {
-    font-size: 11px;
-    color: #94a3b8;
     flex-shrink: 0;
   }
 
-  .el-summary {
+  .summary {
     font-size: 11px;
-    color: #94a3b8;
-    padding: 0 12px 8px;
+    color: #64748b;
     font-family: monospace;
+    white-space: nowrap;
   }
 
-  .el-editor {
+  .row-spacer { flex: 1; }
+
+  .row-editor {
     border-top: 1px solid #334155;
     padding: 12px;
+    background: #0f172a;
     display: flex;
     flex-direction: column;
     gap: 10px;
-    background: #0f172a;
   }
 
   /* ── layers ── */
@@ -754,21 +586,17 @@
     flex-direction: column;
     gap: 6px;
   }
-
   .layers-title {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: #94a3b8;
-    margin-bottom: 2px;
   }
-
   .layer-row {
     display: flex;
     align-items: flex-end;
     gap: 8px;
   }
-
   .layer-num {
     font-size: 10px;
     color: #64748b;
@@ -776,27 +604,62 @@
     padding-bottom: 6px;
     flex-shrink: 0;
   }
-
   .add-layer-btn {
     align-self: flex-start;
     font-size: 11px;
     padding: 3px 8px;
   }
 
-  /* ── add element form ── */
-  .add-el-form {
+  /* ── add area ── */
+  .add-area {
     border-top: 1px solid #334155;
-    padding: 12px 16px;
-    background: #1e293b;
+    padding: 10px 16px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     flex-shrink: 0;
+    background: #1e293b;
+  }
+
+  .add-room-inline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .add-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+    flex-shrink: 0;
+  }
+
+  .add-room-inline input {
+    width: 140px;
+  }
+
+  .add-el-toggle {
+    align-self: flex-start;
+    font-size: 11px;
+    padding: 4px 10px;
+    background: #0f172a;
+    color: #94a3b8;
+    border: 1px solid #334155;
+  }
+  .add-el-toggle:hover { background: #1e293b; color: #e2e8f0; }
+
+  .add-el-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .kind-tabs {
     display: flex;
     gap: 4px;
-    margin-bottom: 10px;
   }
-
   .kind-tab {
     font-size: 11px;
     padding: 3px 10px;
@@ -804,21 +667,23 @@
     background: #0f172a;
     color: #94a3b8;
     border: 1px solid #334155;
-    cursor: pointer;
   }
   .kind-tab:hover  { background: #1e293b; color: #e2e8f0; }
   .kind-tab.active { background: #312e81; color: #a5b4fc; border-color: #6366f1; }
 
-  /* ── shared form helpers ── */
-  .form-title {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #94a3b8;
-    margin-bottom: 8px;
+  .add-btn {
+    align-self: flex-start;
+    background: #312e81;
+    color: #a5b4fc;
+    border: 1px solid #6366f1;
+    border-radius: 4px;
+    padding: 5px 14px;
+    font-size: 12px;
+    cursor: pointer;
   }
-  .form-title em { color: #a5b4fc; font-style: normal; }
+  .add-btn:hover { background: #3730a3; }
 
+  /* ── shared form helpers ── */
   .field-row {
     display: flex;
     flex-wrap: wrap;
@@ -852,12 +717,6 @@
   }
   input:focus, select:focus { outline: none; border-color: #6366f1; }
 
-  .field-error {
-    font-size: 11px;
-    color: #f87171;
-  }
-
-  .area-display { justify-content: flex-end; }
   .computed-val {
     font-size: 12px;
     font-family: monospace;
@@ -868,18 +727,10 @@
     border-radius: 4px;
   }
 
-  .add-btn {
-    margin-top: 6px;
-    background: #312e81;
-    color: #a5b4fc;
-    border: 1px solid #6366f1;
-    border-radius: 4px;
-    padding: 5px 14px;
-    font-size: 12px;
-    cursor: pointer;
-    align-self: flex-start;
+  .field-error {
+    font-size: 11px;
+    color: #f87171;
   }
-  .add-btn:hover { background: #3730a3; }
 
   .icon-btn {
     background: transparent;
@@ -892,10 +743,10 @@
     border-radius: 3px;
     flex-shrink: 0;
   }
-  .icon-btn:hover { background: #334155; color: #f1f5f9; }
-  .del-room:hover, .del-el:hover { color: #ef4444; }
+  .icon-btn:hover  { background: #334155; color: #f1f5f9; }
+  .del-btn:hover   { color: #ef4444; }
 
-  /* kind badges */
+  /* ── kind badges ── */
   .kind-badge {
     font-size: 10px;
     font-weight: 700;
@@ -905,7 +756,9 @@
     border-radius: 3px;
     flex-shrink: 0;
   }
+  .kind-room         { background: #312e81; color: #a5b4fc; }
   .kind-opaque       { background: #1e3a5f; color: #93c5fd; }
   .kind-glazing      { background: #14532d; color: #86efac; }
   .kind-air_exchange { background: #451a03; color: #fcd34d; }
+  .kind-outdoor      { background: #0c4a6e; color: #7dd3fc; }
 </style>
