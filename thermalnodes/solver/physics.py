@@ -295,7 +295,17 @@ def _expand_opaque(
     prev = r_first
     for i in range(N):
         m_id = builder.make_id(f"m_{base}_{i}")
-        builder.add_node({"id": m_id, "kind": "mass", "label": f"{label} [{i}]", "C": C_wall / N}, house_uuid=eid)
+        if N == 1:
+            node_label = f"{label} [wall]"
+        elif i == 0 and outdoor_is_a:
+            node_label = f"{label} [outer]"
+        elif i == N - 1 and outdoor_is_b:
+            node_label = f"{label} [outer]"
+        elif (i == 0 and outdoor_is_b) or (i == N - 1 and outdoor_is_a):
+            node_label = f"{label} [inner]"
+        else:
+            node_label = f"{label} [{i}]"
+        builder.add_node({"id": m_id, "kind": "mass", "label": node_label, "C": C_wall / N}, house_uuid=eid)
         builder.add_edge(prev, m_id)
         mass_ids.append(m_id)
 

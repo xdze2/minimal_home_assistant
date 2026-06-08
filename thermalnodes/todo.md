@@ -105,7 +105,7 @@ described above.
 
 ## Backlog
 
-### ~~Heavy wall — chain-N discretization~~ ✓ done (backend)
+### ~~Heavy wall — chain-N discretization~~ ✓ done
 
 **Implemented:**
 - `_opaque_chain_n()` — `max over layers of ceil(d/δ)` at 24h period, computed in `expand()`.
@@ -117,20 +117,17 @@ described above.
   source node into the outer surface mass node.
 - `_patch_model()` fans out element-level `(label.R, label.C)` fit params to all
   N lump nodes via `model["wall_chains"]`.
-- `maison_test.json` updated: `solar_absorptance: 0.7` on Mur SE.
+- Wall mass node labels: `[outer]` / `[inner]` / `[wall]` instead of `[0]` / `[N-1]`.
+- Opaque element editor: `solar α` numeric input (0–1, step 0.05) with tooltip.
+- Opaque element row: `×N` chain badge in key figures, sourced from `rcModel.wall_chains`
+  passed down from `+page.svelte` (reuses the already-fetched expand result, no extra call).
+- Simulation chart: wall mass nodes (`m_*`) hidden by default (`show: false`), togglable via legend.
+- House panel row layout: 2-line grid — row 1: icon | label | connectivity | signals | role;
+  row 2: chevron | figures (full width).
 
 **UI — still to do:**
-- Opaque element row: show `chain_n` badge (e.g. `×3`) — call `POST /houses/{name}/expand`
-  or recompute client-side from layer data + material library.
-- Opaque element editor: add `solar_absorptance` field (0–1 slider or numeric
-  input, label "Solar absorptance α"). Tooltip: typical values — dark brick 0.7,
-  light render 0.3, white paint 0.15.
 - RC graph: render the N lump nodes + interior resistances visually in series
   between the two zone nodes, with R_se/R_si on each end.
-- Simulation charts: wall surface node temperatures (m_outer, m_inner) are now
-  mass nodes in the output — they appear automatically in the temperature chart
-  but may need better labels (e.g. "Mur SE [outer]", "Mur SE [inner]") derived
-  from the node label in the model.
 
 ### Parallel/series resistance identifiability
 
@@ -163,6 +160,11 @@ zones: only the sum is observable.
 ---
 
 ## Changelog
+
+- **2026-06** — Heavy wall UI — `solar α` field in opaque editor; `×N` chain badge in row
+  key figures (reuses `rcModel.wall_chains` from parent, no extra API call); wall mass node
+  labels now `[outer]`/`[inner]`/`[wall]`; wall mass nodes hidden by default in sim chart;
+  house panel rows use 2-line layout (label+connectivity on row 1, figures full-width on row 2).
 
 - **2026-06** — Right pane rework — 3 fixed tabs: RC Graph (per-house, read-only),
   Studies (table with label/start/end/type/status columns; "+ Run" and "+ Fit" buttons),

@@ -451,6 +451,7 @@
 						{house}
 						onchange={(h) => (house = { ...h, _model_hash: house._model_hash, studies: $state.snapshot(house.studies) })}
 						{customMaterials}
+						{rcModel}
 						dirty={houseDirty}
 						saveLoading={houseSaveLoading}
 						saveError={houseSaveError}

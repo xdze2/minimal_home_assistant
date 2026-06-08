@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import SignalPicker from '$lib/SignalPicker.svelte';
 
-  let { house, onchange, customMaterials = {}, dirty = false, saveLoading = false, saveError = null, onsave = null, ondelete = null } = $props();
+  let { house, onchange, customMaterials = {}, rcModel = null, dirty = false, saveLoading = false, saveError = null, onsave = null, ondelete = null } = $props();
 
   // ── signals autocomplete ──────────────────────────────────────────────────
   const API = 'http://localhost:8001';
@@ -36,9 +36,10 @@
   const BOUNDARY_KINDS = ['outdoor', 'ground'];
 
   // ── derived ───────────────────────────────────────────────────────────────
-  const rooms    = $derived(house?.rooms    ?? []);
-  const elements = $derived(house?.elements ?? []);
-  const materials = $derived({ ...BUILTIN_MATERIALS, ...(customMaterials ?? {}), ...(house?.materials ?? {}) });
+  const rooms      = $derived(house?.rooms    ?? []);
+  const elements   = $derived(house?.elements ?? []);
+  const materials  = $derived({ ...BUILTIN_MATERIALS, ...(customMaterials ?? {}), ...(house?.materials ?? {}) });
+  const wallChains = $derived(rcModel?.wall_chains ?? {});
 
   // All zone options: rooms + boundary elements (outdoor, ground)
   const zoneOptions = $derived([
@@ -75,12 +76,14 @@
     if (item.kind === 'opaque') {
       const area = (item.a ?? 0) * (item.b ?? 0);
       const ua = opaqueUA(item);
-      return ua != null ? `${area.toFixed(1)} m²  ·  UA ${ua.toFixed(1)} W/K` : `${area.toFixed(1)} m²`;
+      const chainN = wallChains[item.label]?.chain_n;
+      const chainBadge = chainN != null && chainN > 1 ? ` ×${chainN}` : '';
+      return ua != null ? `${area.toFixed(0)} m² · ${ua.toFixed(1)} W/K${chainBadge}` : `${area.toFixed(0)} m²${chainBadge}`;
     }
     if (item.kind === 'glazing') {
       const area = (item.a ?? 0) * (item.b ?? 0);
       const ua = item.U != null ? item.U * area : null;
-      return ua != null ? `${area.toFixed(2)} m²  ·  UA ${ua.toFixed(1)} W/K` : `${area.toFixed(2)} m²`;
+      return ua != null ? `${area.toFixed(1)} m² · ${ua.toFixed(1)} W/K` : `${area.toFixed(1)} m²`;
     }
     if (item.kind === 'air_exchange') {
       return item.ach != null ? `${item.ach} ACH` : null;
@@ -281,10 +284,8 @@
     <span></span>
     <span>label</span>
     <span>connectivity</span>
-    <span>key figures</span>
     <span class="col-signals"></span>
     <span class="col-role">role</span>
-    <span></span>
   </div>
 
   <!-- ── flat list ──────────────────────────────────────────────────────────── -->
@@ -306,10 +307,10 @@
         <div class="row-header" role="button" tabindex="0"
           onclick={() => toggleExpand(item.id)}
           onkeydown={(e) => e.key === 'Enter' && toggleExpand(item.id)}>
+          <!-- row 1: icon | label | connectivity | signals | role -->
           <span class="kind-icon kind-{kind}" title={meta.label}>{meta.icon}</span>
           <span class="row-label" class:placeholder={!item.label}>{displayLabel}</span>
           <span class="row-conn">{conn ?? ''}</span>
-          <span class="row-figures">{figures ?? ''}</span>
           <span class="col-signals">
             {#if sigs.hasInput}<span class="sig-icon sig-input" title="Input signal: {item.input_signal}">⤵</span>{/if}
             {#if sigs.hasObs}<span class="sig-icon sig-obs" title="Observation signal: {item.obs_signal}">◉</span>{/if}
@@ -323,7 +324,9 @@
               <span class="role-badge role-boundary">boundary</span>
             {/if}
           </span>
+          <!-- row 2: chevron | figures -->
           <span class="row-chevron">{expanded ? '▲' : '▼'}</span>
+          <span class="row-figures">{figures ?? ''}</span>
         </div>
 
         <!-- ── inline editor ── -->
@@ -453,6 +456,11 @@
                   <span>tilt (°)</span>
                   <input type="number" value={item.tilt ?? 90} min="0" max="90" step="5"
                     oninput={(e) => patchElement(item.id, { tilt: parseFloat(e.target.value) || 90 })} />
+                </label>
+                <label class="field" title="Solar absorptance α — dark brick ≈ 0.7, light render ≈ 0.3, white paint ≈ 0.15">
+                  <span>solar α</span>
+                  <input type="number" value={item.solar_absorptance ?? 0} min="0" max="1" step="0.05"
+                    oninput={(e) => patchElement(item.id, { solar_absorptance: parseFloat(e.target.value) ?? 0 })} />
                 </label>
               </div>
               <div class="layers-section">
@@ -754,14 +762,28 @@
     color: #f87171;
   }
 
-  /* ── grid columns: icon | label | connectivity | figures | signals | role | chevron ── */
+  /* ── grid columns: icon | label | connectivity | signals | role ── */
   .grid-header,
   .row-header {
     display: grid;
-    grid-template-columns: 26px 1fr 1.4fr 1.6fr 36px 70px 20px;
+    grid-template-columns: 26px 1fr 1.4fr 36px 70px;
     align-items: center;
     gap: 0;
   }
+
+  /* row-header: 2 rows
+     row 1 — icon | label | connectivity | signals | role
+     row 2 — chevron | figures (spans cols 2–5)            */
+  .row-header {
+    grid-template-rows: auto auto;
+  }
+  .row-header .kind-icon   { grid-row: 1; grid-column: 1; }
+  .row-header .row-label   { grid-row: 1; grid-column: 2; }
+  .row-header .row-conn    { grid-row: 1; grid-column: 3; }
+  .row-header .col-signals { grid-row: 1; grid-column: 4; }
+  .row-header .col-role    { grid-row: 1; grid-column: 5; }
+  .row-header .row-chevron { grid-row: 2; grid-column: 1; }
+  .row-header .row-figures { grid-row: 2; grid-column: 2 / 6; }
 
   .grid-header {
     padding: 4px 14px;
@@ -831,7 +853,7 @@
   }
 
   .row-conn {
-    font-size: 11px;
+    font-size: 10px;
     color: #64748b;
     padding: 0 8px;
     overflow: hidden;
@@ -840,7 +862,7 @@
   }
 
   .row-figures {
-    font-size: 11px;
+    font-size: 10px;
     color: #94a3b8;
     font-family: monospace;
     padding: 0 8px;

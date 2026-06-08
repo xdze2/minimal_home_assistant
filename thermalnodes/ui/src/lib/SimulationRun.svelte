@@ -114,7 +114,11 @@
 		const simTsMs = simResult.t.map((s) => Date.parse(s));
 
 		const simSeries = massIds.map((id, i) => ({
-			label: nodeLabels[id] ?? id, stroke: SIM_COLORS[i % SIM_COLORS.length], width: 1.5, spanGaps: false,
+			label: nodeLabels[id] ?? id,
+			stroke: SIM_COLORS[i % SIM_COLORS.length],
+			width: 1.5,
+			spanGaps: false,
+			show: !nodeWallMassIds.has(id),
 		}));
 		const simData = massIds.map((id) => simResult.nodes[id].map((v) => (v === null ? NaN : v)));
 
@@ -173,6 +177,10 @@
 	);
 	const nodeSolarIds  = $derived(
 		new Set(rcNodes.filter((n) => n.id.startsWith('solar_')).map((n) => n.id))
+	);
+	// Wall mass nodes (inertial lump nodes) — hidden by default in the temperature chart
+	const nodeWallMassIds = $derived(
+		new Set(rcNodes.filter((n) => n.kind === 'mass' && n.id.startsWith('m_')).map((n) => n.id))
 	);
 
 	const SOLAR_STYLE = { stroke: '#ca8a04', fill: 'rgba(234,179,8,0.18)', width: 1, spanGaps: false };
