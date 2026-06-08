@@ -106,12 +106,17 @@ shows autocomplete fields backed by `GET /signals`.
 2. Simulate mode on the house list: checkboxes per row for selection;
    detail-level chip per element row. Selecting a room auto-selects its
    connected elements (opt-out per element).
-3. **`solver/physics.py` — `expand(house, selection) → (rc_model,
+3. ~~**`solver/physics.py` — `expand(house, selection) → (rc_model,
    expansion_map)`**. First pass: `opaque` (lumped + 2R1C), `glazing`
    (lumped), `room` (single C), `air_exchange` (single R), `outdoor`
    (boundary node, pulls `lat`/`lon`/`weather_source` from element).
    - ISO 6946 `R_total = 1/h_i + Σ d/λ + 1/h_e`.
-   - `C = ρ·cp·thickness·area` for lumped wall mass.
+   - `C = ρ·cp·thickness·area` for lumped wall mass.~~ ✓ done
+   - Signature: `expand(house, selection)` — full house + selected UUIDs.
+   - Selected rooms → mass nodes; unselected rooms / outdoor / ground → boundary.
+   - Global material library from `data/materials/`; house-local overrides on top.
+   - Room `input_signal` → source node; `outdoor.obs_signal` → boundary `T_source`.
+   - 18 tests in `solver/tests/test_physics.py`, all passing.
 4. `POST /house/expand` — preview (returns rc_model + expansion_map,
    no persist).
 5. `POST /studies/from_house` — body: `{ selection, period_id_or_range,

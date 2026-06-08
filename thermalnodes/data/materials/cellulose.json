@@ -1,0 +1,9 @@
+{
+  "$schema": "../../schema/material.schema.json",
+  "id": "cellulose",
+  "name": "Ouate de cellulose",
+  "lambda": 0.040,
+  "rho": 50,
+  "cp": 1600,
+  "source": "CSTB / ISO 10456"
+}
