@@ -105,7 +105,62 @@ described above.
 
 ## Backlog
 
-- **Chain-N detail level** for thick walls.
+### Heavy wall — chain-N discretization
+
+For dense materials (concrete, brick, stone), a thick wall has significant
+thermal lag at the 24h period. The penetration depth criterion determines
+whether a wall needs chain discretization:
+
+```
+δ = sqrt(2·α/ω)    with α = λ/(ρ·c),  ω = 2π/86400 rad/s
+```
+
+Typical values at 24h period: concrete ~17 cm, brick ~15 cm, stone ~24 cm,
+insulation ~2 cm (but negligible mass anyway).
+
+**Design decisions:**
+- `chain_n = max(1, ceil(thickness / δ))` computed inside `expand()` from
+  element material properties — never stored, never a user input.
+- Thin layers and insulation stay lumped (`chain_n = 1`).
+- `_expand_opaque()` emits N nodes in series when `chain_n > 1`, splitting
+  R and C evenly: `r_i = R_wall/N`, `c_i = C_wall/N`.
+- Node IDs: `mur_sud_0`, `mur_sud_1`, … — internal, never exposed to the fit.
+
+**Fit reparametrization:**
+- Fit params remain `(R_wall, C_wall)` per element — 2 DOF regardless of N.
+- `_patch_model()` maps `(R_wall, C_wall)` → N node values inside the loop;
+  the expansion map (already built by `expand()`) records which nodes belong
+  to each element.
+- No performance regression: `expand()` still runs once; `assemble()` and
+  `simulate_zoh()` are called every iteration as before; matrix grows by
+  `N-1` state variables per chained wall (negligible).
+- Fit config schema: params named after elements (`"mur_sud.R"`, `"mur_sud.C"`),
+  not after internal nodes.
+
+**UI:**
+- Element row shows a small chain badge (e.g. `×3`) when `chain_n > 1`.
+- RC graph renders the N resistors/capacitors in series for chained walls.
+- Penetration depth is recomputed on every element edit (cheap).
+
+### Parallel/series resistance identifiability
+
+Parallel resistors sharing the same node pair: only the effective parallel R
+is observable from temperature data. Series resistors between the same two
+zones: only the sum is observable.
+
+**Design decisions:**
+- Keep individual element params with their own priors. The prior encodes
+  construction knowledge (material, thickness) and can resolve elements when
+  priors are sufficiently different.
+- `group_params()` in `identifiability.py` already handles parallel grouping:
+  collapses to one scale multiplier, freezes the nominal ratio.
+- **To add:** same grouping logic for series resistors — detect chains where
+  only the sum is identifiable, collapse to one multiplier.
+- Do not reparametrize to effective values by default; let tight priors
+  separate individual elements when the information is there.
+
+### Other
+
 - **Material library extension** — `brique_creuse`, `stone_rubble`,
   `lime_plaster`, `wood_floor`, `tile_clay`, `concrete_slab`.
 - **Materials panel** (left-nav) — browser/editor for the library.
