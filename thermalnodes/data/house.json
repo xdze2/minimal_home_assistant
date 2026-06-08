@@ -8,7 +8,8 @@
       "a": 5,
       "b": 5,
       "c": 3,
-      "furniture_factor": 4.5
+      "furniture_factor": 4.5,
+      "obs_signal": "sonoff_thermometer/humidity?ieee_addr=0x00124b00291976e9&name=sensors/thA"
     },
     {
       "id": "f04cc5d3-680d-4510-95f3-575db56f9c1a",
@@ -28,7 +29,8 @@
         "lon": 4.83,
         "label": "Lyon"
       },
-      "weather_source": "open_meteo"
+      "weather_source": "open_meteo",
+      "obs_signal": "open_meteo_historic/temperature_2m?location=home"
     },
     {
       "id": "a1b2c3d4-0001-0000-0000-000000000003",

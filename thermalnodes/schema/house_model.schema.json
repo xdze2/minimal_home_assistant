@@ -119,6 +119,16 @@
           "minimum": 1.0,
           "default": 2.5,
           "examples": [2.5, 4.0]
+        },
+        "input_signal": {
+          "type": "string",
+          "description": "InfluxDB signal for a heat source / internal gain in this room [W]. Format: measurement/field?tag=val.",
+          "examples": ["zigbee2mqtt/power?name=radiateur_chambre"]
+        },
+        "obs_signal": {
+          "type": "string",
+          "description": "InfluxDB signal for a measured indoor temperature in this room [°C]. Used as observation for fitting.",
+          "examples": ["zigbee2mqtt/temperature?name=salon"]
         }
       }
     },
@@ -321,6 +331,11 @@
           "type": "string",
           "enum": ["open_meteo"],
           "examples": ["open_meteo"]
+        },
+        "obs_signal": {
+          "type": "string",
+          "description": "InfluxDB signal for a measured outdoor temperature [°C]. Overrides weather_source T° when set.",
+          "examples": ["open_meteo/temperature_2m"]
         }
       }
     },

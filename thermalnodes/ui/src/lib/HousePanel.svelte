@@ -1,5 +1,18 @@
 <script>
+  import { onMount } from 'svelte';
+
   let { house, onchange, customMaterials = {}, dirty = false, saveLoading = false, saveError = null, onsave = null, oncreatestudy = null } = $props();
+
+  // ── signals autocomplete ──────────────────────────────────────────────────
+  const API = 'http://localhost:8001';
+  let signals = $state([]);
+
+  onMount(async () => {
+    try {
+      const res = await fetch(`${API}/signals`);
+      if (res.ok) signals = await res.json();
+    } catch { /* offline — autocomplete simply stays empty */ }
+  });
 
   const BUILTIN_MATERIALS = {
     brick_full:     { lambda: 0.8,   rho: 1800, cp: 840,  name: 'Brique pleine' },
@@ -83,12 +96,21 @@
     onchange({ ...house, ...patch });
   }
 
+  function applyPatch(obj, patch) {
+    const result = { ...obj };
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === undefined) delete result[k];
+      else result[k] = v;
+    }
+    return result;
+  }
+
   function patchRoom(id, patch) {
-    patchHouse({ rooms: rooms.map(r => r.id === id ? { ...r, ...patch } : r) });
+    patchHouse({ rooms: rooms.map(r => r.id === id ? applyPatch(r, patch) : r) });
   }
 
   function patchElement(id, patch) {
-    patchHouse({ elements: elements.map(el => el.id === id ? { ...el, ...patch } : el) });
+    patchHouse({ elements: elements.map(el => el.id === id ? applyPatch(el, patch) : el) });
   }
 
   function deleteRoom(id) {
@@ -205,6 +227,12 @@
   function isBoundary(item) {
     return BOUNDARY_KINDS.includes(item.kind);
   }
+
+  function signalIcons(item) {
+    const hasInput = !!item.input_signal?.trim();
+    const hasObs   = !!item.obs_signal?.trim();
+    return { hasInput, hasObs, any: hasInput || hasObs };
+  }
 </script>
 
 <div class="house-panel">
@@ -244,12 +272,17 @@
     {/if}
   </div>
 
+  <datalist id="signal-list-house">
+    {#each signals as s}<option value={s}></option>{/each}
+  </datalist>
+
   <!-- ── grid header ────────────────────────────────────────────────────────── -->
   <div class="grid-header">
     <span></span>
     <span>label</span>
     <span>connectivity</span>
     <span>key figures</span>
+    <span class="col-signals"></span>
     <span class="col-include">include</span>
     <span></span>
   </div>
@@ -265,6 +298,8 @@
       {@const figures = keyFigures(item)}
       {@const displayLabel = item.label || `(${meta.label})`}
 
+      {@const sigs = signalIcons(item)}
+
       <div class="row" class:expanded>
 
         <!-- ── row header (grid row) ── -->
@@ -275,6 +310,10 @@
           <span class="row-label" class:placeholder={!item.label}>{displayLabel}</span>
           <span class="row-conn">{conn ?? ''}</span>
           <span class="row-figures">{figures ?? ''}</span>
+          <span class="col-signals">
+            {#if sigs.hasInput}<span class="sig-icon sig-input" title="Input signal: {item.input_signal}">⤵</span>{/if}
+            {#if sigs.hasObs}<span class="sig-icon sig-obs" title="Observation signal: {item.obs_signal}">◉</span>{/if}
+          </span>
           <span class="col-include" onclick={(e) => e.stopPropagation()}>
             {#if !boundary}
               <input type="checkbox" checked={selected.has(item.id)}
@@ -320,6 +359,25 @@
                   <input type="number" value={item.furniture_factor ?? 2.5} min="1" step="0.5"
                     oninput={(e) => patchRoom(item.id, { furniture_factor: parseFloat(e.target.value) || 1 })} />
                 </label>
+              </div>
+              <div class="signals-section">
+                <div class="signals-title">Signals</div>
+                <div class="field-row">
+                  <label class="field field-wide">
+                    <span class="sig-label sig-label-input">⤵ input (heat source)</span>
+                    <input type="text" list="signal-list-house"
+                      placeholder="measurement/field?tag=val"
+                      value={item.input_signal ?? ''}
+                      oninput={(e) => patchRoom(item.id, { input_signal: e.target.value || undefined })} />
+                  </label>
+                  <label class="field field-wide">
+                    <span class="sig-label sig-label-obs">◉ observation (T° sensor)</span>
+                    <input type="text" list="signal-list-house"
+                      placeholder="measurement/field?tag=val"
+                      value={item.obs_signal ?? ''}
+                      oninput={(e) => patchRoom(item.id, { obs_signal: e.target.value || undefined })} />
+                  </label>
+                </div>
               </div>
 
             {:else if item.kind === 'opaque'}
@@ -517,6 +575,18 @@
                   </select>
                 </label>
               </div>
+              <div class="signals-section">
+                <div class="signals-title">Signals</div>
+                <div class="field-row">
+                  <label class="field field-wide">
+                    <span class="sig-label sig-label-obs">◉ observation (T° override)</span>
+                    <input type="text" list="signal-list-house"
+                      placeholder="measurement/field?tag=val"
+                      value={item.obs_signal ?? ''}
+                      oninput={(e) => patchElement(item.id, { obs_signal: e.target.value || undefined })} />
+                  </label>
+                </div>
+              </div>
 
             {:else if item.kind === 'ground'}
               <div class="field-row">
@@ -632,11 +702,11 @@
   }
   .toolbar-create:hover { background: #15803d; }
 
-  /* ── grid columns: icon | label | connectivity | figures | include | chevron ── */
+  /* ── grid columns: icon | label | connectivity | figures | signals | include | chevron ── */
   .grid-header,
   .row-header {
     display: grid;
-    grid-template-columns: 26px 1fr 1.4fr 1.6fr 52px 20px;
+    grid-template-columns: 26px 1fr 1.4fr 1.6fr 36px 52px 20px;
     align-items: center;
     gap: 0;
   }
@@ -864,4 +934,50 @@
   }
   .icon-btn:hover  { background: #334155; color: #f1f5f9; }
   .del-btn:hover   { color: #ef4444; }
+
+  /* ── signal icons (collapsed row) ── */
+  .col-signals {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 0 2px;
+  }
+
+  .sig-icon {
+    font-size: 11px;
+    line-height: 1;
+    cursor: default;
+  }
+  .sig-input { color: #fbbf24; }
+  .sig-obs   { color: #818cf8; }
+
+  /* ── signals section (expanded editor) ── */
+  .signals-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 6px;
+    border-top: 1px solid #1e293b;
+  }
+
+  .signals-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #94a3b8;
+  }
+
+  .field-wide {
+    min-width: 240px;
+    flex: 1;
+  }
+
+  .sig-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .sig-label-input { color: #fbbf24; }
+  .sig-label-obs   { color: #818cf8; }
 </style>

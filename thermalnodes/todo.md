@@ -90,16 +90,14 @@ Fit comes after.
 
 ~~UUID + label rename deferred to M1c (lower priority than M3).~~ ✓ done (M1c)
 
-### M2 — Periods
+### ~~M2 — Periods~~ → replaced by element signals ✓ done
 
-Named time ranges, reusable across studies.
-
-1. `house.periods: [{ id, start, end, label? }]` — add to schema and
-   `house.json`.
-2. Period editor in the house view (inline row or separate section below
-   the element list).
-3. Period dropdown in the study Inputs panel reads `house.periods`; custom
-   range still possible.
+Predefined periods dropped in favour of attaching signals directly to house
+elements. Each room gets optional `input_signal` (heat source, W) and
+`obs_signal` (T° sensor); `outdoor` gets optional `obs_signal` (T° override).
+Signals use the existing InfluxDB URI format (`measurement/field?tag=val`).
+Collapsed row shows `⤵` / `◉` icons when signals are set; expanded editor
+shows autocomplete fields backed by `GET /signals`.
 
 ### M3 — Selection + `expand()` + study spawning
 
@@ -178,6 +176,9 @@ Named time ranges, reusable across studies.
 
 ## Changelog
 
+- **2026-06** — Element signals (M2 replacement) — `input_signal` / `obs_signal`
+  fields on rooms and outdoor (schema v0.2 extension); house row shows `⤵` / `◉`
+  icons when set; expanded editor has signal fields with InfluxDB autocomplete.
 - **2026-06** — UUID + label (M1c) — schema v0.2: all element and room `id`s are
   UUIDs, `label` is a free-editable string separate from the key; `outdoor` and
   `ground` are proper typed elements (no magic strings in `between`); toolbar
