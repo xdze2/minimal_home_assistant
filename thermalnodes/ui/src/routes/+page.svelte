@@ -144,14 +144,35 @@
 
 	// ── RC model (house-level, derived from expand) ──────────────────────────
 	let rcModel = $state(null);
+	let rcModelLoading = $state(false);
+	let rcModelError = $state(null);
 
 	async function loadRcModel() {
 		if (!houseName) { rcModel = null; return; }
+		rcModelLoading = true;
+		rcModelError = null;
 		try {
 			const res = await fetch(`${API}/houses/${houseName}/expand`, { method: 'POST' });
-			if (res.ok) rcModel = (await res.json()).model;
-		} catch { /* ignore */ }
+			if (res.ok) {
+				rcModel = (await res.json()).model;
+			} else {
+				const body = await res.json().catch(() => ({}));
+				rcModelError = body.detail ?? `expand failed (${res.status})`;
+			}
+		} catch (e) {
+			rcModelError = e.message;
+		} finally {
+			rcModelLoading = false;
+		}
 	}
+
+	// B — debounced auto-refresh when house state changes
+	let _rcDebounceTimer = null;
+	$effect(() => {
+		JSON.stringify(house); // track house deeply
+		if (_rcDebounceTimer) clearTimeout(_rcDebounceTimer);
+		_rcDebounceTimer = setTimeout(() => { loadRcModel(); }, 500);
+	});
 
 	// ── current study state ───────────────────────────────────────────────────
 	let selectedStudyId  = $state(null);
@@ -430,7 +451,7 @@
 				</div>
 				<div class="study-pane">
 					<div class="study-pane-tabs">
-						<button class="sim-tab" class:active={simPaneTab === 'rc'}         onclick={() => (simPaneTab = 'rc')}>RC Graph</button>
+						<button class="sim-tab" class:active={simPaneTab === 'rc'}         onclick={() => { simPaneTab = 'rc'; loadRcModel(); }}>RC Graph</button>
 						<button class="sim-tab" class:active={simPaneTab === 'studies'}    onclick={() => (simPaneTab = 'studies')}>Studies</button>
 						<button class="sim-tab" class:active={simPaneTab === 'sim'}
 							class:disabled={!selectedStudyId}
@@ -441,10 +462,24 @@
 					{#if simPaneTab === 'rc'}
 						{#if rcModel}
 							<div class="sim-pane-body">
+								<div class="rc-graph-toolbar">
+									<button class="rc-refresh-btn" onclick={loadRcModel} disabled={rcModelLoading} title="Refresh RC graph">
+										{rcModelLoading ? '…' : '⟳'}
+									</button>
+								</div>
 								<GraphView model={rcModel} selected={null} onselect={() => {}} onaddedge={() => {}} groups={paramGroups} />
 							</div>
 						{:else}
-							<div class="study-pane-empty"><span>no RC model</span></div>
+							<div class="study-pane-empty">
+								{#if rcModelError}
+									<span class="rc-model-error">{rcModelError}</span>
+								{:else}
+									<span>no RC model</span>
+								{/if}
+								<button class="rc-refresh-btn" onclick={loadRcModel} disabled={rcModelLoading}>
+									{rcModelLoading ? 'loading…' : '⟳ refresh'}
+								</button>
+							</div>
 						{/if}
 
 					{:else if simPaneTab === 'studies'}
@@ -750,11 +785,34 @@
 	.study-pane-empty {
 		flex: 1;
 		display: flex;
+		flex-direction: column;
+		gap: 8px;
 		align-items: center;
 		justify-content: center;
 		color: #334155;
 		font-size: 12px;
 	}
+
+	.rc-graph-toolbar {
+		position: absolute;
+		top: 6px;
+		right: 8px;
+		z-index: 10;
+	}
+
+	.rc-refresh-btn {
+		background: none;
+		border: 1px solid #334155;
+		color: #64748b;
+		border-radius: 4px;
+		padding: 2px 7px;
+		font-size: 13px;
+		cursor: pointer;
+		line-height: 1.4;
+	}
+	.rc-refresh-btn:hover:not(:disabled) { color: #94a3b8; border-color: #475569; }
+	.rc-refresh-btn:disabled { opacity: 0.4; cursor: default; }
+	.rc-model-error { color: #f87171; max-width: 260px; text-align: center; }
 
 	.study-pane-error { color: #f87171 !important; }
 
@@ -842,6 +900,7 @@
 
 	.sim-pane-body {
 		flex: 1;
+		position: relative;
 		display: flex;
 		flex-direction: column;
 		min-height: 0;

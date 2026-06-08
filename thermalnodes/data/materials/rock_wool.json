@@ -1,0 +1,10 @@
+{
+  "$schema": "../../schema/material.schema.json",
+  "id": "rock_wool",
+  "name": "Laine de roche",
+  "lambda": 0.036,
+  "rho": 30,
+  "cp": 840,
+  "source": "ISO 10456:2007 Table 1",
+  "notes": "Thickness set per assembly layer; this entry gives bulk constants only."
+}

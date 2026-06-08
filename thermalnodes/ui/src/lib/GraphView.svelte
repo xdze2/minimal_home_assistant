@@ -121,6 +121,7 @@
 	<svg
 		class="graph"
 		viewBox={layout.viewBox}
+		preserveAspectRatio="xMidYMid meet"
 		xmlns="http://www.w3.org/2000/svg"
 	>
 		<!-- wire edges -->
@@ -252,11 +253,17 @@
 		flex: 1;
 		position: relative;
 		min-width: 0;
+		min-height: 0;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.graph {
+		flex: 1;
 		width: 100%;
 		height: 100%;
+		min-height: 0;
 		display: block;
 		background: #0f172a;
 	}

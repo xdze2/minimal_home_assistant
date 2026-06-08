@@ -109,10 +109,17 @@ def _opaque_R_total(element: dict, materials: dict) -> float:
     h_e = element.get("h_e", 25.0)
     R_si = 1.0 / h_i
     R_se = 1.0 / h_e
-    R_layers = sum(
-        layer["thickness"] / materials[layer["material"]]["lambda"]
-        for layer in element["layers"]
-    )
+    R_layers = 0.0
+    for layer in element["layers"]:
+        mat_id = layer["material"]
+        if mat_id not in materials:
+            label = _safe_label(element)
+            available = sorted(materials.keys())
+            raise KeyError(
+                f"Unknown material '{mat_id}' in element '{label}'. "
+                f"Available: {available}"
+            )
+        R_layers += layer["thickness"] / materials[mat_id]["lambda"]
     area = element["a"] * element["b"]
     # Convert m²·K/W → K/W
     return (R_si + R_layers + R_se) / area
