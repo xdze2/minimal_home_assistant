@@ -282,6 +282,22 @@ def post_simulate_run(req: SimulateRequest) -> dict:
         except Exception as e:
             errors[node_id] = str(e)
 
+    # Auto-fetch signals for source nodes (e.g. solar gains from glazing with SHGC)
+    # that are not already covered by req.inputs.
+    nodes_by_id = {n["id"]: n for n in rc_model.get("nodes", [])}
+    for src_id in system.source_ids:
+        if src_id in inputs:
+            continue
+        node = nodes_by_id.get(src_id, {})
+        signal_name = node.get("signal")
+        if signal_name:
+            try:
+                s = fetch_series(signal_name, req.start, req.end)
+                t_sec = s.index.astype("int64") / 1e9
+                inputs[src_id] = (t_sec.to_numpy(), s.to_numpy(dtype=float))
+            except Exception as e:
+                errors[src_id] = str(e)
+
     if errors:
         raise HTTPException(
             status_code=400,
