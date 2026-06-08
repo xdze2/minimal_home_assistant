@@ -45,6 +45,7 @@
 			house              = await res.json();
 			houseName          = name;
 			houseSavedSnapshot = JSON.stringify(house);
+			loadRcModel();
 		} catch (e) {
 			alert(`Failed to load house: ${e.message}`);
 		}
@@ -102,7 +103,7 @@
 			houseName = null;
 			house = null;
 			selectedStudyId = null;
-			model = null;
+			rcModel = null;
 			activeSection = 'houses';
 			await loadHousesList();
 		} catch (e) {
@@ -141,9 +142,19 @@
 	// ── studies (embedded in house) ───────────────────────────────────────────
 	const studies = $derived(house?.studies ?? []);
 
+	// ── RC model (house-level, derived from expand) ──────────────────────────
+	let rcModel = $state(null);
+
+	async function loadRcModel() {
+		if (!houseName) { rcModel = null; return; }
+		try {
+			const res = await fetch(`${API}/houses/${houseName}/expand`, { method: 'POST' });
+			if (res.ok) rcModel = (await res.json()).model;
+		} catch { /* ignore */ }
+	}
+
 	// ── current study state ───────────────────────────────────────────────────
 	let selectedStudyId  = $state(null);
-	let model            = $state(null);
 	let simInputs        = $state({});
 	let simRange         = $state({ start: '', end: '' });
 	let simSolver        = $state('zoh');
@@ -156,7 +167,7 @@
 	let lastRunSnapshot   = $state(null);
 
 	function studySnapshot() {
-		return JSON.stringify({ model, inputs: simInputs, observations: simObservations, start: simRange.start, end: simRange.end, solver: simSolver });
+		return JSON.stringify({ inputs: simInputs, observations: simObservations, start: simRange.start, end: simRange.end, solver: simSolver });
 	}
 
 	const studyDirty = $derived(lastSavedSnapshot !== null && studySnapshot() !== lastSavedSnapshot);
@@ -164,16 +175,15 @@
 
 	function onRunSuccess() {
 		lastRunSnapshot = studySnapshot();
+		loadHouse(houseName);
 	}
 
 	function loadStudyIntoState(study) {
-		const snap          = $state.snapshot(study);
-		model            = snap.model ?? snap;
+		const snap       = $state.snapshot(study);
 		simInputs        = snap.inputs ?? {};
 		simRange         = { start: snap.start ?? '', end: snap.end ?? '' };
 		simSolver        = snap.solver ?? 'zoh';
 		simObservations  = snap.observations ?? {};
-		selected         = null;
 		lastSavedSnapshot = studySnapshot();
 		lastRunSnapshot   = null;
 	}
@@ -197,8 +207,8 @@
 		saveError   = null;
 		const studyPayload = {
 			id:           selectedStudyId,
-			label:        model?.name ?? selectedStudyId,
-			model,
+			label:        selectedStudy?.label ?? selectedStudyId,
+			type:         selectedStudy?.type ?? 'run',
 			start:        simRange.start,
 			end:          simRange.end,
 			inputs:       simInputs,
@@ -278,38 +288,22 @@
 		}
 	}
 
-	// ── duplicate study ───────────────────────────────────────────────────────
-	let dupSourceId    = $state(null);
-	let dupDialogOpen  = $state(false);
-	let dupLoading     = $state(false);
-	let dupError       = $state(null);
-
-	function openDupDialog(sourceId) {
-		dupSourceId   = sourceId;
-		dupError      = null;
-		dupDialogOpen = true;
-	}
-
-	async function confirmDuplicate() {
-		if (!houseName || !dupSourceId) return;
-		dupLoading = true;
-		dupError   = null;
+	async function deleteStudy(studyId) {
+		if (!houseName) return;
+		if (!confirm('Delete this study?')) return;
 		try {
-			const res = await fetch(`${API}/houses/${houseName}/studies/${dupSourceId}/duplicate`, {
-				method: 'POST',
-			});
+			const res = await fetch(`${API}/houses/${houseName}/studies/${studyId}`, { method: 'DELETE' });
 			if (!res.ok) {
 				const d = await res.json().catch(() => ({}));
 				throw new Error(d.detail ?? res.statusText);
 			}
-			const data = await res.json();
-			dupDialogOpen = false;
+			if (selectedStudyId === studyId) {
+				selectedStudyId = null;
+				simPaneTab = 'studies';
+			}
 			await loadHouse(houseName);
-			await openStudy(data.id);
 		} catch (e) {
-			dupError = e.message;
-		} finally {
-			dupLoading = false;
+			alert(`Failed to delete study: ${e.message}`);
 		}
 	}
 
@@ -336,74 +330,14 @@
 		} catch { /* silently ignore */ }
 	}
 
-	$effect(() => { refreshGroups(model); });
-
-	// ── graph node selection + operations ─────────────────────────────────────
-	let selected  = $state(null);
-	let idCounter = $state(0);
-
-	function onpatch(kind, id, patch) {
-		model = { ...model, nodes: model.nodes.map((n) => n.id === id && n.kind === kind ? { ...n, ...patch } : n) };
-	}
-
-	function onadd(kind) {
-		const uid = `${kind}_${++idCounter}`;
-		const newNode =
-			kind === 'mass'       ? { id: uid, kind, label: 'New mass',       C: 1_000_000 } :
-			kind === 'boundary'   ? { id: uid, kind, label: 'New boundary',   T_source: 'signal_name' } :
-			kind === 'source'     ? { id: uid, kind, label: 'New source',     signal: 'signal_name', gain: 1.0 } :
-			/* resistance */        { id: uid, kind, label: 'New resistance', R: 1.0 };
-		model    = { ...model, nodes: [...(model.nodes ?? []), newNode] };
-		selected = { kind, id: uid };
-	}
-
-	function ondelete(kind, id) {
-		model    = { ...model, nodes: model.nodes.filter((n) => !(n.id === id && n.kind === kind)), edges: (model.edges ?? []).filter((e) => e.from !== id && e.to !== id) };
-		selected = null;
-	}
-
-	function onaddedge(from, to) {
-		const exists = (model.edges ?? []).some((e) => e.from === from && e.to === to);
-		if (!exists && from !== to) model = { ...model, edges: [...(model.edges ?? []), { from, to }] };
-	}
-
-	function ondeleteedge(from, to) {
-		model    = { ...model, edges: (model.edges ?? []).filter((e) => !(e.from === from && e.to === to)) };
-		selected = null;
-	}
-
-	function onKeyDown(e) {
-		if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'SELECT') return;
-		if (e.key === 'Delete' || e.key === 'Backspace') {
-			if (selected?.kind === 'edge') ondeleteedge(selected.from, selected.to);
-			else if (selected) ondelete(selected.kind, selected.id);
-		}
-	}
+	$effect(() => { refreshGroups(rcModel); });
 
 	onMount(async () => {
 		await loadHousesList();
 	});
 </script>
 
-<svelte:window onkeydown={onKeyDown} />
 
-<!-- ── duplicate dialog ──────────────────────────────────────────────────── -->
-{#if dupDialogOpen}
-	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-	<div class="dialog-backdrop" onclick={() => (dupDialogOpen = false)}>
-		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-		<div class="dialog" onclick={(e) => e.stopPropagation()}>
-			<div class="dialog-title">Duplicate study</div>
-			{#if dupError}<div class="dialog-error">{dupError}</div>{/if}
-			<div class="dialog-actions">
-				<button onclick={() => (dupDialogOpen = false)}>Cancel</button>
-				<button class="primary" onclick={confirmDuplicate} disabled={dupLoading}>
-					{dupLoading ? 'Duplicating…' : 'Duplicate'}
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
 
 <!-- ── shell ─────────────────────────────────────────────────────────────── -->
 <div class="shell">
@@ -424,7 +358,7 @@
 			<!-- house sub-nav -->
 			{#if activeSection === 'house' && houseName}
 				<div class="nav-divider"></div>
-				<button class="nav-item nav-back" onclick={() => { houseName = null; house = null; selectedStudyId = null; model = null; activeSection = 'houses'; }}>← all houses</button>
+				<button class="nav-item nav-back" onclick={() => { houseName = null; house = null; selectedStudyId = null; rcModel = null; activeSection = 'houses'; }}>← all houses</button>
 			{/if}
 		</div>
 	</nav>
@@ -505,12 +439,12 @@
 					</div>
 
 					{#if simPaneTab === 'rc'}
-						{#if model}
+						{#if rcModel}
 							<div class="sim-pane-body">
-								<GraphView {model} selected={null} onselect={() => {}} onaddedge={() => {}} groups={paramGroups} />
+								<GraphView model={rcModel} selected={null} onselect={() => {}} onaddedge={() => {}} groups={paramGroups} />
 							</div>
 						{:else}
-							<div class="study-pane-empty"><span>no RC model — save the house first</span></div>
+							<div class="study-pane-empty"><span>no RC model</span></div>
 						{/if}
 
 					{:else if simPaneTab === 'studies'}
@@ -560,7 +494,7 @@
 													{/if}
 												</td>
 												<td class="col-actions" onclick={(e) => e.stopPropagation()}>
-													<button class="card-action" onclick={() => openDupDialog(s.id)} title="Duplicate">⎘</button>
+													<button class="card-action card-action-del" onclick={() => deleteStudy(s.id)} title="Delete">✕</button>
 												</td>
 											</tr>
 										{/each}
@@ -576,10 +510,10 @@
 							<div class="study-pane-empty"><span>creating…</span></div>
 						{:else if createStudyError}
 							<div class="study-pane-empty study-pane-error"><span>{createStudyError}</span></div>
-						{:else if model}
+						{:else}
 							<!-- ── study header bar ── -->
 							<div class="study-save-bar">
-								<button class="study-back-btn" onclick={() => { selectedStudyId = null; model = null; simPaneTab = 'studies'; }}>← studies</button>
+								<button class="study-back-btn" onclick={() => { selectedStudyId = null; simPaneTab = 'studies'; }}>← studies</button>
 								<span class="study-save-label">{selectedStudy?.label ?? selectedStudyId}</span>
 								<span class="type-badge type-{selectedStudy?.type ?? 'run'} badge-sm">{selectedStudy?.type ?? 'run'}</span>
 								<button class="study-save-btn" class:dirty={studyDirty} onclick={saveStudy} disabled={saveLoading}>
@@ -640,7 +574,8 @@
 
 							<div class="sim-pane-body scrollable">
 								<SimulationRun
-									{model}
+									house_name={houseName}
+									study_id={selectedStudyId}
 									inputs={simInputs}
 									range={simRange}
 									observations={simObservations}
@@ -651,8 +586,6 @@
 									onready={(fn) => (triggerRun = fn)}
 								/>
 							</div>
-						{:else}
-							<div class="study-pane-empty"><span>no model</span></div>
 						{/if}
 					{/if}
 				</div>
@@ -1257,6 +1190,7 @@
 		line-height: 1;
 	}
 	.card-action:hover { background: #334155; color: #f1f5f9; }
+	.card-action-del:hover { background: #7f1d1d; color: #fca5a5; }
 
 	.card-empty {
 		border-style: dashed;

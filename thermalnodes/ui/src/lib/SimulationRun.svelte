@@ -6,7 +6,8 @@
 	const API = 'http://localhost:8001';
 
 	let {
-		model,
+		house_name,
+		study_id,
 		inputs       = {},
 		range        = { start: '', end: '' },
 		observations = {},
@@ -40,7 +41,7 @@
 		inputSeries = null;
 		obsSeries   = null;
 		try {
-			const body = { model, start: range.start, end: range.end, inputs, solver };
+			const body = { house_name, study_id, start: range.start, end: range.end, inputs, solver };
 			const res  = await fetch(`${API}/simulate/run`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
@@ -163,14 +164,15 @@
 	let inpPowerContainer = $state(null);
 	let inpPowerChart     = null;
 
+	const rcNodes = $derived(simResult?.rc_model?.nodes ?? []);
 	const nodeKindMap   = $derived(
-		Object.fromEntries((model?.nodes ?? []).map((n) => [n.id, n.kind]))
+		Object.fromEntries(rcNodes.map((n) => [n.id, n.kind]))
 	);
 	const nodeLabels    = $derived(
-		Object.fromEntries((model?.nodes ?? []).map((n) => [n.id, n.label ?? n.id]))
+		Object.fromEntries(rcNodes.map((n) => [n.id, n.label ?? n.id]))
 	);
 	const nodeSolarIds  = $derived(
-		new Set((model?.nodes ?? []).filter((n) => n.id.startsWith('solar_')).map((n) => n.id))
+		new Set(rcNodes.filter((n) => n.id.startsWith('solar_')).map((n) => n.id))
 	);
 
 	const SOLAR_STYLE = { stroke: '#ca8a04', fill: 'rgba(234,179,8,0.18)', width: 1, spanGaps: false };

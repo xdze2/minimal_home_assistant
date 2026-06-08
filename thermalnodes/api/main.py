@@ -154,48 +154,47 @@ def post_house_expand(name: str) -> dict:
 
 @app.post("/houses/{name}/studies")
 def create_study(name: str, body: dict) -> dict:
-    """Expand the house and create a new study embedded in it.
+    """Create a new study embedded in the house.
 
     Body fields (all optional):
         label: str
-    Returns {"ok": True, "id": study_id, "model": rc_model}
+        type: "run" | "fit"
+    Returns {"ok": True, "id": study_id}
     """
     house = _load_house(name)
+
+    # Pre-populate inputs from house element signals
     try:
-        rc_model, expansion_map = expand(house)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        rc_model, _ = expand(house)
+        auto_inputs: dict[str, str] = {}
+        for node in rc_model.get("nodes", []):
+            if node["kind"] == "boundary":
+                t_src = node.get("T_source")
+                if isinstance(t_src, str):
+                    auto_inputs[node["id"]] = t_src
+            elif node["kind"] == "source":
+                sig = node.get("signal")
+                if sig:
+                    auto_inputs[node["id"]] = sig
+    except Exception:
+        auto_inputs = {}
 
     study_id = str(uuid.uuid4())
-    label = (body.get("label") or "").strip() or rc_model.get("name", study_id)
-    rc_model["name"] = label
-
-    auto_inputs: dict[str, str] = {}
-    for node in rc_model.get("nodes", []):
-        if node["kind"] == "boundary":
-            t_src = node.get("T_source")
-            if isinstance(t_src, str):
-                auto_inputs[node["id"]] = t_src
-        elif node["kind"] == "source":
-            sig = node.get("signal")
-            if sig:
-                auto_inputs[node["id"]] = sig
-
+    label = (body.get("label") or "").strip() or house.get("label", study_id)
     study = {
-        "id":            study_id,
-        "label":         label,
-        "model":         rc_model,
-        "expansion_map": expansion_map,
-        "inputs":        auto_inputs,
-        "observations":  {},
-        "start":         "",
-        "end":           "",
-        "solver":        "zoh",
+        "id":           study_id,
+        "label":        label,
+        "type":         body.get("type", "run"),
+        "inputs":       auto_inputs,
+        "observations": {},
+        "start":        "",
+        "end":          "",
+        "solver":       "zoh",
     }
 
     house.setdefault("studies", []).append(study)
     _save_house(name, house)
-    return {"ok": True, "id": study_id, "model": rc_model}
+    return {"ok": True, "id": study_id}
 
 
 @app.get("/houses/{name}/studies/{study_id}")
@@ -237,46 +236,32 @@ def delete_study(name: str, study_id: str) -> dict:
     return {"ok": True}
 
 
-@app.post("/houses/{name}/studies/{study_id}/duplicate")
-def duplicate_study(name: str, study_id: str) -> dict:
-    house = _load_house(name)
-    source = next((s for s in house.get("studies", []) if s["id"] == study_id), None)
-    if source is None:
-        raise HTTPException(status_code=404, detail=f"Study '{study_id}' not found in house '{name}'")
-    import copy
-    new_study = copy.deepcopy(source)
-    new_id = str(uuid.uuid4())
-    new_study["id"] = new_id
-    new_study["label"] = (new_study.get("label") or study_id) + " (copy)"
-    # Don't copy run/fit results into the duplicate
-    new_study.pop("run", None)
-    new_study.pop("fit", None)
-    house["studies"].append(new_study)
-    _save_house(name, house)
-    return {"ok": True, "id": new_id}
-
 
 # ── simulate ──────────────────────────────────────────────────────────────────
 
 class SimulateRequest(BaseModel):
-    model: dict
+    house_name: str
+    study_id: str
     start: str
     end: str
     inputs: dict[str, str]  # node_id → signal name
-    solver: str = "ivp"     # "ivp" | "zoh"
+    solver: str = "zoh"     # "ivp" | "zoh"
     dt_minutes: int = 15    # ZOH time step (ignored for ivp)
-    # Optional: if provided, save result into house study
-    house_name: str | None = None
-    study_id: str | None = None
 
 
 @app.post("/simulate/run")
 def post_simulate_run(req: SimulateRequest) -> dict:
-    """Fetch inputs from InfluxDB and run the real IVP/ZOH solver."""
+    """Expand the house, fetch inputs from InfluxDB, run the solver, persist result."""
     import numpy as np
 
+    house = _load_house(req.house_name)
     try:
-        system = assemble(req.model)
+        rc_model, _ = expand(house)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Expand error: {e}") from e
+
+    try:
+        system = assemble(rc_model)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Model assembly error: {e}") from e
 
@@ -311,7 +296,25 @@ def post_simulate_run(req: SimulateRequest) -> dict:
         datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).isoformat()
         for ts in result.t
     ]
-    response = {
+    current_hash = _compute_model_hash(house)
+    timestamp = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%dT%H%M%S")
+    run_record = {
+        "model_hash": current_hash,
+        "timestamp":  timestamp,
+        "settings": {
+            "solver":     req.solver,
+            "start":      req.start,
+            "end":        req.end,
+            "dt_minutes": req.dt_minutes,
+        },
+    }
+    for study in house.get("studies", []):
+        if study["id"] == req.study_id:
+            study["run"] = run_record
+            break
+    _save_house(req.house_name, house)
+
+    return {
         "t": t_iso,
         "nodes": {mid: list(arr) for mid, arr in result.temps.items()},
         "meta": {
@@ -322,34 +325,9 @@ def post_simulate_run(req: SimulateRequest) -> dict:
             "success": result.success,
             "message": result.message,
         },
+        "run_record": run_record,
+        "rc_model": rc_model,
     }
-
-    # Persist run result into house study if context provided
-    if req.house_name and req.study_id:
-        try:
-            house = _load_house(req.house_name)
-            current_hash = _compute_model_hash(house)
-            timestamp = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%dT%H%M%S")
-            run_record = {
-                "model_hash": current_hash,
-                "timestamp":  timestamp,
-                "settings": {
-                    "solver":     req.solver,
-                    "start":      req.start,
-                    "end":        req.end,
-                    "dt_minutes": req.dt_minutes,
-                },
-            }
-            for study in house.get("studies", []):
-                if study["id"] == req.study_id:
-                    study["run"] = run_record
-                    break
-            _save_house(req.house_name, house)
-            response["run_record"] = run_record
-        except Exception:
-            pass  # best-effort; don't fail the simulation response
-
-    return response
 
 
 # ── fit ───────────────────────────────────────────────────────────────────────
@@ -368,7 +346,8 @@ def post_fit_preview_groups(req: PreviewGroupsRequest) -> list[list[str]]:
 
 
 class FitRequest(BaseModel):
-    model: dict
+    house_name: str
+    study_id: str
     start: str
     end: str
     inputs: dict[str, str]
@@ -377,15 +356,18 @@ class FitRequest(BaseModel):
     obs_sigma: float = 0.5
     method: str = "nls"
     dt_minutes: int = 15
-    # Optional: if provided, save result into house study
-    house_name: str | None = None
-    study_id: str | None = None
 
 
 @app.post("/fit/run")
 def post_fit_run(req: FitRequest) -> dict:
-    """Fetch inputs + observations from InfluxDB, then run NLS or MCMC fit."""
+    """Expand the house, fetch inputs + observations from InfluxDB, run NLS or MCMC fit, persist result."""
     import numpy as np
+
+    house = _load_house(req.house_name)
+    try:
+        rc_model, _ = expand(house)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Expand error: {e}") from e
 
     inputs: dict[str, tuple[np.ndarray, np.ndarray]] = {}
     errors: dict[str, str] = {}
@@ -420,7 +402,7 @@ def post_fit_run(req: FitRequest) -> dict:
 
     try:
         forward_fn, log_p0, param_keys, groups = build_forward(
-            req.model, inputs, observations, fit_config,
+            rc_model, inputs, observations, fit_config,
             req.start, req.end, req.dt_minutes,
         )
     except Exception as e:
@@ -455,31 +437,26 @@ def post_fit_run(req: FitRequest) -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Fit error: {e}") from e
 
-    # Persist fit result into house study if context provided
-    if req.house_name and req.study_id:
-        try:
-            house = _load_house(req.house_name)
-            current_hash = _compute_model_hash(house)
-            timestamp = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%dT%H%M%S")
-            fit_record = {
-                "model_hash":    current_hash,
-                "timestamp":     timestamp,
-                "settings": {
-                    "method":     req.method,
-                    "start":      req.start,
-                    "end":        req.end,
-                    "dt_minutes": req.dt_minutes,
-                },
-                "result_params": response.get("params_fitted") or response.get("params_mean"),
-            }
-            for study in house.get("studies", []):
-                if study["id"] == req.study_id:
-                    study["fit"] = fit_record
-                    break
-            _save_house(req.house_name, house)
-            response["fit_record"] = fit_record
-        except Exception:
-            pass
+    current_hash = _compute_model_hash(house)
+    timestamp = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y%m%dT%H%M%S")
+    fit_record = {
+        "model_hash":    current_hash,
+        "timestamp":     timestamp,
+        "settings": {
+            "method":     req.method,
+            "start":      req.start,
+            "end":        req.end,
+            "dt_minutes": req.dt_minutes,
+        },
+        "result_params": response.get("params_fitted") or response.get("params_mean"),
+    }
+    for study in house.get("studies", []):
+        if study["id"] == req.study_id:
+            study["fit"] = fit_record
+            break
+    _save_house(req.house_name, house)
+    response["fit_record"] = fit_record
+    response["rc_model"] = rc_model
 
     return response
 
