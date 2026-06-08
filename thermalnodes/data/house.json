@@ -9,7 +9,7 @@
       "b": 5,
       "c": 3,
       "furniture_factor": 4.5,
-      "obs_signal": "sonoff_thermometer/humidity?ieee_addr=0x00124b00291976e9&name=sensors/thA"
+      "obs_signal": "sonoff_thermometer/temperature?ieee_addr=0x00124b002919774f&name=sensors/thE"
     }
   ],
   "elements": [
@@ -24,11 +24,6 @@
       },
       "obs_signal": "open_meteo_historic/temperature_2m?location=home",
       "solar_signal": "open_meteo_historic/shortwave_radiation?location=home"
-    },
-    {
-      "id": "a1b2c3d4-0001-0000-0000-000000000003",
-      "kind": "ground",
-      "label": "Sol"
     },
     {
       "id": "a1b2c3d4-0001-0000-0000-000000000004",
@@ -46,10 +41,6 @@
         {
           "material": "brick_full",
           "thickness": 0.3
-        },
-        {
-          "material": "cellulose",
-          "thickness": 0.04
         }
       ]
     },
@@ -67,16 +58,6 @@
       "tilt": 90,
       "U": 2.8,
       "SHGC": 0.67
-    },
-    {
-      "id": "a1b2c3d4-0001-0000-0000-000000000006",
-      "kind": "air_exchange",
-      "label": "Infiltrations",
-      "between": [
-        "a1b2c3d4-0001-0000-0000-000000000001",
-        "a1b2c3d4-0001-0000-0000-000000000002"
-      ],
-      "ach": 0.4
     }
   ]
 }
