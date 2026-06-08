@@ -1,27 +1,47 @@
 {
-  "label": "Maison",
+  "schema_version": "0.2",
+  "label": "Maison test",
   "rooms": [
     {
-      "id": "chbr",
+      "id": "a1b2c3d4-0001-0000-0000-000000000001",
+      "label": "Chambre",
       "a": 5,
       "b": 5,
       "c": 3,
       "furniture_factor": 4.5
+    },
+    {
+      "id": "f04cc5d3-680d-4510-95f3-575db56f9c1a",
+      "label": "",
+      "a": 4,
+      "b": 4,
+      "c": 2.5
     }
   ],
-  "defaults": {
-    "inputs": {
-      "exterior": "open_meteo/temperature_2m"
-    },
-    "solver": "zoh"
-  },
   "elements": [
     {
-      "id": "wall_1",
+      "id": "a1b2c3d4-0001-0000-0000-000000000002",
+      "kind": "outdoor",
+      "label": "Extérieur",
+      "location": {
+        "lat": 45.76,
+        "lon": 4.83,
+        "label": "Lyon"
+      },
+      "weather_source": "open_meteo"
+    },
+    {
+      "id": "a1b2c3d4-0001-0000-0000-000000000003",
+      "kind": "ground",
+      "label": "Sol"
+    },
+    {
+      "id": "a1b2c3d4-0001-0000-0000-000000000004",
       "kind": "opaque",
+      "label": "Mur SE",
       "between": [
-        "chbr",
-        "outdoor"
+        "a1b2c3d4-0001-0000-0000-000000000001",
+        "a1b2c3d4-0001-0000-0000-000000000002"
       ],
       "a": 4,
       "b": 2.5,
@@ -34,16 +54,17 @@
         },
         {
           "material": "cellulose",
-          "thickness": 0.4
+          "thickness": 0.04
         }
       ]
     },
     {
-      "id": "win_2",
+      "id": "a1b2c3d4-0001-0000-0000-000000000005",
       "kind": "glazing",
+      "label": "Fenêtre SE",
       "between": [
-        "chbr",
-        "outdoor"
+        "a1b2c3d4-0001-0000-0000-000000000001",
+        "a1b2c3d4-0001-0000-0000-000000000002"
       ],
       "a": 1.2,
       "b": 1.7,
@@ -53,14 +74,14 @@
       "SHGC": 0.67
     },
     {
-      "id": "outdoor",
-      "kind": "outdoor",
-      "location": {
-        "lat": 45.76,
-        "lon": 4.83,
-        "label": "Lyon"
-      },
-      "weather_source": "open_meteo"
+      "id": "a1b2c3d4-0001-0000-0000-000000000006",
+      "kind": "air_exchange",
+      "label": "Infiltrations",
+      "between": [
+        "a1b2c3d4-0001-0000-0000-000000000001",
+        "a1b2c3d4-0001-0000-0000-000000000002"
+      ],
+      "ach": 0.4
     }
   ]
 }

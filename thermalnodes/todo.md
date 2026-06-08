@@ -88,7 +88,7 @@ Fit comes after.
 - Key figures computed client-side: volume (rooms), area + UA (walls/glazing),
   ACH (air exchange).
 
-UUID + label rename deferred to M1c (lower priority than M3).
+~~UUID + label rename deferred to M1c (lower priority than M3).~~ ✓ done (M1c)
 
 ### M2 — Periods
 
@@ -178,6 +178,11 @@ Named time ranges, reusable across studies.
 
 ## Changelog
 
+- **2026-06** — UUID + label (M1c) — schema v0.2: all element and room `id`s are
+  UUIDs, `label` is a free-editable string separate from the key; `outdoor` and
+  `ground` are proper typed elements (no magic strings in `between`); toolbar
+  buttons create a skeleton + expand immediately (single unified edit form, no
+  separate add form); `house.json` rewritten from scratch.
 - **2026-06** — House view: grid + split view — CSS grid columns (icon, label,
   connectivity, key figures, include checkbox); toolbar with add buttons, Save,
   Create study; split layout with placeholder simulation pane; row-click to

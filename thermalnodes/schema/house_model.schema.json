@@ -4,13 +4,12 @@
   "title": "HouseModel",
   "description": "Physics-layer description of a building. Expands to an RC network via solver/physics.py.",
   "type": "object",
-  "required": ["schema_version", "id", "rooms", "elements"],
+  "required": ["schema_version", "rooms", "elements"],
   "additionalProperties": false,
   "properties": {
 
-    "schema_version": { "type": "string", "const": "0.1" },
-    "id":    { "type": "string", "examples": ["maison_test"] },
-    "name":  { "type": "string", "examples": ["Maison test — chambre + salon"] },
+    "schema_version": { "type": "string", "const": "0.2" },
+    "label": { "type": "string", "examples": ["Maison test"] },
     "notes": { "type": "string" },
 
     "materials": {
@@ -33,12 +32,14 @@
 
     "elements": {
       "type": "array",
-      "description": "Building envelope and exchange elements connecting rooms or rooms to virtual zones.",
+      "description": "Building envelope and exchange elements connecting rooms or rooms to boundary zones.",
       "items": {
         "oneOf": [
           { "$ref": "#/$defs/opaque_element" },
           { "$ref": "#/$defs/glazing_element" },
-          { "$ref": "#/$defs/air_exchange_element" }
+          { "$ref": "#/$defs/air_exchange_element" },
+          { "$ref": "#/$defs/outdoor_element" },
+          { "$ref": "#/$defs/ground_element" }
         ]
       }
     }
@@ -46,6 +47,12 @@
   },
 
   "$defs": {
+
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "RFC 4122 UUID v4."
+    },
 
     "material_entry": {
       "type": "object",
@@ -80,27 +87,31 @@
       }
     },
 
-    "zone_ref": {
-      "description": "A room id or a virtual zone identifier.",
-      "oneOf": [
-        { "type": "string", "enum": ["outdoor", "ground"], "description": "Virtual zone." },
-        { "type": "string", "pattern": "^[a-zA-Z0-9_-]+$", "description": "Room id defined in the rooms array." }
-      ]
-    },
-
     "room": {
       "type": "object",
       "description": "A thermal zone treated as a single well-mixed air mass.",
-      "required": ["id", "volume"],
+      "required": ["id", "label"],
       "additionalProperties": false,
       "properties": {
-        "id":     { "type": "string", "examples": ["chambre", "salon", "cuisine"] },
-        "name":   { "type": "string" },
-        "volume": {
+        "id":    { "$ref": "#/$defs/uuid" },
+        "label": { "type": "string", "examples": ["Chambre", "Salon", "Cuisine"] },
+        "a": {
           "type": "number",
-          "description": "Room air volume [m³]. Drives the air thermal capacitance.",
+          "description": "Room width [m].",
           "exclusiveMinimum": 0,
-          "examples": [45.0, 75.0]
+          "examples": [4.0, 5.0]
+        },
+        "b": {
+          "type": "number",
+          "description": "Room depth [m].",
+          "exclusiveMinimum": 0,
+          "examples": [4.0, 6.0]
+        },
+        "c": {
+          "type": "number",
+          "description": "Ceiling height [m].",
+          "exclusiveMinimum": 0,
+          "examples": [2.5, 3.0]
         },
         "furniture_factor": {
           "type": "number",
@@ -135,19 +146,18 @@
     "opaque_element": {
       "type": "object",
       "description": "Opaque building element: wall, roof, or floor. Modelled as a layered RC stack.",
-      "required": ["id", "kind", "between", "a", "b", "layers"],
+      "required": ["id", "kind", "label", "between", "a", "b", "layers"],
       "additionalProperties": false,
       "properties": {
-        "id":   { "type": "string", "examples": ["mur_SE", "toit_nord", "plancher"] },
-        "kind": { "type": "string", "const": "opaque" },
-        "name": { "type": "string" },
+        "id":    { "$ref": "#/$defs/uuid" },
+        "kind":  { "type": "string", "const": "opaque" },
+        "label": { "type": "string", "examples": ["Mur SE", "Toit nord", "Plancher"] },
         "between": {
           "type": "array",
-          "description": "The two zones this element separates. Order: [interior, exterior].",
-          "items": { "$ref": "#/$defs/zone_ref" },
+          "description": "The two zone UUIDs this element separates. Order: [interior, exterior].",
+          "items": { "$ref": "#/$defs/uuid" },
           "minItems": 2,
-          "maxItems": 2,
-          "examples": [["chambre", "outdoor"], ["salon", "ground"]]
+          "maxItems": 2
         },
         "a": {
           "type": "number",
@@ -157,7 +167,7 @@
         },
         "b": {
           "type": "number",
-          "description": "Second dimension [m]. For walls: height. For floors/roofs: depth (sloped length for pitched roofs).",
+          "description": "Second dimension [m]. For walls: height. For floors/roofs: depth.",
           "exclusiveMinimum": 0,
           "examples": [2.5, 4.0]
         },
@@ -209,19 +219,18 @@
     "glazing_element": {
       "type": "object",
       "description": "Transparent element: window or skylight. Modelled as a single U-value + SHGC.",
-      "required": ["id", "kind", "between", "a", "b", "U", "SHGC"],
+      "required": ["id", "kind", "label", "between", "a", "b", "U", "SHGC"],
       "additionalProperties": false,
       "properties": {
-        "id":   { "type": "string", "examples": ["win_SE", "velux_nord"] },
-        "kind": { "type": "string", "const": "glazing" },
-        "name": { "type": "string" },
+        "id":    { "$ref": "#/$defs/uuid" },
+        "kind":  { "type": "string", "const": "glazing" },
+        "label": { "type": "string", "examples": ["Fenêtre SE", "Velux nord"] },
         "between": {
           "type": "array",
-          "description": "The two zones this element separates. Order: [interior, exterior].",
-          "items": { "$ref": "#/$defs/zone_ref" },
+          "description": "The two zone UUIDs this element separates. Order: [interior, exterior].",
+          "items": { "$ref": "#/$defs/uuid" },
           "minItems": 2,
-          "maxItems": 2,
-          "examples": [["chambre", "outdoor"]]
+          "maxItems": 2
         },
         "a": {
           "type": "number",
@@ -268,19 +277,18 @@
     "air_exchange_element": {
       "type": "object",
       "description": "Air exchange: infiltration, natural ventilation, or mechanical ventilation (no heat recovery).",
-      "required": ["id", "kind", "between", "ach"],
+      "required": ["id", "kind", "label", "between", "ach"],
       "additionalProperties": false,
       "properties": {
-        "id":   { "type": "string", "examples": ["infil_chambre", "vent_salon"] },
-        "kind": { "type": "string", "const": "air_exchange" },
-        "name": { "type": "string" },
+        "id":    { "$ref": "#/$defs/uuid" },
+        "kind":  { "type": "string", "const": "air_exchange" },
+        "label": { "type": "string", "examples": ["Infiltrations chambre", "VMC salon"] },
         "between": {
           "type": "array",
-          "description": "The two zones exchanging air. Typically [room, outdoor].",
-          "items": { "$ref": "#/$defs/zone_ref" },
+          "description": "The two zone UUIDs exchanging air. Typically [room, outdoor].",
+          "items": { "$ref": "#/$defs/uuid" },
           "minItems": 2,
-          "maxItems": 2,
-          "examples": [["chambre", "outdoor"]]
+          "maxItems": 2
         },
         "ach": {
           "type": "number",
@@ -288,6 +296,44 @@
           "exclusiveMinimum": 0,
           "examples": [0.4, 1.5]
         }
+      }
+    },
+
+    "outdoor_element": {
+      "type": "object",
+      "description": "Outdoor boundary zone. Holds location and weather source. Referenced by other elements via UUID in their between field.",
+      "required": ["id", "kind", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "id":    { "$ref": "#/$defs/uuid" },
+        "kind":  { "type": "string", "const": "outdoor" },
+        "label": { "type": "string", "examples": ["Extérieur", "Lyon"] },
+        "location": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "lat": { "type": "number", "examples": [45.76] },
+            "lon": { "type": "number", "examples": [4.83] },
+            "label": { "type": "string", "examples": ["Lyon"] }
+          }
+        },
+        "weather_source": {
+          "type": "string",
+          "enum": ["open_meteo"],
+          "examples": ["open_meteo"]
+        }
+      }
+    },
+
+    "ground_element": {
+      "type": "object",
+      "description": "Ground boundary zone. Holds ground temperature model parameters.",
+      "required": ["id", "kind", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "id":    { "$ref": "#/$defs/uuid" },
+        "kind":  { "type": "string", "const": "ground" },
+        "label": { "type": "string", "examples": ["Sol"] }
       }
     }
 
