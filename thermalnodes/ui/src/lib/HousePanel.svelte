@@ -4,6 +4,14 @@
 
   let { house, onchange, customMaterials = {}, rcModel = null, dirty = false, saveLoading = false, saveError = null, onsave = null, ondelete = null } = $props();
 
+  let addMenuOpen = $state(false);
+
+  function clickOutside(node) {
+    const handler = (e) => { if (!node.contains(e.target)) addMenuOpen = false; };
+    document.addEventListener('mousedown', handler, true);
+    return { destroy() { document.removeEventListener('mousedown', handler, true); } };
+  }
+
   // ── signals autocomplete ──────────────────────────────────────────────────
   const API = 'http://localhost:8001';
   let signals = $state([]);
@@ -249,24 +257,33 @@
       {/if}
     </div>
     <div class="toolbar-row">
-      <span class="toolbar-label">Add</span>
-      {#each [
-        { kind: 'room',         icon: '⬜', tip: 'Add room' },
-        { kind: 'opaque',       icon: '▬',  tip: 'Add wall / roof / floor' },
-        { kind: 'glazing',      icon: '◻',  tip: 'Add window / door' },
-        { kind: 'air_exchange', icon: '≋',  tip: 'Add air exchange' },
-        { kind: 'outdoor',      icon: '☁',  tip: 'Add outdoor zone' },
-        { kind: 'ground',       icon: '▓',  tip: 'Add ground zone' },
-      ] as btn}
-        <button
-          class="toolbar-btn kind-btn-{btn.kind}"
-          onclick={() => btn.kind === 'room' ? addRoom() : addElement(btn.kind)}
-          title={btn.tip}
-        >
-          <span class="tb-icon">{btn.icon}</span>
-          <span class="tb-text">{btn.tip.replace('Add ', '')}</span>
+      <div class="add-menu-wrap" use:clickOutside>
+        <button class="toolbar-btn add-menu-trigger" onclick={() => addMenuOpen = !addMenuOpen} title="Add element">
+          <span class="tb-icon">＋</span>
+          <span class="tb-text">Add</span>
+          <span class="tb-caret">{addMenuOpen ? '▴' : '▾'}</span>
         </button>
-      {/each}
+        {#if addMenuOpen}
+          <div class="add-menu-dropdown">
+            {#each [
+              { kind: 'room',         icon: '⬜', label: 'Room' },
+              { kind: 'opaque',       icon: '▬',  label: 'Wall / roof / floor' },
+              { kind: 'glazing',      icon: '◻',  label: 'Window / door' },
+              { kind: 'air_exchange', icon: '≋',  label: 'Air exchange' },
+              { kind: 'outdoor',      icon: '☁',  label: 'Outdoor zone' },
+              { kind: 'ground',       icon: '▓',  label: 'Ground zone' },
+            ] as btn}
+              <button
+                class="add-menu-item kind-btn-{btn.kind}"
+                onclick={() => { btn.kind === 'room' ? addRoom() : addElement(btn.kind); addMenuOpen = false; }}
+              >
+                <span class="tb-icon">{btn.icon}</span>
+                <span>{btn.label}</span>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      </div>
     </div>
     <div class="toolbar-row">
       {#if onsave}
@@ -709,15 +726,6 @@
   }
   .toolbar-delete:hover { color: #ef4444; border-color: #ef4444; background: transparent; }
 
-  .toolbar-label {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #475569;
-    margin-right: 4px;
-    flex-shrink: 0;
-  }
-
   .toolbar-btn {
     display: flex;
     align-items: center;
@@ -733,14 +741,50 @@
   }
   .toolbar-btn:hover { background: #273548; color: #e2e8f0; }
 
-  .kind-btn-opaque:hover       { background: #1e3a5f; color: #93c5fd; }
-  .kind-btn-glazing:hover      { background: #14532d; color: #86efac; }
-  .kind-btn-air_exchange:hover { background: #451a03; color: #fcd34d; }
-  .kind-btn-outdoor:hover      { background: #0c2340; color: #7dd3fc; }
-  .kind-btn-ground:hover       { background: #1a1a2e; color: #a78bfa; }
-
   .tb-icon { font-size: 14px; line-height: 1; }
   .tb-text { font-size: 11px; }
+  .tb-caret { font-size: 9px; margin-left: 2px; }
+
+  .add-menu-wrap {
+    position: relative;
+  }
+
+  .add-menu-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 100;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 170px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  }
+
+  .add-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.1s, color 0.1s;
+  }
+  .add-menu-item:hover                        { background: #273548; color: #e2e8f0; }
+  .kind-btn-opaque.add-menu-item:hover        { background: #1e3a5f; color: #93c5fd; }
+  .kind-btn-glazing.add-menu-item:hover       { background: #14532d; color: #86efac; }
+  .kind-btn-air_exchange.add-menu-item:hover  { background: #451a03; color: #fcd34d; }
+  .kind-btn-outdoor.add-menu-item:hover       { background: #0c2340; color: #7dd3fc; }
+  .kind-btn-ground.add-menu-item:hover        { background: #1a1a2e; color: #a78bfa; }
 
 .toolbar-save {
     padding: 4px 12px;
