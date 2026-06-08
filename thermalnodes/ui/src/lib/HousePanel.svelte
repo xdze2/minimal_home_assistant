@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import SignalPicker from '$lib/SignalPicker.svelte';
 
-  let { house, onchange, customMaterials = {}, dirty = false, saveLoading = false, saveError = null, onsave = null, oncreatestudy = null, createStudyLoading = false, createStudyError = null, ondelete = null } = $props();
+  let { house, onchange, customMaterials = {}, dirty = false, saveLoading = false, saveError = null, onsave = null, ondelete = null } = $props();
 
   // ── signals autocomplete ──────────────────────────────────────────────────
   const API = 'http://localhost:8001';
@@ -270,12 +270,6 @@
         {#if saveError}<span class="toolbar-save-error">{saveError}</span>{/if}
         <button class="toolbar-save" class:dirty onclick={onsave} disabled={saveLoading}>
           {saveLoading ? 'Saving…' : dirty ? 'Save ●' : 'Save'}
-        </button>
-      {/if}
-      {#if oncreatestudy}
-        {#if createStudyError}<span class="toolbar-save-error">{createStudyError}</span>{/if}
-        <button class="toolbar-create" onclick={() => oncreatestudy()} disabled={createStudyLoading}>
-          {createStudyLoading ? 'Expanding…' : 'Create study'}
         </button>
       {/if}
     </div>
@@ -759,18 +753,6 @@
     font-size: 10px;
     color: #f87171;
   }
-
-  .toolbar-create {
-    padding: 4px 12px;
-    border-radius: 5px;
-    border: 1px solid #166534;
-    background: #14532d;
-    color: #86efac;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .toolbar-create:hover { background: #15803d; }
 
   /* ── grid columns: icon | label | connectivity | figures | signals | role | chevron ── */
   .grid-header,

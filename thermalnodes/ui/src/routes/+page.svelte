@@ -184,7 +184,7 @@
 		selectedStudyId = studyId;
 		loadStudyIntoState(study);
 		activeSection = 'house';
-		simPaneTab    = 'topology';
+		simPaneTab    = 'sim';
 	}
 
 	// ── save study ────────────────────────────────────────────────────────────
@@ -228,7 +228,7 @@
 	}
 
 	// ── simulation pane (house view) ─────────────────────────────────────────
-	let simPaneTab  = $state('studies'); // 'studies' | 'sim' | 'rc' | 'topology' | 'inputs' | 'run' | 'fit' | 'debug'
+	let simPaneTab  = $state('rc'); // 'rc' | 'studies' | 'sim'
 	let rangeMode   = $state('duration'); // 'dates' | 'duration'
 	let triggerRun  = $state(/** @type {(() => void) | null} */ (null));
 	let showInputs  = $state(false);
@@ -253,7 +253,7 @@
 	let createStudyLoading = $state(false);
 	let createStudyError   = $state(null);
 
-	async function createStudy() {
+	async function createStudy(type = 'run') {
 		if (!houseName) return;
 		createStudyLoading = true;
 		createStudyError   = null;
@@ -261,7 +261,7 @@
 			const res = await fetch(`${API}/houses/${houseName}/studies`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ label: '' }),
+				body: JSON.stringify({ label: '', type }),
 			});
 			if (!res.ok) {
 				const d = await res.json().catch(() => ({}));
@@ -491,82 +491,103 @@
 						saveLoading={houseSaveLoading}
 						saveError={houseSaveError}
 						onsave={saveHouse}
-						oncreatestudy={createStudy}
-						{createStudyLoading}
-						{createStudyError}
 						ondelete={deleteHouse}
 					/>
 				</div>
 				<div class="study-pane">
 					<div class="study-pane-tabs">
-						<button class="sim-tab" class:active={simPaneTab === 'studies'}  onclick={() => (simPaneTab = 'studies')}>Studies</button>
-						{#if selectedStudyId}
-							<button class="sim-tab" class:active={simPaneTab === 'sim'}      onclick={() => (simPaneTab = 'sim')}>Simulation</button>
-							<button class="sim-tab" class:active={simPaneTab === 'topology'} onclick={() => (simPaneTab = 'topology')}>Topology</button>
-							<button class="sim-tab" class:active={simPaneTab === 'inputs'}   onclick={() => (simPaneTab = 'inputs')}>Inputs</button>
-							<button class="sim-tab" class:active={simPaneTab === 'run'}      onclick={() => (simPaneTab = 'run')}>Run</button>
-							<button class="sim-tab" class:active={simPaneTab === 'fit'}      onclick={() => (simPaneTab = 'fit')}>Fit</button>
-							<button class="sim-tab sim-tab-dev" class:active={simPaneTab === 'rc'}    onclick={() => (simPaneTab = 'rc')}>RC</button>
-							<button class="sim-tab sim-tab-dev" class:active={simPaneTab === 'debug'} onclick={() => (simPaneTab = 'debug')}>JSON</button>
-						{/if}
+						<button class="sim-tab" class:active={simPaneTab === 'rc'}         onclick={() => (simPaneTab = 'rc')}>RC Graph</button>
+						<button class="sim-tab" class:active={simPaneTab === 'studies'}    onclick={() => (simPaneTab = 'studies')}>Studies</button>
+						<button class="sim-tab" class:active={simPaneTab === 'sim'}
+							class:disabled={!selectedStudyId}
+							onclick={() => { if (selectedStudyId) simPaneTab = 'sim'; }}
+						>Simulation</button>
 					</div>
 
-					<!-- study save bar (shown when a study is open) -->
-					{#if selectedStudyId}
-						<div class="study-save-bar">
-							<button class="study-back-btn" onclick={() => { selectedStudyId = null; model = null; simPaneTab = 'studies'; }}>← studies</button>
-							<span class="study-save-label">{selectedStudy?.label ?? selectedStudyId}</span>
-							<button class="study-save-btn" class:dirty={studyDirty} onclick={saveStudy} disabled={saveLoading}>
-								{saveLoading ? 'Saving…' : studyDirty ? 'Save ●' : 'Saved'}
-							</button>
-							{#if saveError}<span class="study-save-error">{saveError}</span>{/if}
-						</div>
-					{/if}
+					{#if simPaneTab === 'rc'}
+						{#if model}
+							<div class="sim-pane-body">
+								<GraphView {model} selected={null} onselect={() => {}} onaddedge={() => {}} groups={paramGroups} />
+							</div>
+						{:else}
+							<div class="study-pane-empty"><span>no RC model — save the house first</span></div>
+						{/if}
 
-					{#if simPaneTab === 'studies'}
+					{:else if simPaneTab === 'studies'}
 						<div class="studies-tab-content">
 							<div class="studies-tab-header">
 								{#if createStudyError}<div class="home-error">{createStudyError}</div>{/if}
-								<button class="home-new-btn" onclick={createStudy} disabled={createStudyLoading}>
-									{createStudyLoading ? 'Expanding…' : '+ New study'}
-								</button>
+								<!-- new study picker -->
+								<div class="new-study-wrap">
+									<button class="home-new-btn" onclick={() => createStudy('run')} disabled={createStudyLoading}>
+										{createStudyLoading ? 'Creating…' : '+ Run'}
+									</button>
+									<button class="home-new-btn home-new-fit" onclick={() => createStudy('fit')} disabled={createStudyLoading}>
+										+ Fit
+									</button>
+								</div>
 							</div>
-							<div class="study-grid">
-								{#each studies as s}
-									<div class="study-card" class:selected-card={s.id === selectedStudyId}>
-										<button class="card-open" onclick={() => openStudy(s.id)}>
-											<div class="card-label">{s.label ?? s.id}</div>
-											<div class="card-uuid">{s.id}</div>
-											{#if s._stale_run || s._stale_fit}
-												<div class="card-stale">⚠ stale</div>
-											{/if}
-											{#if s.run}
-												<div class="card-badge badge-run">run {s.run.timestamp?.slice(0,8) ?? ''}</div>
-											{/if}
-											{#if s.fit}
-												<div class="card-badge badge-fit">fit {s.fit.timestamp?.slice(0,8) ?? ''}</div>
-											{/if}
-										</button>
-										<div class="card-actions">
-											<button class="card-action" onclick={() => openDupDialog(s.id)} title="Duplicate">⎘</button>
-										</div>
-									</div>
-								{/each}
 
-								{#if studies.length === 0}
-									<div class="study-card card-empty">
-										<span>No studies yet.<br/>Click "+ New study" to create one.</span>
-									</div>
-								{/if}
-							</div>
+							{#if studies.length === 0}
+								<div class="studies-empty">No studies yet. Click "+ Run" or "+ Fit" to create one.</div>
+							{:else}
+								<table class="studies-table">
+									<thead>
+										<tr>
+											<th>Label</th>
+											<th>Start</th>
+											<th>End</th>
+											<th>Type</th>
+											<th>Status</th>
+											<th></th>
+										</tr>
+									</thead>
+									<tbody>
+										{#each studies as s}
+											<tr class="study-row" class:selected-row={s.id === selectedStudyId}
+												onclick={() => { openStudy(s.id); simPaneTab = 'sim'; }}>
+												<td class="col-label">{s.label || s.id.slice(0, 8)}</td>
+												<td class="col-date">{s.date_range?.[0] ?? s.start ?? '—'}</td>
+												<td class="col-date">{s.date_range?.[1] ?? s.end ?? '—'}</td>
+												<td class="col-type">
+													<span class="type-badge type-{s.type ?? 'run'}">{s.type ?? 'run'}</span>
+												</td>
+												<td class="col-status">
+													{#if s._stale_run || s._stale_fit}
+														<span class="stale-badge">⚠ stale</span>
+													{:else if s.run || s.fit}
+														<span class="done-badge">✓</span>
+													{/if}
+												</td>
+												<td class="col-actions" onclick={(e) => e.stopPropagation()}>
+													<button class="card-action" onclick={() => openDupDialog(s.id)} title="Duplicate">⎘</button>
+												</td>
+											</tr>
+										{/each}
+									</tbody>
+								</table>
+							{/if}
 						</div>
 
 					{:else if simPaneTab === 'sim'}
-						{#if createStudyLoading}
-							<div class="study-pane-empty"><span>expanding…</span></div>
+						{#if !selectedStudyId}
+							<div class="study-pane-empty"><span>select a study first</span></div>
+						{:else if createStudyLoading}
+							<div class="study-pane-empty"><span>creating…</span></div>
 						{:else if createStudyError}
 							<div class="study-pane-empty study-pane-error"><span>{createStudyError}</span></div>
 						{:else if model}
+							<!-- ── study header bar ── -->
+							<div class="study-save-bar">
+								<button class="study-back-btn" onclick={() => { selectedStudyId = null; model = null; simPaneTab = 'studies'; }}>← studies</button>
+								<span class="study-save-label">{selectedStudy?.label ?? selectedStudyId}</span>
+								<span class="type-badge type-{selectedStudy?.type ?? 'run'} badge-sm">{selectedStudy?.type ?? 'run'}</span>
+								<button class="study-save-btn" class:dirty={studyDirty} onclick={saveStudy} disabled={saveLoading}>
+									{saveLoading ? 'Saving…' : studyDirty ? 'Save ●' : 'Saved'}
+								</button>
+								{#if saveError}<span class="study-save-error">{saveError}</span>{/if}
+							</div>
+
 							<!-- ── control bar ── -->
 							<div class="sim-controls">
 								<div class="sim-ctrl-row sim-ctrl-range">
@@ -608,8 +629,11 @@
 								</div>
 
 								<div class="sim-ctrl-row">
-									<button class="ctrl-btn ctrl-btn-run" onclick={() => triggerRun?.()}>Run</button>
-									<button class="ctrl-btn ctrl-btn-fit" disabled>Fit</button>
+									{#if (selectedStudy?.type ?? 'run') === 'run'}
+										<button class="ctrl-btn ctrl-btn-run" onclick={() => triggerRun?.()}>Run</button>
+									{:else}
+										<button class="ctrl-btn ctrl-btn-fit" onclick={() => triggerRun?.()}>Fit</button>
+									{/if}
 									<button class="ctrl-btn" class:active={showInputs} onclick={() => (showInputs = !showInputs)}>Show inputs</button>
 								</div>
 							</div>
@@ -628,47 +652,8 @@
 								/>
 							</div>
 						{:else}
-							<div class="study-pane-empty"><span>select a study first</span></div>
-						{/if}
-
-					{:else if simPaneTab === 'topology'}
-						{#if model}
-							<div class="body">
-								<PropertiesPanel {model} {selected} {onpatch} {onadd} {ondelete} {ondeleteedge} />
-								<GraphView {model} {selected} onselect={(s) => (selected = s)} {onaddedge} groups={paramGroups} />
-							</div>
-						{/if}
-
-					{:else if simPaneTab === 'inputs'}
-						{#if model}
-							<div class="body scrollable">
-								<InputsPanel {model} bind:inputs={simInputs} bind:range={simRange} bind:observations={simObservations} />
-							</div>
-						{/if}
-
-					{:else if simPaneTab === 'run'}
-						{#if model}
-							<SimulationRun {model} inputs={simInputs} range={simRange} observations={simObservations} bind:solver={simSolver} {simStale} {onRunSuccess} />
-						{/if}
-
-					{:else if simPaneTab === 'fit'}
-						{#if model}
-							<FitPanel {model} inputs={simInputs} range={simRange} observations={simObservations} groups={paramGroups} />
-						{/if}
-
-					{:else if simPaneTab === 'rc'}
-						{#if model}
-							<div class="sim-pane-body">
-								<GraphView {model} selected={null} onselect={() => {}} onaddedge={() => {}} groups={paramGroups} />
-							</div>
-						{:else}
 							<div class="study-pane-empty"><span>no model</span></div>
 						{/if}
-
-					{:else if simPaneTab === 'debug'}
-						<div class="debug-view">
-							<pre>{JSON.stringify({ model, inputs: simInputs, range: simRange, solver: simSolver }, null, 2)}</pre>
-						</div>
 					{/if}
 				</div>
 			</div>
@@ -1047,8 +1032,8 @@
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-		gap: 14px;
-		padding: 16px;
+		gap: 12px;
+		padding: 14px 16px;
 		overflow-y: auto;
 	}
 
@@ -1056,9 +1041,109 @@
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
-		gap: 10px;
+		gap: 8px;
 		flex-shrink: 0;
 	}
+
+	.new-study-wrap {
+		display: flex;
+		gap: 6px;
+	}
+
+	.home-new-fit {
+		background: #14532d;
+		border-color: #166534;
+		color: #86efac;
+	}
+	.home-new-fit:hover:not(:disabled) { background: #15803d; }
+
+	.studies-empty {
+		font-size: 12px;
+		color: #475569;
+		padding: 24px 0;
+		text-align: center;
+	}
+
+	/* ── studies table ── */
+	.studies-table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: 12px;
+	}
+
+	.studies-table thead th {
+		text-align: left;
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.07em;
+		color: #475569;
+		padding: 4px 10px;
+		border-bottom: 1px solid #1e293b;
+		font-weight: 500;
+	}
+
+	.study-row {
+		cursor: pointer;
+		border-bottom: 1px solid #1e293b;
+		transition: background 0.1s;
+	}
+	.study-row:hover { background: #1e293b; }
+	.study-row.selected-row { background: #1a2744; }
+
+	.study-row td {
+		padding: 7px 10px;
+		color: #94a3b8;
+		vertical-align: middle;
+	}
+
+	.col-label {
+		color: #e2e8f0 !important;
+		font-weight: 600;
+		max-width: 160px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.col-date {
+		font-family: monospace;
+		font-size: 11px !important;
+		color: #64748b !important;
+		white-space: nowrap;
+	}
+
+	.col-type { width: 60px; }
+	.col-status { width: 52px; }
+	.col-actions { width: 36px; text-align: right; }
+
+	.type-badge {
+		font-size: 10px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		padding: 2px 6px;
+		border-radius: 3px;
+	}
+	.type-run { background: #1e3a5f; color: #93c5fd; }
+	.type-fit { background: #14532d; color: #86efac; }
+	.badge-sm { font-size: 9px; padding: 2px 5px; }
+
+	.stale-badge {
+		font-size: 10px;
+		color: #f59e0b;
+	}
+
+	.done-badge {
+		font-size: 11px;
+		color: #4ade80;
+	}
+
+	/* ── disabled tab ── */
+	.sim-tab.disabled {
+		opacity: 0.35;
+		cursor: default;
+	}
+	.sim-tab.disabled:hover { color: #64748b; }
 
 	/* ── home views ── */
 	.home {
@@ -1161,66 +1246,13 @@
 		color: #475569;
 	}
 
-	/* ── study grid ── */
-	.study-grid {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 12px;
-	}
-
-	.study-card {
-		width: 200px;
-		background: #1e293b;
-		border: 1px solid #334155;
-		border-radius: 8px;
-		overflow: hidden;
-		display: flex;
-		flex-direction: column;
-		transition: border-color 0.15s;
-	}
-	.study-card:hover { border-color: #475569; }
-	.study-card.selected-card { border-color: #3b82f6; }
-
-	.card-uuid {
-		font-size: 10px;
-		font-family: monospace;
-		color: #64748b;
-		word-break: break-all;
-	}
-
-	.card-stale {
-		font-size: 10px;
-		color: #f59e0b;
-	}
-
-	.card-badge {
-		font-size: 10px;
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		padding: 2px 6px;
-		border-radius: 3px;
-		align-self: flex-start;
-		margin-top: 2px;
-	}
-	.badge-run { background: #1e3a5f; color: #93c5fd; }
-	.badge-fit { background: #14532d; color: #86efac; }
-
-	.card-actions {
-		border-top: 1px solid #334155;
-		padding: 5px 8px;
-		display: flex;
-		gap: 4px;
-		justify-content: flex-end;
-	}
-
 	.card-action {
 		background: none;
 		border: none;
-		color: #94a3b8;
-		font-size: 15px;
+		color: #64748b;
+		font-size: 14px;
 		cursor: pointer;
-		padding: 2px 6px;
+		padding: 2px 5px;
 		border-radius: 3px;
 		line-height: 1;
 	}

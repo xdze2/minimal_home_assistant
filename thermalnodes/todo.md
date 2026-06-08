@@ -17,26 +17,24 @@ load — not stored. Studies are embedded in the house file.
     {
       "id": "<uuid4>",
       "label": "Winter 2024",
+      "type": "run",
       "date_range": ["2024-01-01", "2024-02-28"],
       "inputs": {
         "solar_signal": "...",
         "obs_signal": "..."
       },
-      "run": {
+      "result": {
         "settings": { ... },
         "model_hash": "a3f9bc...",
-        "output_file": "my_house_<study_id>_run_20240115T143022.parquet"
-      },
-      "fit": {
-        "settings": { ... },
-        "model_hash": "a3f9bc...",
-        "output_file": "my_house_<study_id>_fit_20240115T143022.parquet",
+        "output_file": "my_house_<study_id>_run_20240115T143022.parquet",
         "result_params": { ... }
       }
     }
   ]
 }
 ```
+
+Each study is either `"type": "run"` (forward simulation) or `"type": "fit"` (parameter estimation) — not both. `result_params` is only populated for fit results.
 
 ### RC model (derived, not stored)
 
@@ -120,6 +118,12 @@ described above.
 ---
 
 ## Changelog
+
+- **2026-06** — Right pane rework — 3 fixed tabs: RC Graph (per-house, read-only),
+  Studies (table with label/start/end/type/status columns; "+ Run" and "+ Fit" buttons),
+  Simulation (study detail: time range, solver, run/fit action, charts); study type is now
+  set at creation (`type: "run"|"fit"`) — a study is one or the other, not both; "Create
+  study" removed from HousePanel toolbar.
 
 - **2026-06** — House UI improvements — inline house label editor in HousePanel toolbar;
   delete house button (with confirm) + `DELETE /houses/{name}` backend endpoint; Studies
