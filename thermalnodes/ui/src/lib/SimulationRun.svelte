@@ -48,7 +48,11 @@
 			});
 			if (!res.ok) {
 				const d = await res.json().catch(() => ({ detail: res.statusText }));
-				throw new Error(d.detail ?? res.statusText);
+				const detail = d.detail;
+				const msg = Array.isArray(detail)
+					? detail.map((e) => `${e.loc?.slice(1).join('.')||''}: ${e.msg}`).join('; ')
+					: (typeof detail === 'object' && detail !== null ? JSON.stringify(detail) : (detail ?? res.statusText));
+				throw new Error(msg);
 			}
 			simResult = await res.json();
 			onRunSuccess();

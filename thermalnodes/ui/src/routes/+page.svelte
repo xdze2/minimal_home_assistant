@@ -857,6 +857,7 @@
 		font-family: monospace;
 		flex: 1;
 		min-width: 110px;
+		color-scheme: dark;
 	}
 	.ctrl-date:focus         { outline: none; border-color: #6366f1; }
 	.ctrl-date[readonly]     { color: #64748b; }
