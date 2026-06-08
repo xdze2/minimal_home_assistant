@@ -184,6 +184,51 @@
 		}
 	}
 
+	// ── create study from house ───────────────────────────────────────────────
+	let createStudyDialogOpen = $state(false);
+	let createStudyIds        = $state(/** @type {string[]} */ ([]));
+	let createStudyLabel      = $state('');
+	let createStudyId         = $state('');
+	let createStudyLoading    = $state(false);
+	let createStudyError      = $state(null);
+
+	function openCreateStudyDialog(ids) {
+		createStudyIds    = ids;
+		createStudyLabel  = '';
+		createStudyId     = '';
+		createStudyError  = null;
+		createStudyDialogOpen = true;
+	}
+
+	async function confirmCreateStudy() {
+		createStudyLoading = true;
+		createStudyError   = null;
+		try {
+			const res = await fetch(`${API}/studies/from_house`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					house:     house,
+					selection: createStudyIds,
+					label:     createStudyLabel.trim(),
+					study_id:  createStudyId.trim(),
+				}),
+			});
+			if (!res.ok) {
+				const d = await res.json().catch(() => ({}));
+				throw new Error(d.detail ?? res.statusText);
+			}
+			const data = await res.json();
+			createStudyDialogOpen = false;
+			await loadStudies();
+			await openStudy(data.id);
+		} catch (e) {
+			createStudyError = e.message;
+		} finally {
+			createStudyLoading = false;
+		}
+	}
+
 	// ── duplicate study ───────────────────────────────────────────────────────
 	let dupSourceId    = $state(null);
 	let dupId          = $state('');
@@ -295,6 +340,35 @@
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
+
+<!-- ── create study dialog ────────────────────────────────────────────────── -->
+{#if createStudyDialogOpen}
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div class="dialog-backdrop" onclick={() => (createStudyDialogOpen = false)}>
+		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+		<div class="dialog" onclick={(e) => e.stopPropagation()}>
+			<div class="dialog-title">Create study from house</div>
+			<div class="dialog-info">
+				{createStudyIds.length} element{createStudyIds.length !== 1 ? 's' : ''} selected
+			</div>
+			<label class="dialog-label">
+				Name
+				<input type="text" bind:value={createStudyLabel} placeholder="e.g. chambre winter run" />
+			</label>
+			<label class="dialog-label">
+				ID <span class="dialog-label-hint">(leave blank to auto-generate)</span>
+				<input type="text" bind:value={createStudyId} placeholder="e.g. chambre_winter_01" />
+			</label>
+			{#if createStudyError}<div class="dialog-error">{createStudyError}</div>{/if}
+			<div class="dialog-actions">
+				<button onclick={() => (createStudyDialogOpen = false)}>Cancel</button>
+				<button class="primary" onclick={confirmCreateStudy} disabled={createStudyLoading}>
+					{createStudyLoading ? 'Creating…' : 'Create'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <!-- ── save dialog ────────────────────────────────────────────────────────── -->
 {#if saveDialogOpen}
@@ -416,7 +490,7 @@
 						saveLoading={houseSaveLoading}
 						saveError={houseSaveError}
 						onsave={saveHouse}
-						oncreatestudy={(ids) => console.log('create study with', ids)}
+						oncreatestudy={(ids) => openCreateStudyDialog(ids)}
 					/>
 				</div>
 				<div class="study-pane">
@@ -914,6 +988,19 @@
 	.dialog-label input:focus { outline: none; border-color: #6366f1; }
 
 	.dialog-error { font-size: 12px; color: #f87171; }
+
+	.dialog-info {
+		font-size: 12px;
+		color: #94a3b8;
+	}
+
+	.dialog-label-hint {
+		font-size: 10px;
+		color: #475569;
+		text-transform: none;
+		letter-spacing: 0;
+		font-weight: 400;
+	}
 
 	.dialog-actions {
 		display: flex;

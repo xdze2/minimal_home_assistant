@@ -99,13 +99,13 @@ Signals use the existing InfluxDB URI format (`measurement/field?tag=val`).
 Collapsed row shows `⤵` / `◉` icons when signals are set; expanded editor
 shows autocomplete fields backed by `GET /signals`.
 
-### M3 — Selection + `expand()` + study spawning
+### ~~M3 — Selection + `expand()` + study spawning~~ ✓ done (partial)
 
 1. `element.modeling: { detail: "lumped" | "2R1C" | "chain-N", n?: int }`
-   field on house schema (persistent).
+   field on house schema (persistent). ← deferred
 2. Simulate mode on the house list: checkboxes per row for selection;
    detail-level chip per element row. Selecting a room auto-selects its
-   connected elements (opt-out per element).
+   connected elements (opt-out per element). ← deferred
 3. ~~**`solver/physics.py` — `expand(house, selection) → (rc_model,
    expansion_map)`**. First pass: `opaque` (lumped + 2R1C), `glazing`
    (lumped), `room` (single C), `air_exchange` (single R), `outdoor`
@@ -117,13 +117,20 @@ shows autocomplete fields backed by `GET /signals`.
    - Global material library from `data/materials/`; house-local overrides on top.
    - Room `input_signal` → source node; `outdoor.obs_signal` → boundary `T_source`.
    - 18 tests in `solver/tests/test_physics.py`, all passing.
-4. `POST /house/expand` — preview (returns rc_model + expansion_map,
-   no persist).
-5. `POST /studies/from_house` — body: `{ selection, period_id_or_range,
-   signals?, priors? }` → new study JSON with embedded model +
-   expansion_map.
-6. `[New study]` button in Studies section → modal: confirm selection,
-   pick period, name → POST → open study.
+4. ~~`POST /house/expand` — preview (returns rc_model + expansion_map,
+   no persist).~~ ✓ done
+5. ~~`POST /studies/from_house` — body: `{ house, selection, label, study_id }`
+   → new study JSON with embedded model + expansion_map, persisted under
+   `data/user/studies/`.~~ ✓ done
+6. ~~`[Create study]` button in house toolbar → modal: name + optional ID →
+   POST → open study in Topology tab.~~ ✓ done
+
+**Next in M3:**
+- Switch study IDs to UUID; `label` becomes the display name. Study cards
+  show label prominently, UUID as small monospace. Save dialog drops manual
+  ID entry (auto-generates UUID). Consistent with house element UUID scheme.
+- `element.modeling` detail field + detail-level chip per row.
+- Auto-select connected elements when a room is checked.
 
 ### M4 — Results projected back on house
 
@@ -181,6 +188,9 @@ shows autocomplete fields backed by `GET /signals`.
 
 ## Changelog
 
+- **2026-06** — M3 partial: study spawning — `POST /house/expand` (preview),
+  `POST /studies/from_house` (expand + persist); house toolbar "Create study"
+  button opens modal (name + optional ID) → calls backend → opens new study.
 - **2026-06** — Element signals (M2 replacement) — `input_signal` / `obs_signal`
   fields on rooms and outdoor (schema v0.2 extension); house row shows `⤵` / `◉`
   icons when set; expanded editor has signal fields with InfluxDB autocomplete.

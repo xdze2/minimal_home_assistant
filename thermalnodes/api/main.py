@@ -19,6 +19,7 @@ from ..solver.assemble import assemble
 from ..solver.simulate import simulate_ivp, simulate_zoh, simulate_mock
 from ..solver.fit import build_forward, fit_nls, fit_mcmc
 from ..solver.identifiability import group_params
+from ..solver.physics import expand
 
 DATA_DIR     = Path(__file__).parent.parent / "data"
 EXAMPLES_DIR = DATA_DIR / "examples"
@@ -50,6 +51,64 @@ def get_house() -> dict:
 def post_house(body: dict) -> dict:
     HOUSE_FILE.write_text(json.dumps(body, indent=2, ensure_ascii=False))
     return {"ok": True}
+
+
+class ExpandRequest(BaseModel):
+    house: dict
+    selection: list[str]
+
+
+@app.post("/house/expand")
+def post_house_expand(req: ExpandRequest) -> dict:
+    """Preview expand(house, selection) — returns rc_model + expansion_map, no persist."""
+    try:
+        model, expansion_map = expand(req.house, req.selection)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"model": model, "expansion_map": expansion_map}
+
+
+class FromHouseRequest(BaseModel):
+    house: dict
+    selection: list[str]
+    label: str = ""
+    study_id: str = ""
+
+
+@app.post("/studies/from_house")
+def post_studies_from_house(req: FromHouseRequest) -> dict:
+    """Expand the house selection into a new study JSON and persist it.
+
+    Returns {"ok": True, "id": study_id, "model": ...}.
+    """
+    import uuid as _uuid_mod
+
+    try:
+        model, expansion_map = expand(req.house, req.selection)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    study_id = req.study_id.strip() or f"study_{_uuid_mod.uuid4().hex[:8]}"
+    if not _valid_id(study_id):
+        raise HTTPException(status_code=400, detail="Invalid study_id (alphanumeric, _ and - only)")
+
+    label = req.label.strip() or model.get("name", study_id)
+    model["name"] = label
+
+    study = {
+        "id":            study_id,
+        "label":         label,
+        "model":         model,
+        "expansion_map": expansion_map,
+        "inputs":        {},
+        "observations":  {},
+        "start":         "",
+        "end":           "",
+        "solver":        "zoh",
+    }
+    dest = STUDIES_DIR / f"{study_id}.json"
+    dest.write_text(json.dumps(study, indent=2, ensure_ascii=False))
+    return {"ok": True, "id": study_id, "model": model}
 
 
 # ── studies ───────────────────────────────────────────────────────────────────
