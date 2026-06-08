@@ -90,12 +90,25 @@ def post_studies_from_house(req: FromHouseRequest) -> dict:
     label = req.label.strip() or model.get("name", study_id)
     model["name"] = label
 
+    # Pre-populate inputs from embedded signals on model nodes so the study
+    # is ready to run without manual wiring in the Inputs panel.
+    auto_inputs: dict[str, str] = {}
+    for node in model.get("nodes", []):
+        if node["kind"] == "boundary":
+            t_src = node.get("T_source")
+            if isinstance(t_src, str):  # string = signal name; float = fixed value
+                auto_inputs[node["id"]] = t_src
+        elif node["kind"] == "source":
+            sig = node.get("signal")
+            if sig:
+                auto_inputs[node["id"]] = sig
+
     study = {
         "id":            study_id,
         "label":         label,
         "model":         model,
         "expansion_map": expansion_map,
-        "inputs":        {},
+        "inputs":        auto_inputs,
         "observations":  {},
         "start":         "",
         "end":           "",

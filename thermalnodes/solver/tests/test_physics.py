@@ -79,9 +79,19 @@ class TestExpandChambreOnly:
             assert abs(row_sum) < 1e-8, f"row {i} energy imbalance: {row_sum:.2e}"
 
     def test_solar_source_present(self):
-        """Glazing with orientation should produce a solar source node."""
-        kinds = [n["kind"] for n in self.model["nodes"]]
-        assert "source" in kinds
+        """Glazing with SHGC should produce a solar source node referencing outdoor solar_signal."""
+        outdoor_elem = next(e for e in HOUSE["elements"] if e["id"] == OUTDOOR)
+        solar_signal = outdoor_elem.get("solar_signal")
+        source_nodes = [n for n in self.model["nodes"] if n["kind"] == "source"]
+        assert any(n["signal"] == solar_signal for n in source_nodes)
+
+    def test_solar_source_gain(self):
+        """Glazing solar source gain should equal SHGC * area."""
+        glazing_elem = next(e for e in HOUSE["elements"] if e["id"] == GLAZING_SE)
+        expected_gain = glazing_elem["SHGC"] * glazing_elem["a"] * glazing_elem["b"]
+        source_nodes = [n for n in self.model["nodes"] if n["kind"] == "source"]
+        gains = [n["gain"] for n in source_nodes]
+        assert any(abs(g - expected_gain) < 1e-9 for g in gains)
 
     def test_obs_signal_on_boundary(self):
         """outdoor boundary node T_source should reflect the obs_signal."""
@@ -118,7 +128,7 @@ class TestExpandTwoRooms:
         ],
         "elements": [
             {"id": "out1", "kind": "outdoor", "label": "Ext",
-             "weather_source": "open_meteo"},
+             "obs_signal": "open_meteo_historic/temperature_2m?location=home"},
             {"id": "wall_shared", "kind": "opaque", "label": "Shared wall",
              "between": ["r1", "r2"], "a": 4.0, "b": 2.5,
              "layers": [{"material": "brick", "thickness": 0.2}]},

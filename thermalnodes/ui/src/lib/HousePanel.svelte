@@ -32,7 +32,6 @@
   };
 
   const ORIENTATIONS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-  const WEATHER_SOURCES = ['open_meteo'];
   const BOUNDARY_KINDS = ['outdoor', 'ground'];
 
   // ── derived ───────────────────────────────────────────────────────────────
@@ -188,7 +187,7 @@
     } else if (kind === 'air_exchange') {
       el = { id, kind, label: '', between: [firstRoom, firstBoundary], ach: 0.4 };
     } else if (kind === 'outdoor') {
-      el = { id, kind, label: '', location: { lat: 48.85, lon: 2.35, label: 'Paris' }, weather_source: 'open_meteo' };
+      el = { id, kind, label: '', location: { lat: 48.85, lon: 2.35, label: 'Paris' } };
     } else if (kind === 'ground') {
       el = { id, kind, label: '' };
     }
@@ -231,7 +230,8 @@
   function signalIcons(item) {
     const hasInput = !!item.input_signal?.trim();
     const hasObs   = !!item.obs_signal?.trim();
-    return { hasInput, hasObs, any: hasInput || hasObs };
+    const hasSolar = !!item.solar_signal?.trim();
+    return { hasInput, hasObs, hasSolar, any: hasInput || hasObs || hasSolar };
   }
 </script>
 
@@ -315,6 +315,7 @@
           <span class="col-signals">
             {#if sigs.hasInput}<span class="sig-icon sig-input" title="Input signal: {item.input_signal}">⤵</span>{/if}
             {#if sigs.hasObs}<span class="sig-icon sig-obs" title="Observation signal: {item.obs_signal}">◉</span>{/if}
+            {#if sigs.hasSolar}<span class="sig-icon sig-solar" title="Solar signal: {item.solar_signal}">☀</span>{/if}
           </span>
           <span class="col-include" onclick={(e) => e.stopPropagation()}>
             {#if !boundary}
@@ -569,23 +570,23 @@
                   <input type="number" value={item.location?.lon ?? ''} step="0.01"
                     oninput={(e) => patchElement(item.id, { location: { ...item.location, lon: parseFloat(e.target.value) } })} />
                 </label>
-                <label class="field">
-                  <span>weather source</span>
-                  <select value={item.weather_source ?? 'open_meteo'}
-                    onchange={(e) => patchElement(item.id, { weather_source: e.target.value })}>
-                    {#each WEATHER_SOURCES as s}<option value={s}>{s}</option>{/each}
-                  </select>
-                </label>
               </div>
               <div class="signals-section">
                 <div class="signals-title">Signals</div>
                 <div class="field-row">
                   <label class="field field-wide">
-                    <span class="sig-label sig-label-obs">◉ observation (T° override)</span>
+                    <span class="sig-label sig-label-obs">◉ temperature</span>
                     <input type="text" list="signal-list-house"
                       placeholder="measurement/field?tag=val"
                       value={item.obs_signal ?? ''}
                       oninput={(e) => patchElement(item.id, { obs_signal: e.target.value || undefined })} />
+                  </label>
+                  <label class="field field-wide">
+                    <span class="sig-label sig-label-solar">☀ solar radiation (W/m²)</span>
+                    <input type="text" list="signal-list-house"
+                      placeholder="measurement/field?tag=val"
+                      value={item.solar_signal ?? ''}
+                      oninput={(e) => patchElement(item.id, { solar_signal: e.target.value || undefined })} />
                   </label>
                 </div>
               </div>
@@ -956,6 +957,7 @@
   }
   .sig-input { color: #fbbf24; }
   .sig-obs   { color: #818cf8; }
+  .sig-solar { color: #fb923c; }
 
   /* ── signals section (expanded editor) ── */
   .signals-section {
@@ -985,4 +987,5 @@
   }
   .sig-label-input { color: #fbbf24; }
   .sig-label-obs   { color: #818cf8; }
+  .sig-label-solar { color: #fb923c; }
 </style>

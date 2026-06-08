@@ -128,7 +128,7 @@ def _ensure_zone_node(
     if kind in ("outdoor", "ground"):
         # Always a boundary node
         if kind == "outdoor":
-            T_source = zone.get("obs_signal") or zone.get("weather_source") or "outdoor"
+            T_source = zone.get("obs_signal") or "outdoor"
         else:
             T_source = 10.0  # ground: fixed 10 °C placeholder
         builder.add_node(
@@ -169,8 +169,16 @@ def _expand_opaque(element: dict, materials: dict, zone_a: str, zone_b: str, bui
     builder.add_edge(r_id, zone_b)
 
 
-def _expand_glazing(element: dict, zone_a: str, zone_b: str, builder: _Builder) -> None:
-    """Glazing: single resistance (from U-value) + optional solar source."""
+def _expand_glazing(
+    element: dict, zone_a: str, zone_b: str, builder: _Builder,
+    outdoor_solar_signal: str | None = None,
+) -> None:
+    """Glazing: single resistance (from U-value) + optional solar source.
+
+    Solar gain is included when the outdoor element has a solar_signal and the
+    glazing has a SHGC value.  The source node carries gain = SHGC * area so
+    the solver multiplies the raw irradiance [W/m²] by the effective aperture.
+    """
     area = element["a"] * element["b"]
     R = 1.0 / (element["U"] * area)
     label = _safe_label(element)
@@ -182,18 +190,16 @@ def _expand_glazing(element: dict, zone_a: str, zone_b: str, builder: _Builder) 
     builder.add_edge(zone_a, r_id)
     builder.add_edge(r_id, zone_b)
 
-    # Solar gain source into the interior zone (zone_a), if orientation is set
-    if element.get("SHGC") and element.get("orientation"):
+    # Solar gain source into the interior zone (zone_a)
+    if element.get("SHGC") and outdoor_solar_signal:
         shgc = element["SHGC"]
         s_id = builder.make_id(f"solar_{_elem_base(element)}")
-        orientation = element["orientation"].lower()
-        signal = f"poa/{orientation}"
         builder.add_node(
             {
                 "id": s_id,
                 "kind": "source",
                 "label": f"{label} (solar)",
-                "signal": signal,
+                "signal": outdoor_solar_signal,
                 "gain": shgc * area,
             },
             house_uuid=element["id"],
@@ -247,6 +253,13 @@ def expand(house: dict, selection: list[str]) -> tuple[dict, dict[str, list[str]
 
     builder = _Builder()
 
+    # Find the outdoor element's solar_signal (if any) for use by glazing nodes
+    outdoor_solar_signal: str | None = None
+    for elem in house["elements"]:
+        if elem.get("kind") == "outdoor" and elem.get("solar_signal"):
+            outdoor_solar_signal = elem["solar_signal"]
+            break
+
     # --- Rooms: create zone nodes for all rooms referenced in the selection
     # We also create nodes for outdoor/ground lazily as elements are processed.
     # Pre-create nodes for all selected rooms now so _ensure_zone_node finds them.
@@ -280,7 +293,7 @@ def expand(house: dict, selection: list[str]) -> tuple[dict, dict[str, list[str]
         if kind == "opaque":
             _expand_opaque(elem, materials, zone_a, zone_b, builder)
         elif kind == "glazing":
-            _expand_glazing(elem, zone_a, zone_b, builder)
+            _expand_glazing(elem, zone_a, zone_b, builder, outdoor_solar_signal)
         elif kind == "air_exchange":
             # Need the room to compute volume; pick the side that is a room
             room_uuid = uuid_a if uuid_a in {r["id"] for r in house["rooms"]} else uuid_b
