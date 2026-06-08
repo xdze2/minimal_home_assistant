@@ -34,6 +34,20 @@
           "thickness": 0.3
         }
       ]
+    },
+    {
+      "id": "win_2",
+      "kind": "glazing",
+      "between": [
+        "chbr",
+        "outdoor"
+      ],
+      "a": 1.2,
+      "b": 1.7,
+      "orientation": "SE",
+      "tilt": 90,
+      "U": 2.8,
+      "SHGC": 0.67
     }
   ]
 }
