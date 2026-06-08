@@ -1,5 +1,6 @@
 <script>
 	import { onMount, onDestroy } from 'svelte';
+	import SignalPicker from '$lib/SignalPicker.svelte';
 	import uPlot from 'uplot';
 	import 'uplot/dist/uPlot.min.css';
 
@@ -210,9 +211,6 @@
 		{#if signalsError}<span class="sig-warn" title="Cannot reach API">⚠</span>{/if}
 	</div>
 
-	<datalist id="signal-list-inputs">
-		{#each signals as s}<option value={s}></option>{/each}
-	</datalist>
 
 	{#if !model}
 		<p class="hint">No study loaded.</p>
@@ -229,13 +227,10 @@
 							<span class="node-name">{node.label ?? node.id}</span>
 							<span class="node-id">{node.id}</span>
 						</div>
-						<input
-							type="text"
-							list="signal-list-inputs"
-							placeholder="measurement/field?tag=val"
+						<SignalPicker
+							{signals}
 							value={inputs[node.id] ?? ''}
-							class:missing={!inputs[node.id]?.trim()}
-							oninput={(e) => setInput(node.id, e.target.value)}
+							onpick={(v) => setInput(node.id, v)}
 						/>
 					</div>
 
@@ -285,13 +280,10 @@
 							<span class="node-id">{node.id}</span>
 						</div>
 						{#if measured}
-							<input
-								type="text"
-								list="signal-list-inputs"
-								placeholder="measurement/field?tag=val"
+							<SignalPicker
+								{signals}
 								value={observations[node.id] ?? ''}
-								class:missing={!observations[node.id]?.trim()}
-								oninput={(e) => setObs(node.id, e.target.value)}
+								onpick={(v) => setObs(node.id, v)}
 							/>
 						{/if}
 					</div>

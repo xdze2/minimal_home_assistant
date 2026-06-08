@@ -54,9 +54,6 @@
 			onRunSuccess();
 
 			// fetch input series in parallel
-			const nodeLabels = Object.fromEntries(
-				(model?.nodes ?? []).map((n) => [n.id, n.label ?? n.id])
-			);
 			const inputEntries = await Promise.all(
 				Object.entries(inputs).map(async ([nodeId, signal]) => {
 					try {
@@ -112,14 +109,14 @@
 		const simTsMs = simResult.t.map((s) => Date.parse(s));
 
 		const simSeries = massIds.map((id, i) => ({
-			label: id, stroke: SIM_COLORS[i % SIM_COLORS.length], width: 1.5, spanGaps: false,
+			label: nodeLabels[id] ?? id, stroke: SIM_COLORS[i % SIM_COLORS.length], width: 1.5, spanGaps: false,
 		}));
 		const simData = massIds.map((id) => simResult.nodes[id].map((v) => (v === null ? NaN : v)));
 
 		// overlay observed temperatures if available
 		const obsIds = obsSeries ? Object.keys(obsSeries).filter((id) => simResult.nodes[id] !== undefined) : [];
 		const obsSer = obsIds.map((id, i) => ({
-			label: `${id} (obs)`,
+			label: `${nodeLabels[id] ?? id} (obs)`,
 			stroke: OBS_COLORS[i % OBS_COLORS.length],
 			width: 1, dash: [4, 3], spanGaps: false,
 		}));
@@ -162,22 +159,32 @@
 	let inpPowerContainer = $state(null);
 	let inpPowerChart     = null;
 
-	const nodeKindMap = $derived(
+	const nodeKindMap   = $derived(
 		Object.fromEntries((model?.nodes ?? []).map((n) => [n.id, n.kind]))
 	);
+	const nodeLabels    = $derived(
+		Object.fromEntries((model?.nodes ?? []).map((n) => [n.id, n.label ?? n.id]))
+	);
+	const nodeSolarIds  = $derived(
+		new Set((model?.nodes ?? []).filter((n) => n.id.startsWith('solar_')).map((n) => n.id))
+	);
+
+	const SOLAR_STYLE = { stroke: '#ca8a04', fill: 'rgba(234,179,8,0.18)', width: 1, spanGaps: false };
 
 	function buildPowerChart() {
 		if (inpPowerChart) { inpPowerChart.destroy(); inpPowerChart = null; }
 		if (!inpPowerContainer || !inputSeries) return;
 
-		const entries = Object.entries(inputSeries).filter(([id]) => nodeKindMap[id] === 'source').map(([, e]) => e);
-		if (entries.length === 0) return;
+		const sourceEntries = Object.entries(inputSeries).filter(([id]) => nodeKindMap[id] === 'source');
+		if (sourceEntries.length === 0) return;
 
-		const ts     = entries[0].t.map((s) => Date.parse(s) / 1000);
-		const data   = [ts, ...entries.map((e) => e.values.map((v) => (v === null ? NaN : v)))];
-		const series = [{}, ...entries.map((e, i) => ({
-			label: e.label, stroke: INP_COLORS[i % INP_COLORS.length], width: 1.5, spanGaps: false,
-		}))];
+		const ts     = sourceEntries[0][1].t.map((s) => Date.parse(s) / 1000);
+		const data   = [ts, ...sourceEntries.map(([, e]) => e.values.map((v) => (v === null ? NaN : v)))];
+		const series = [{}, ...sourceEntries.map(([id, e], i) => (
+			nodeSolarIds.has(id)
+				? { label: e.label, ...SOLAR_STYLE }
+				: { label: e.label, stroke: INP_COLORS[i % INP_COLORS.length], width: 1.5, spanGaps: false }
+		))];
 		inpPowerChart = makeUplot(inpPowerContainer, {
 			width: inpPowerContainer.clientWidth || 800, height: 200,
 			cursor: { show: true }, scales: { x: { time: true } }, series,
@@ -222,7 +229,7 @@
 
 		const data   = [ts, ...residData];
 		const series = [{}, ...validIds.map((id, i) => ({
-			label: id, stroke: SIM_COLORS[i % SIM_COLORS.length], width: 1.5, spanGaps: false,
+			label: nodeLabels[id] ?? id, stroke: SIM_COLORS[i % SIM_COLORS.length], width: 1.5, spanGaps: false,
 		}))];
 
 		residChart = makeUplot(residContainer, {

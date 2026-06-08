@@ -1,5 +1,6 @@
 <script>
   import { onMount } from 'svelte';
+  import SignalPicker from '$lib/SignalPicker.svelte';
 
   let { house, onchange, customMaterials = {}, dirty = false, saveLoading = false, saveError = null, onsave = null, oncreatestudy = null } = $props();
 
@@ -274,9 +275,6 @@
     </div>
   </div>
 
-  <datalist id="signal-list-house">
-    {#each signals as s}<option value={s}></option>{/each}
-  </datalist>
 
   <!-- ── grid header ────────────────────────────────────────────────────────── -->
   <div class="grid-header">
@@ -366,20 +364,18 @@
               <div class="signals-section">
                 <div class="signals-title">Signals</div>
                 <div class="field-row">
-                  <label class="field field-wide">
-                    <span class="sig-label sig-label-input">⤵ input (heat source)</span>
-                    <input type="text" list="signal-list-house"
-                      placeholder="measurement/field?tag=val"
-                      value={item.input_signal ?? ''}
-                      oninput={(e) => patchRoom(item.id, { input_signal: e.target.value || undefined })} />
-                  </label>
-                  <label class="field field-wide">
-                    <span class="sig-label sig-label-obs">◉ observation (T° sensor)</span>
-                    <input type="text" list="signal-list-house"
-                      placeholder="measurement/field?tag=val"
-                      value={item.obs_signal ?? ''}
-                      oninput={(e) => patchRoom(item.id, { obs_signal: e.target.value || undefined })} />
-                  </label>
+                  <SignalPicker
+                    {signals}
+                    label="⤵ input (heat source)"
+                    value={item.input_signal ?? ''}
+                    onpick={(v) => patchRoom(item.id, { input_signal: v || undefined })}
+                  />
+                  <SignalPicker
+                    {signals}
+                    label="◉ observation (T° sensor)"
+                    value={item.obs_signal ?? ''}
+                    onpick={(v) => patchRoom(item.id, { obs_signal: v || undefined })}
+                  />
                 </div>
               </div>
 
@@ -574,20 +570,18 @@
               <div class="signals-section">
                 <div class="signals-title">Signals</div>
                 <div class="field-row">
-                  <label class="field field-wide">
-                    <span class="sig-label sig-label-obs">◉ temperature</span>
-                    <input type="text" list="signal-list-house"
-                      placeholder="measurement/field?tag=val"
-                      value={item.obs_signal ?? ''}
-                      oninput={(e) => patchElement(item.id, { obs_signal: e.target.value || undefined })} />
-                  </label>
-                  <label class="field field-wide">
-                    <span class="sig-label sig-label-solar">☀ solar radiation (W/m²)</span>
-                    <input type="text" list="signal-list-house"
-                      placeholder="measurement/field?tag=val"
-                      value={item.solar_signal ?? ''}
-                      oninput={(e) => patchElement(item.id, { solar_signal: e.target.value || undefined })} />
-                  </label>
+                  <SignalPicker
+                    {signals}
+                    label="◉ temperature"
+                    value={item.obs_signal ?? ''}
+                    onpick={(v) => patchElement(item.id, { obs_signal: v || undefined })}
+                  />
+                  <SignalPicker
+                    {signals}
+                    label="☀ solar radiation (W/m²)"
+                    value={item.solar_signal ?? ''}
+                    onpick={(v) => patchElement(item.id, { solar_signal: v || undefined })}
+                  />
                 </div>
               </div>
 
