@@ -76,6 +76,22 @@
     return R > 0 ? area / R : null;
   }
 
+  // R value (m²·K/W) per layer and total — for display in the stack description
+  function opaqueLayerR(layer) {
+    const mat = materials[layer.material];
+    return mat ? layer.thickness / mat.lambda : null;
+  }
+
+  function opaqueTotalR(el) {
+    const h_i = el.h_i ?? 7.7;
+    const h_e = el.h_e ?? 25.0;
+    const R_layers = (el.layers ?? []).reduce((acc, l) => {
+      const r = opaqueLayerR(l);
+      return acc + (r ?? 0);
+    }, 0);
+    return (1 / h_i) + R_layers + (1 / h_e);
+  }
+
   function keyFigures(item) {
     if (item._type === 'room') {
       const vol = roomVolume(item);
@@ -83,10 +99,10 @@
     }
     if (item.kind === 'opaque') {
       const area = (item.a ?? 0) * (item.b ?? 0);
-      const ua = opaqueUA(item);
+      const R = opaqueTotalR(item);
       const chainN = wallChains[item.label]?.chain_n;
-      const chainBadge = chainN != null && chainN > 1 ? ` ×${chainN}` : '';
-      return ua != null ? `${area.toFixed(0)} m² · ${ua.toFixed(1)} W/K${chainBadge}` : `${area.toFixed(0)} m²${chainBadge}`;
+      const chainBadge = item.no_mass ? ' [R]' : (chainN != null && chainN > 1 ? ` ×${chainN}` : '');
+      return R > 0 ? `${area.toFixed(0)} m² · R ${R.toFixed(2)} m²K/W${chainBadge}` : `${area.toFixed(0)} m²${chainBadge}`;
     }
     if (item.kind === 'glazing') {
       const area = (item.a ?? 0) * (item.b ?? 0);
@@ -479,9 +495,17 @@
                   <input type="number" value={item.solar_absorptance ?? 0} min="0" max="1" step="0.05"
                     oninput={(e) => patchElement(item.id, { solar_absorptance: parseFloat(e.target.value) ?? 0 })} />
                 </label>
+                <label class="field" title="Approximate the wall as a pure resistor — no thermal mass, faster simulation">
+                  <span>no mass</span>
+                  <input type="checkbox" checked={item.no_mass ?? false}
+                    onchange={(e) => patchElement(item.id, { no_mass: e.target.checked || undefined })} />
+                </label>
               </div>
               <div class="layers-section">
-                <div class="layers-title">Layers (interior → exterior)</div>
+                <div class="layers-title">
+                  Layers (interior → exterior)
+                  <span class="layers-total-r">R total = {opaqueTotalR(item).toFixed(3)} m²K/W</span>
+                </div>
                 {#each item.layers ?? [] as layer, i}
                   <div class="layer-row">
                     <span class="layer-num">{i + 1}</span>
@@ -500,9 +524,9 @@
                         oninput={(e) => patchLayer(item.id, i, { thickness: parseFloat(e.target.value) || 0.01 })} />
                     </label>
                     <div class="field">
-                      <span>UA</span>
+                      <span>R (m²K/W)</span>
                       <span class="computed-val">
-                        {(() => { const ua = opaqueUA(item); return ua != null ? ua.toFixed(2) + ' W/K' : '—'; })()}
+                        {(() => { const r = opaqueLayerR(layer); return r != null ? r.toFixed(3) : '—'; })()}
                       </span>
                     </div>
                     <button class="icon-btn del-btn" onclick={() => deleteLayer(item.id, i)} title="Remove">×</button>
@@ -979,6 +1003,16 @@
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: #94a3b8;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .layers-total-r {
+    font-size: 11px;
+    font-family: monospace;
+    color: #cbd5e1;
+    text-transform: none;
+    letter-spacing: 0;
   }
   .layer-row {
     display: flex;

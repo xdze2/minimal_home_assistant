@@ -245,6 +245,9 @@ def _expand_opaque(
     R_si on the indoor side.  Solar gain is injected into the outer surface
     mass node (the one adjacent to R_se).
 
+    When element["no_mass"] is True the wall is approximated as a single
+    resistor (total R, no capacitance).
+
     Topology (N=2, zone_a=outdoor, zone_b=room):
         outdoor — R_se — m_0(outer) — R/N — m_1(inner) — R_si — room
                            C/N                  C/N
@@ -256,9 +259,31 @@ def _expand_opaque(
     R_se = (1.0 / h_e) / area
     R_si = (1.0 / h_i) / area
 
-    R_wall = _opaque_R_total(element, materials) - R_se - R_si
+    R_total = _opaque_R_total(element, materials)
+    R_wall = R_total - R_se - R_si
     C_wall = _opaque_C_total(element, materials)
     N = _opaque_chain_n(element, materials)
+
+    # ── resistor-only approximation (no thermal mass) ─────────────────────────
+    if element.get("no_mass", False):
+        base = _elem_base(element)
+        label = _safe_label(element)
+        eid = element["id"]
+        r_id = builder.make_id(f"R_{base}")
+        builder.add_node(
+            {"id": r_id, "kind": "resistance", "label": f"{label} (R)", "R": R_total},
+            house_uuid=eid,
+        )
+        builder.add_edge(zone_a, r_id)
+        builder.add_edge(r_id, zone_b)
+        builder.wall_chains[label] = {
+            "mass_ids": [],
+            "r_ids": [r_id],
+            "chain_n": 0,
+            "R_wall": R_total,
+            "C_wall": 0.0,
+        }
+        return
 
     base = _elem_base(element)
     label = _safe_label(element)

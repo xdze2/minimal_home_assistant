@@ -47,6 +47,26 @@
         }
       ],
       "solar_absorptance": 0.5
+    },
+    {
+      "id": "de455dd6-d040-4d02-8895-d8d6f3af6bff",
+      "kind": "opaque",
+      "label": "Wall NE",
+      "between": [
+        "a1b2c3d4-0001-0000-0000-000000000001",
+        "a1b2c3d4-0001-0000-0000-000000000002"
+      ],
+      "a": 4,
+      "b": 3,
+      "orientation": "S",
+      "tilt": 90,
+      "layers": [
+        {
+          "material": "glass_wool",
+          "thickness": 0.15
+        }
+      ],
+      "no_mass": true
     }
   ],
   "studies": [
@@ -93,13 +113,46 @@
         "z_a1b2c3d4000100000000000000000001": "sonoff_thermometer/temperature?ieee_addr=0x00124b002919774f&name=sensors/thE"
       },
       "solver": "zoh",
+      "initial_state": {
+        "mode": "auto",
+        "T": 20
+      },
       "run": {
-        "model_hash": "f90f72bbcf7e",
-        "timestamp": "20260609T070257",
+        "model_hash": "fcfded0200fb",
+        "timestamp": "20260609T071556",
         "settings": {
           "solver": "zoh",
-          "start": "2026-05-25",
+          "start": "2026-05-27",
           "end": "2026-06-03",
+          "dt_minutes": 15
+        }
+      }
+    },
+    {
+      "id": "9782ee83-0af3-49ca-841d-0f6766494591",
+      "label": "Chambre",
+      "type": "fit",
+      "start": "2026-05-04",
+      "end": "2026-06-02",
+      "inputs": {
+        "z_a1b2c3d4000100000000000000000002": "open_meteo_historic/temperature_2m?location=home",
+        "solar_e9428cf4fe524f4f96edee3ff844e675": "open_meteo_historic/shortwave_radiation?location=home"
+      },
+      "observations": {
+        "z_a1b2c3d4000100000000000000000001": "sonoff_thermometer/temperature?ieee_addr=0x00124b002919774f&name=sensors/thE"
+      },
+      "solver": "zoh",
+      "initial_state": {
+        "mode": "auto",
+        "T": 20
+      },
+      "run": {
+        "model_hash": "fcfded0200fb",
+        "timestamp": "20260609T071845",
+        "settings": {
+          "solver": "zoh",
+          "start": "2026-05-04",
+          "end": "2026-06-02",
           "dt_minutes": 15
         }
       }

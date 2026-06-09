@@ -222,6 +222,11 @@
           "maximum": 1,
           "default": 0.6,
           "examples": [0.6, 0.4, 0.9]
+        },
+        "no_mass": {
+          "type": "boolean",
+          "description": "If true, approximate the wall as a pure resistor (no thermal mass). Useful for lightweight partitions.",
+          "default": false
         }
       }
     },
