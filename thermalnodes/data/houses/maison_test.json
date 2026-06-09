@@ -7,10 +7,10 @@
       "id": "a1b2c3d4-0001-0000-0000-000000000001",
       "label": "Chambre",
       "role": "mass",
-      "a": 5,
+      "a": 4,
       "b": 5,
       "c": 3,
-      "furniture_factor": 4.5,
+      "furniture_factor": 40.5,
       "obs_signal": "sonoff_thermometer/temperature?ieee_addr=0x00124b002919774f&name=sensors/thE"
     }
   ],
@@ -36,8 +36,8 @@
         "a1b2c3d4-0001-0000-0000-000000000001",
         "a1b2c3d4-0001-0000-0000-000000000002"
       ],
-      "a": 4,
-      "b": 2.5,
+      "a": 5,
+      "b": 3,
       "orientation": "S",
       "tilt": 90,
       "layers": [
@@ -74,8 +74,8 @@
       "id": "902204b2-be5d-4c25-b231-d021b94e2a4f",
       "label": "Chambre",
       "type": "run",
-      "start": "2026-05-24",
-      "end": "2026-05-31",
+      "start": "2026-05-01",
+      "end": "2026-06-02",
       "inputs": {
         "z_a1b2c3d4000100000000000000000002": "open_meteo_historic/temperature_2m?location=home"
       },
@@ -88,12 +88,12 @@
         "T": 24
       },
       "run": {
-        "model_hash": "f90f72bbcf7e",
-        "timestamp": "20260609T065746",
+        "model_hash": "74e41afe1ce0",
+        "timestamp": "20260609T123813",
         "settings": {
           "solver": "zoh",
-          "start": "2026-05-24",
-          "end": "2026-05-31",
+          "start": "2026-05-01",
+          "end": "2026-06-02",
           "dt_minutes": 15,
           "y0_uniform": 24
         }
@@ -103,7 +103,7 @@
       "id": "3bbba969-6b59-4a10-860b-631f3e267d66",
       "label": "Chambre",
       "type": "fit",
-      "start": "2026-05-31",
+      "start": "2026-05-25",
       "end": "2026-06-02",
       "inputs": {
         "z_a1b2c3d4000100000000000000000002": "open_meteo_historic/temperature_2m?location=home",
@@ -114,34 +114,33 @@
       },
       "solver": "zoh",
       "initial_state": {
-        "mode": "auto",
-        "T": 20
+        "mode": "uniform",
+        "T": 27
+      },
+      "run": {
+        "model_hash": "5af5744ce72d",
+        "timestamp": "20260609T124724",
+        "settings": {
+          "solver": "zoh",
+          "start": "2026-05-25",
+          "end": "2026-06-02",
+          "dt_minutes": 15,
+          "y0_uniform": 27.0
+        }
       },
       "fit": {
-        "model_hash": "fcfded0200fb",
-        "timestamp": "20260609T074523",
+        "model_hash": "5af5744ce72d",
+        "timestamp": "20260609T124724",
         "settings": {
           "method": "nls",
-          "start": "2026-05-31",
+          "start": "2026-05-25",
           "end": "2026-06-02",
           "dt_minutes": 15
         },
         "result_params": {
-          "z_a1b2c3d4000100000000000000000001.C": 126292.96024976658,
-          "R_e9428cf4fe524f4f96edee3ff844e675_1.R": 0.06687965335520396,
-          "m_e9428cf4fe524f4f96edee3ff844e675_2.C": 367954.06276084407,
-          "solar_e9428cf4fe524f4f96edee3ff844e675.gain": 11.261615419224023,
-          "R_de455dd6d0404d028895d8d6f3af6bff.R": 3.2057064665540262
-        }
-      },
-      "run": {
-        "model_hash": "fcfded0200fb",
-        "timestamp": "20260609T074523",
-        "settings": {
-          "solver": "zoh",
-          "start": "2026-05-31",
-          "end": "2026-06-02",
-          "dt_minutes": 15
+          "z_a1b2c3d4000100000000000000000001.C": 4163490.4696943397,
+          "solar_e9428cf4fe524f4f96edee3ff844e675.gain": 4.496689669159939,
+          "R_de455dd6d0404d028895d8d6f3af6bff.R": 0.03843544641380327
         }
       }
     }

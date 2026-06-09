@@ -146,6 +146,24 @@
 		}
 	}
 
+	// ── param label helpers ───────────────────────────────────────────────────
+	const FIELD_UNITS = { R: 'm²K/W', C: 'J/K', gain: 'W/W' };
+	const FIELD_LABEL = { R: 'R', C: 'C', gain: 'gain' };
+
+	const nodeLabels = $derived(
+		Object.fromEntries((model?.nodes ?? []).map((n) => [n.id, n.label ?? n.id]))
+	);
+
+	function fmtParamKey(key) {
+		const dot = key.lastIndexOf('.');
+		if (dot === -1) return key;
+		const nodeId = key.slice(0, dot);
+		const field  = key.slice(dot + 1);
+		const label  = nodeLabels[nodeId] ?? nodeId;
+		const unit   = FIELD_UNITS[field];
+		return unit ? `${label}  [${unit}]` : `${label}.${field}`;
+	}
+
 	// ── results table helpers ─────────────────────────────────────────────────
 	function fmtParam(v) {
 		if (v === null || v === undefined || isNaN(v)) return '—';
@@ -200,10 +218,6 @@
 
 	async function loadChartsForResult(result) {
 		simResult = result;
-
-		const nodeLabels = Object.fromEntries(
-			(model?.nodes ?? []).map((n) => [n.id, n.label ?? n.id])
-		);
 
 		const inputEntries = await Promise.all(
 			Object.entries(inputs).map(async ([nodeId, signal]) => {
@@ -471,7 +485,7 @@
 										onchange={() => toggleParam(row.key)}
 									/>
 								</td>
-								<td class="param-key">{row.key}</td>
+								<td class="param-key" title={row.key}>{fmtParamKey(row.key)}</td>
 								<td class="group-cell">
 									{#if gi}
 										<span class="group-dot" style="background:{gi.color}" title="Tied group — {gi.size} parallel paths"></span>
@@ -541,7 +555,7 @@
 							{@const std     = fitResult.params_std?.[key]}
 							{@const gi      = groupInfoMap[key]}
 							<tr>
-								<td class="param-key">{key}</td>
+								<td class="param-key" title={key}>{fmtParamKey(key)}</td>
 								<td class="group-cell">
 									{#if gi}
 										<span class="group-dot" style="background:{gi.color}" title="Tied — shared multiplier with {gi.size - 1} other path(s)"></span>
@@ -700,9 +714,9 @@
 	.params-table input[type='checkbox'] { cursor: pointer; accent-color: #6366f1; }
 
 	.param-key {
-		font-family: monospace;
-		font-size: 11px;
+		font-size: 12px;
 		color: #e2e8f0;
+		max-width: 280px;
 	}
 
 	.group-cell {

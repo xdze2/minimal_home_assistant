@@ -99,8 +99,63 @@ described above.
 4. ~~Post-fit forward simulation with fitted params + charts (temperatures, residuals, input power).~~ ✓
 5. ~~`param_overrides` on `/simulate/run` — patches RC model with fitted values before solve.~~ ✓
 6. ~~`y0_uniform` propagated to fit (`/fit/run`) and post-fit simulation (`/simulate/run`).~~ ✓
-7. Post-fit `λ ± σ` badges per layer on house rows, color-coded by posterior shift vs prior.
-8. **Promote to priors** — write `result_params` back as tightened priors on elements.
+7. ~~Human-readable parameter names + units in FitPanel tables.~~ ✓
+8. Post-fit `λ ± σ` badges per layer on house rows, color-coded by posterior shift vs prior.
+9. **Promote to priors** — write `result_params` back as tightened priors on elements.
+
+### M7 — Fit UI polish
+
+#### M7.1 — Initial values for fit parameters
+
+Currently `nominal` values shown in FitPanel come from the RC model node fields
+(the physical defaults set at expand time). These are often poor starting points,
+especially for `C` nodes (thermal mass), causing slow convergence or wrong local
+minima.
+
+Three options, in order of effort:
+
+- **A — Derive from elements (recommended first step)**  
+  At expand time, `physics.py` already computes `R_wall`, `C_wall` per element
+  (stored in `wall_chains`). Expose these as the nominal for wall-chain params
+  (`wall_label.R`, `wall_label.C`). For zone `C` nodes: derive from room volume
+  × air volumetric heat capacity (1200 J/m³K) + furnishings estimate.  
+  No new API needed — enrich the RC model node fields so `n.R` / `n.C` already
+  hold the element-level physical estimates.
+
+- **B — Warm start from a previous fit result**  
+  If the study already has `result_params`, pre-fill `nominal` with those values
+  in FitPanel (and tighten `sigma_log` accordingly). Already partially designed
+  as M6.9 "Promote to priors".
+
+- **C — Auto-scale from data**  
+  Estimate τ = RC from the observed temperature signal (step response or
+  autocorrelation). Back out a plausible R or C given the other. Useful when
+  no physical knowledge is available.
+
+#### M7.2 — Series resistor identifiability grouping
+
+Currently `identifiability.group_params()` only groups **parallel** resistors
+(same endpoint pair → one shared multiplier). **Series** resistors between two
+zones are also unidentifiable individually — only their sum is observable.
+
+Example: `R_si` (surface resistance) in series with `R_wall` (bulk wall
+resistance) between the same two temperature nodes. Fitting them separately is
+ill-posed; only `R_si + R_wall` is constrained by data.
+
+Design:
+- Detect series chains: a path of resistance nodes between two non-resistance
+  nodes where all intermediate nodes are pure resistances (no mass, no source).
+  Each such chain → one group (sum parameter).
+- The group representative is the first key in chain order; fitted value is the
+  total series R, distributed to members proportionally to their nominals.
+- In `_patch_model`, handle `series_chain_label.R` similarly to wall chains.
+- Expose in FitPanel as a single row `R_si + R_wall (Mur SE) [m²K/W]` with
+  combined nominal = sum of member nominals.
+
+Note: `Rsi` and `Rse` (surface resistances, small, ~0.01–0.04 m²K/W) are
+often the dominant series-identifiability issue in practice. A simpler fix is
+to just **freeze** them by default (check `fixed: true`) in FitPanel, since
+their value is well-known and not worth fitting.  This may be sufficient for M7.
 
 ---
 
