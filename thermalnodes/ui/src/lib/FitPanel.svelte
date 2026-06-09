@@ -6,12 +6,18 @@
 	const API = 'http://localhost:8001';
 
 	let {
+		house_name,
+		study_id,
 		model,
 		inputs       = {},   // node_id → signal name (from Inputs tab)
 		range        = { start: '', end: '' },
 		observations = {},   // mass_node_id → signal name (from Inputs tab observations)
 		groups       = [],   // list[list[str]] from /fit/preview-groups (all params)
+		y0_uniform   = null, // null → auto; or a number [°C] for uniform initial state
+		onready      = /** @type {(fn: () => void) => void} */ (() => {}),
 	} = $props();
+
+	$effect(() => { onready(runFit); });
 
 	// Group colors — must match GraphView.svelte palette
 	const GROUP_COLORS = ['#f97316', '#22d3ee', '#a78bfa', '#4ade80', '#fb7185'];
@@ -84,6 +90,7 @@
 	);
 
 	async function runFit() {
+		if (!canRun) return;
 		fitLoading  = true;
 		fitError    = null;
 		fitResult   = null;
@@ -97,7 +104,8 @@
 		}
 
 		const body = {
-			model,
+			house_name,
+			study_id,
 			start:        range.start,
 			end:          range.end,
 			inputs,
@@ -108,6 +116,7 @@
 			obs_sigma:    obsSigma,
 			method,
 			dt_minutes:   15,
+			...(y0_uniform != null ? { y0_uniform } : {}),
 		};
 
 		try {
@@ -118,7 +127,11 @@
 			});
 			if (!res.ok) {
 				const d = await res.json().catch(() => ({ detail: res.statusText }));
-				throw new Error(typeof d.detail === 'string' ? d.detail : JSON.stringify(d.detail));
+				const detail = d.detail;
+				const msg = Array.isArray(detail)
+					? detail.map((e) => `${e.loc?.slice(1).join('.')||''}: ${e.msg}`).join('; ')
+					: (typeof detail === 'string' ? detail : JSON.stringify(detail));
+				throw new Error(msg);
 			}
 			fitResult = await res.json();
 
@@ -159,24 +172,16 @@
 	}
 
 	async function runSimWithFittedParams(fittedParams) {
-		// Patch model with fitted parameter values
-		const fittedModel = {
-			...model,
-			nodes: (model?.nodes ?? []).map((n) => {
-				const Rkey = `${n.id}.R`;
-				const Ckey = `${n.id}.C`;
-				const Gkey = `${n.id}.gain`;
-				if (n.kind === 'resistance' && fittedParams[Rkey] !== undefined)
-					return { ...n, R: fittedParams[Rkey] };
-				if (n.kind === 'mass' && fittedParams[Ckey] !== undefined)
-					return { ...n, C: fittedParams[Ckey] };
-				if (n.kind === 'source' && fittedParams[Gkey] !== undefined)
-					return { ...n, gain: fittedParams[Gkey] };
-				return n;
-			}),
+		const body = {
+			house_name,
+			study_id,
+			start:           range.start,
+			end:             range.end,
+			inputs,
+			solver:          'zoh',
+			param_overrides: fittedParams,
+			...(y0_uniform != null ? { y0_uniform } : {}),
 		};
-
-		const body = { model: fittedModel, start: range.start, end: range.end, inputs, solver: 'zoh' };
 		const res = await fetch(`${API}/simulate/run`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -184,7 +189,11 @@
 		});
 		if (!res.ok) {
 			const d = await res.json().catch(() => ({ detail: res.statusText }));
-			throw new Error(d.detail ?? res.statusText);
+			const detail = d.detail;
+			const msg = Array.isArray(detail)
+				? detail.map((e) => `${e.loc?.slice(1).join('.')||''}: ${e.msg}`).join('; ')
+				: (typeof detail === 'string' ? detail : JSON.stringify(detail));
+			throw new Error(msg);
 		}
 		return res.json();
 	}
@@ -519,10 +528,10 @@
 						<tr>
 							<th>Parameter</th>
 							<th></th>
-							<th>Nominal</th>
-							<th>Fitted / Mean</th>
+							<th>Old (nominal)</th>
+							<th>New (fitted)</th>
 							<th>± σ</th>
-							<th>Change</th>
+							<th>Δ</th>
 						</tr>
 					</thead>
 					<tbody>

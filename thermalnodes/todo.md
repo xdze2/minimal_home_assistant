@@ -91,15 +91,16 @@ described above.
    magnitude.
 3. Click a row → filter study charts to that element's traces.
 
-### M6 — Working Fit
+### ~~M6 — Working Fit~~ ✓ done
 
-1. Fit runs correctly end-to-end (NLS + optional MCMC).
-2. Fit result saved: parquet for time-series output, `result_params` in JSON.
-3. Model hash stored on fit result; stale flag shown if elements changed.
-4. Post-fit `λ ± σ` badges per layer on house rows, color-coded by posterior
-   shift vs prior.
-5. **Promote to priors** — write `result_params` back as tightened priors on
-   elements.
+1. ~~Fit runs correctly end-to-end (NLS + optional MCMC).~~ ✓
+2. ~~Fit result saved: `result_params` in house JSON; model hash + timestamp stored.~~ ✓
+3. ~~Model hash stored on fit result; stale flag shown if elements changed.~~ ✓
+4. ~~Post-fit forward simulation with fitted params + charts (temperatures, residuals, input power).~~ ✓
+5. ~~`param_overrides` on `/simulate/run` — patches RC model with fitted values before solve.~~ ✓
+6. ~~`y0_uniform` propagated to fit (`/fit/run`) and post-fit simulation (`/simulate/run`).~~ ✓
+7. Post-fit `λ ± σ` badges per layer on house rows, color-coded by posterior shift vs prior.
+8. **Promote to priors** — write `result_params` back as tightened priors on elements.
 
 ---
 
@@ -148,30 +149,19 @@ zones: only the sum is observable.
 
 ### Initial state (T₀) for forward simulation
 
-Currently `mode: "auto"` falls back to the first boundary signal value at t=0 (or 20 °C),
-broadcast uniformly to all mass nodes. This is a poor default for anything but
-short warm-up runs. Options to consider:
+~~`y0_uniform` — single uniform temperature for all mass nodes, exposed in the UI
+as a radio (`auto` / `uniform` + numeric input), sent to `/simulate/run` and `/fit/run`.~~ ✓ done
+
+Still to do:
 
 - **Burn-in / warm-up** — prepend a warm-up window (e.g. 24–48 h) before the study
   range, discard it, use the final state as T₀. Cheap, no extra solver. Length should
   be a few multiples of the dominant time constant (wall RC). Simplest to implement.
+  Add `mode: "burnin"` with `burnin_days: int` (default 2).
 - **Periodic steady-state** — assume the system is periodic over the study range;
-  iterate: run one period, feed final state back as T₀, repeat until convergence
-  (~3–5 passes). Useful for "typical week" benchmarks.
-- **Algebraic steady-state** — solve `A x = -B u(t₀)` (dx/dt = 0 at t=0 forcing).
-  Gives equilibrium for the initial forcing. Fast but only valid when the system
-  is near steady-state at the start.
-- **Small fit** — expose T₀ as free parameters in the fit; infer them jointly with
-  RC params. Most principled but adds degrees of freedom; better left to the Fit study type.
-
-**Recommended first step:** burn-in. Add `mode: "burnin"` with a configurable
-`burnin_days: int` (default 2). On the backend, extend `start` by `burnin_days`
-when fetching signals, run the solver over the extended window, slice the output
-back to the original range.
-
-Also: the current per-node T₀ form only exposes a single uniform temperature.
-Should show one input per mass node (labels from `rcModel`), pre-filled with the
-uniform value, so the user can override individual nodes.
+  iterate: run one period, feed final state back as T₀, repeat until convergence.
+- **Per-node T₀** — show one input per mass node (labels from `rcModel`), pre-filled
+  with the uniform value, so the user can override individual nodes.
 
 ### Other
 
@@ -187,6 +177,11 @@ uniform value, so the user can override individual nodes.
 ---
 
 ## Changelog
+
+- **2026-06** — Working fit (M6 partial) — `house_name`+`study_id` context on `/fit/run`;
+  `param_overrides` on `/simulate/run` patches RC model before solve for post-fit charts;
+  `y0_uniform` propagated to both `/fit/run` and post-fit `/simulate/run`; FitPanel uses
+  house/study API (no client-side model patching); `RangeSelect` extracted as shared component.
 
 - **2026-06** — Heavy wall UI — `solar α` field in opaque editor; `×N` chain badge in row
   key figures (reuses `rcModel.wall_chains` from parent, no extra API call); wall mass node

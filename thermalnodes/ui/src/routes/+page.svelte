@@ -7,6 +7,7 @@
 	import FitPanel from '$lib/FitPanel.svelte';
 	import HousePanel from '$lib/HousePanel.svelte';
 	import MaterialsPanel from '$lib/MaterialsPanel.svelte';
+	import RangeSelect from '$lib/RangeSelect.svelte';
 
 	const API = 'http://localhost:8001';
 
@@ -272,25 +273,11 @@
 	}
 
 	// ── simulation pane (house view) ─────────────────────────────────────────
-	let simPaneTab  = $state('rc'); // 'rc' | 'studies' | 'sim'
-	let rangeMode   = $state('duration'); // 'dates' | 'duration'
-	let triggerRun  = $state(/** @type {(() => void) | null} */ (null));
-
-	const DAY_PRESETS = [1, 2, 3, 5, 7, 10, 14, 21, 30, 60, 90];
-	let durationDays = $state(7);
+	let simPaneTab    = $state('rc'); // 'rc' | 'studies' | 'sim'
+	let rangeMode     = $state('duration'); // 'dates' | 'duration'
+	let triggerRun    = $state(/** @type {(() => void) | null} */ (null));
+	let durationDays  = $state(7);
 	let durationStart = $state('');
-
-	function isoDate(d) { return d.toISOString().slice(0, 10); }
-
-	function applyDuration() {
-		if (!durationStart) return;
-		const start = new Date(durationStart + 'T00:00:00');
-		const end   = new Date(start);
-		end.setDate(end.getDate() + durationDays);
-		simRange = { start: isoDate(start), end: isoDate(end) };
-	}
-
-	$effect(() => { durationDays; durationStart; applyDuration(); });
 
 	// ── create study from house ───────────────────────────────────────────────
 	let createStudyLoading = $state(false);
@@ -573,39 +560,14 @@
 							<!-- ── control bar ── -->
 							<div class="sim-controls">
 								<div class="sim-ctrl-row sim-ctrl-range">
-									{#if rangeMode === 'dates'}
-										<input class="ctrl-date" type="date"
-											value={simRange.start}
-											oninput={(e) => (simRange = { ...simRange, start: e.currentTarget.value })}
-											title="Start"
-										/>
-										<span class="ctrl-range-sep">→</span>
-										<input class="ctrl-date" type="date"
-											value={simRange.end}
-											oninput={(e) => (simRange = { ...simRange, end: e.currentTarget.value })}
-											title="End"
-										/>
-										<button class="ctrl-mode-toggle" onclick={() => (rangeMode = 'duration')} title="Switch to duration mode">⇄</button>
-									{:else}
-										<input class="ctrl-date ctrl-date-start" type="date"
-											bind:value={durationStart}
-											title="Start"
-										/>
-										<div class="ctrl-presets">
-											{#each DAY_PRESETS as d}
-												<button class="ctrl-preset" class:active={durationDays === d} onclick={() => (durationDays = d)}>{d}d</button>
-											{/each}
-										</div>
-										<input class="ctrl-date ctrl-date-end" type="date"
-											value={simRange.end}
-											readonly
-											title="End (computed)"
-										/>
-										<button class="ctrl-mode-toggle" onclick={() => (rangeMode = 'dates')} title="Switch to start/end mode">⇄</button>
-									{/if}
+									<RangeSelect
+										bind:range={simRange}
+										bind:rangeMode
+										bind:durationDays
+										bind:durationStart
+									/>
 								</div>
 
-								{#if (selectedStudy?.type ?? 'run') === 'run'}
 								<div class="sim-ctrl-row sim-ctrl-initstate">
 									<span class="ctrl-label">T₀</span>
 									<label class="ctrl-radio">
@@ -628,12 +590,13 @@
 										<span class="ctrl-unit">°C</span>
 									{/if}
 								</div>
-								{/if}
 
+								{#if (selectedStudy?.type ?? 'run') === 'run'}
 								<div class="sim-ctrl-row">
 									<label class="ctrl-radio"><input type="radio" bind:group={simSolver} value="ivp" /><span>IVP (BDF)</span></label>
 									<label class="ctrl-radio"><input type="radio" bind:group={simSolver} value="zoh" /><span>ZOH</span></label>
 								</div>
+								{/if}
 
 								<div class="sim-ctrl-row">
 									{#if (selectedStudy?.type ?? 'run') === 'run'}
@@ -645,19 +608,33 @@
 							</div>
 
 							<div class="sim-pane-body scrollable">
-								<SimulationRun
-									house_name={houseName}
-									study_id={selectedStudyId}
-									inputs={simInputs}
-									range={simRange}
-									observations={simObservations}
-									bind:solver={simSolver}
-									y0_uniform={simInitState.mode === 'uniform' ? simInitState.T : null}
-									{simStale}
-									{onRunSuccess}
-									hideControls={true}
-									onready={(fn) => (triggerRun = fn)}
-								/>
+								{#if (selectedStudy?.type ?? 'run') === 'run'}
+									<SimulationRun
+										house_name={houseName}
+										study_id={selectedStudyId}
+										inputs={simInputs}
+										range={simRange}
+										observations={simObservations}
+										bind:solver={simSolver}
+										y0_uniform={simInitState.mode === 'uniform' ? simInitState.T : null}
+										{simStale}
+										{onRunSuccess}
+										hideControls={true}
+										onready={(fn) => (triggerRun = fn)}
+									/>
+								{:else}
+									<FitPanel
+										house_name={houseName}
+										study_id={selectedStudyId}
+										model={rcModel}
+										inputs={simInputs}
+										range={simRange}
+										observations={simObservations}
+										groups={paramGroups}
+										y0_uniform={simInitState.mode === 'uniform' ? simInitState.T : null}
+										onready={(fn) => (triggerRun = fn)}
+									/>
+								{/if}
 							</div>
 						{/if}
 					{/if}
@@ -970,60 +947,6 @@
 		gap: 5px;
 	}
 
-	.ctrl-date {
-		background: #0f172a;
-		color: #e2e8f0;
-		border: 1px solid #334155;
-		border-radius: 3px;
-		padding: 4px 6px;
-		font-size: 12px;
-		font-family: monospace;
-		flex: 1;
-		min-width: 110px;
-		color-scheme: dark;
-	}
-	.ctrl-date:focus         { outline: none; border-color: #6366f1; }
-	.ctrl-date[readonly]     { color: #64748b; }
-
-	.ctrl-range-sep {
-		color: #475569;
-		font-size: 12px;
-		flex-shrink: 0;
-	}
-
-	.ctrl-presets {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 3px;
-		flex: 1;
-	}
-
-	.ctrl-preset {
-		background: #1e293b;
-		border: 1px solid #334155;
-		color: #64748b;
-		font-size: 10px;
-		font-family: monospace;
-		padding: 3px 6px;
-		border-radius: 3px;
-		cursor: pointer;
-		min-width: 28px;
-		text-align: center;
-	}
-	.ctrl-preset:hover  { background: #273548; color: #94a3b8; }
-	.ctrl-preset.active { background: #334155; color: #e2e8f0; border-color: #6366f1; }
-
-	.ctrl-mode-toggle {
-		background: none;
-		border: 1px solid #334155;
-		color: #475569;
-		font-size: 13px;
-		padding: 3px 7px;
-		border-radius: 3px;
-		cursor: pointer;
-		flex-shrink: 0;
-	}
-	.ctrl-mode-toggle:hover { color: #94a3b8; background: #1e293b; }
 
 	.ctrl-radio {
 		display: flex;

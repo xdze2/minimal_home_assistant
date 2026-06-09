@@ -255,6 +255,7 @@ class SimulateRequest(BaseModel):
     solver: str = "zoh"           # "ivp" | "zoh"
     dt_minutes: int = 15          # ZOH time step (ignored for ivp)
     y0_uniform: float | None = None       # uniform initial temperature [°C] for all masses; None → auto
+    param_overrides: dict[str, float] = {}  # node_id.field → value, applied after expand
 
 
 @app.post("/simulate/run")
@@ -267,6 +268,17 @@ def post_simulate_run(req: SimulateRequest) -> dict:
         rc_model, _ = expand(house)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Expand error: {e}") from e
+
+    if req.param_overrides:
+        nodes_patched = []
+        for n in rc_model.get("nodes", []):
+            n = dict(n)
+            for field in ("R", "C", "gain"):
+                key = f"{n['id']}.{field}"
+                if key in req.param_overrides:
+                    n[field] = req.param_overrides[key]
+            nodes_patched.append(n)
+        rc_model = {**rc_model, "nodes": nodes_patched}
 
     try:
         system = assemble(rc_model)
@@ -385,6 +397,7 @@ class FitRequest(BaseModel):
     obs_sigma: float = 0.5
     method: str = "nls"
     dt_minutes: int = 15
+    y0_uniform: float | None = None
 
 
 @app.post("/fit/run")
@@ -429,10 +442,16 @@ def post_fit_run(req: FitRequest) -> dict:
         "method":    req.method,
     }
 
+    y0 = None
+    if req.y0_uniform is not None:
+        system = assemble(rc_model)
+        y0 = np.full(len(system.mass_ids), req.y0_uniform)
+
     try:
         forward_fn, log_p0, param_keys, groups = build_forward(
             rc_model, inputs, observations, fit_config,
             req.start, req.end, req.dt_minutes,
+            y0=y0,
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Model error: {e}") from e
