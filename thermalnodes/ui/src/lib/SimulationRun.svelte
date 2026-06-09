@@ -12,6 +12,7 @@
 		range        = { start: '', end: '' },
 		observations = {},
 		solver       = $bindable('zoh'),
+		y0_uniform   = null,   // null → auto; or a number [°C] for uniform initial state
 		simStale     = false,
 		onRunSuccess = () => {},
 		hideControls = false,
@@ -41,7 +42,7 @@
 		inputSeries = null;
 		obsSeries   = null;
 		try {
-			const body = { house_name, study_id, start: range.start, end: range.end, inputs, solver };
+			const body = { house_name, study_id, start: range.start, end: range.end, inputs, solver, ...(y0_uniform != null ? { y0_uniform } : {}) };
 			const res  = await fetch(`${API}/simulate/run`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },

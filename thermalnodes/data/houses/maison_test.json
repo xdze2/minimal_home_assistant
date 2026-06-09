@@ -29,24 +29,24 @@
       "solar_signal": "open_meteo_historic/shortwave_radiation?location=home"
     },
     {
-      "id": "a1b2c3d4-0001-0000-0000-000000000004",
+      "id": "e9428cf4-fe52-4f4f-96ed-ee3ff844e675",
       "kind": "opaque",
-      "label": "Mur SE",
+      "label": "Wall SE",
       "between": [
         "a1b2c3d4-0001-0000-0000-000000000001",
         "a1b2c3d4-0001-0000-0000-000000000002"
       ],
       "a": 4,
       "b": 2.5,
-      "orientation": "SE",
+      "orientation": "S",
       "tilt": 90,
-      "solar_absorptance": 0.7,
       "layers": [
         {
           "material": "brick_full",
           "thickness": 0.3
         }
-      ]
+      ],
+      "solar_absorptance": 0.5
     }
   ],
   "studies": [
@@ -63,13 +63,43 @@
         "z_a1b2c3d4000100000000000000000001": "sonoff_thermometer/temperature?ieee_addr=0x00124b002919774f&name=sensors/thE"
       },
       "solver": "zoh",
+      "initial_state": {
+        "mode": "uniform",
+        "T": 24
+      },
       "run": {
-        "model_hash": "bbfea22bf738",
-        "timestamp": "20260608T215338",
+        "model_hash": "f90f72bbcf7e",
+        "timestamp": "20260609T065746",
         "settings": {
           "solver": "zoh",
           "start": "2026-05-24",
           "end": "2026-05-31",
+          "dt_minutes": 15,
+          "y0_uniform": 24
+        }
+      }
+    },
+    {
+      "id": "63811103-a9dc-4e97-8358-5c1dd6f0d866",
+      "label": "Chambre",
+      "type": "fit",
+      "start": "2026-05-27",
+      "end": "2026-06-03",
+      "inputs": {
+        "z_a1b2c3d4000100000000000000000002": "open_meteo_historic/temperature_2m?location=home",
+        "solar_e9428cf4fe524f4f96edee3ff844e675": "open_meteo_historic/shortwave_radiation?location=home"
+      },
+      "observations": {
+        "z_a1b2c3d4000100000000000000000001": "sonoff_thermometer/temperature?ieee_addr=0x00124b002919774f&name=sensors/thE"
+      },
+      "solver": "zoh",
+      "run": {
+        "model_hash": "f90f72bbcf7e",
+        "timestamp": "20260609T070257",
+        "settings": {
+          "solver": "zoh",
+          "start": "2026-05-25",
+          "end": "2026-06-03",
           "dt_minutes": 15
         }
       }

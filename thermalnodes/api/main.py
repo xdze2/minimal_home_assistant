@@ -251,9 +251,10 @@ class SimulateRequest(BaseModel):
     study_id: str
     start: str
     end: str
-    inputs: dict[str, str]  # node_id → signal name
-    solver: str = "zoh"     # "ivp" | "zoh"
-    dt_minutes: int = 15    # ZOH time step (ignored for ivp)
+    inputs: dict[str, str]        # node_id → signal name
+    solver: str = "zoh"           # "ivp" | "zoh"
+    dt_minutes: int = 15          # ZOH time step (ignored for ivp)
+    y0_uniform: float | None = None       # uniform initial temperature [°C] for all masses; None → auto
 
 
 @app.post("/simulate/run")
@@ -304,11 +305,15 @@ def post_simulate_run(req: SimulateRequest) -> dict:
             detail={"message": "Failed to fetch some signals", "errors": errors},
         )
 
+    y0_array: np.ndarray | None = None
+    if req.y0_uniform is not None:
+        y0_array = np.full(len(system.mass_ids), req.y0_uniform)
+
     try:
         if req.solver == "zoh":
-            result = simulate_zoh(system, inputs, req.start, req.end, req.dt_minutes)
+            result = simulate_zoh(system, inputs, req.start, req.end, req.dt_minutes, y0=y0_array)
         else:
-            result = simulate_ivp(system, inputs, req.start, req.end)
+            result = simulate_ivp(system, inputs, req.start, req.end, y0=y0_array)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Simulation error: {e}") from e
 
@@ -329,6 +334,7 @@ def post_simulate_run(req: SimulateRequest) -> dict:
             "start":      req.start,
             "end":        req.end,
             "dt_minutes": req.dt_minutes,
+            **({"y0_uniform": req.y0_uniform} if req.y0_uniform is not None else {}),
         },
     }
     for study in house.get("studies", []):

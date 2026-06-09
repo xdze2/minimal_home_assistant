@@ -180,6 +180,7 @@
 	let simRange         = $state({ start: '', end: '' });
 	let simSolver        = $state('zoh');
 	let simObservations  = $state({});
+	let simInitState     = $state({ mode: 'auto', T: 20 }); // mode: 'auto' | 'uniform'
 
 	const selectedStudy = $derived(studies.find((s) => s.id === selectedStudyId));
 
@@ -188,7 +189,7 @@
 	let lastRunSnapshot   = $state(null);
 
 	function studySnapshot() {
-		return JSON.stringify({ inputs: simInputs, observations: simObservations, start: simRange.start, end: simRange.end, solver: simSolver });
+		return JSON.stringify({ inputs: simInputs, observations: simObservations, start: simRange.start, end: simRange.end, solver: simSolver, initial_state: simInitState });
 	}
 
 	const studyDirty = $derived(lastSavedSnapshot !== null && studySnapshot() !== lastSavedSnapshot);
@@ -204,6 +205,7 @@
 		simInputs        = snap.inputs ?? {};
 		simSolver        = snap.solver ?? 'zoh';
 		simObservations  = snap.observations ?? {};
+		simInitState     = snap.initial_state ?? { mode: 'auto', T: 20 };
 
 		const start = snap.start ?? '';
 		const end   = snap.end   ?? '';
@@ -237,14 +239,15 @@
 		saveLoading = true;
 		saveError   = null;
 		const studyPayload = {
-			id:           selectedStudyId,
-			label:        selectedStudy?.label ?? selectedStudyId,
-			type:         selectedStudy?.type ?? 'run',
-			start:        simRange.start,
-			end:          simRange.end,
-			inputs:       simInputs,
-			observations: simObservations,
-			solver:       simSolver,
+			id:            selectedStudyId,
+			label:         selectedStudy?.label ?? selectedStudyId,
+			type:          selectedStudy?.type ?? 'run',
+			start:         simRange.start,
+			end:           simRange.end,
+			inputs:        simInputs,
+			observations:  simObservations,
+			solver:        simSolver,
+			initial_state: simInitState,
 		};
 		// Preserve run/fit records from existing study
 		if (selectedStudy?.run) studyPayload.run = selectedStudy.run;
@@ -602,6 +605,31 @@
 									{/if}
 								</div>
 
+								{#if (selectedStudy?.type ?? 'run') === 'run'}
+								<div class="sim-ctrl-row sim-ctrl-initstate">
+									<span class="ctrl-label">T₀</span>
+									<label class="ctrl-radio">
+										<input type="radio" bind:group={simInitState.mode} value="auto" />
+										<span>auto</span>
+									</label>
+									<label class="ctrl-radio">
+										<input type="radio" bind:group={simInitState.mode} value="uniform" />
+										<span>uniform</span>
+									</label>
+									{#if simInitState.mode === 'uniform'}
+										<input
+											class="ctrl-number"
+											type="number"
+											step="0.5"
+											value={simInitState.T}
+											oninput={(e) => (simInitState = { ...simInitState, T: parseFloat(e.currentTarget.value) })}
+											title="Initial temperature [°C]"
+										/>
+										<span class="ctrl-unit">°C</span>
+									{/if}
+								</div>
+								{/if}
+
 								<div class="sim-ctrl-row">
 									<label class="ctrl-radio"><input type="radio" bind:group={simSolver} value="ivp" /><span>IVP (BDF)</span></label>
 									<label class="ctrl-radio"><input type="radio" bind:group={simSolver} value="zoh" /><span>ZOH</span></label>
@@ -624,6 +652,7 @@
 									range={simRange}
 									observations={simObservations}
 									bind:solver={simSolver}
+									y0_uniform={simInitState.mode === 'uniform' ? simInitState.T : null}
 									{simStale}
 									{onRunSuccess}
 									hideControls={true}
@@ -1027,6 +1056,29 @@
 	.ctrl-btn-run:hover { background: #4338ca; }
 
 	.ctrl-btn-fit { color: #64748b; }
+
+	.ctrl-label {
+		font-size: 12px;
+		color: #94a3b8;
+		min-width: 20px;
+	}
+
+	.ctrl-number {
+		width: 54px;
+		background: #1e293b;
+		border: 1px solid #334155;
+		border-radius: 4px;
+		color: #e2e8f0;
+		font-size: 12px;
+		padding: 2px 6px;
+		text-align: right;
+	}
+	.ctrl-number:focus { outline: none; border-color: #6366f1; }
+
+	.ctrl-unit {
+		font-size: 11px;
+		color: #64748b;
+	}
 
 	/* ── studies tab (right pane) ── */
 	.studies-tab-content {

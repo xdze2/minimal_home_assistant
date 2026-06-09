@@ -146,6 +146,33 @@ zones: only the sum is observable.
 - Do not reparametrize to effective values by default; let tight priors
   separate individual elements when the information is there.
 
+### Initial state (T₀) for forward simulation
+
+Currently `mode: "auto"` falls back to the first boundary signal value at t=0 (or 20 °C),
+broadcast uniformly to all mass nodes. This is a poor default for anything but
+short warm-up runs. Options to consider:
+
+- **Burn-in / warm-up** — prepend a warm-up window (e.g. 24–48 h) before the study
+  range, discard it, use the final state as T₀. Cheap, no extra solver. Length should
+  be a few multiples of the dominant time constant (wall RC). Simplest to implement.
+- **Periodic steady-state** — assume the system is periodic over the study range;
+  iterate: run one period, feed final state back as T₀, repeat until convergence
+  (~3–5 passes). Useful for "typical week" benchmarks.
+- **Algebraic steady-state** — solve `A x = -B u(t₀)` (dx/dt = 0 at t=0 forcing).
+  Gives equilibrium for the initial forcing. Fast but only valid when the system
+  is near steady-state at the start.
+- **Small fit** — expose T₀ as free parameters in the fit; infer them jointly with
+  RC params. Most principled but adds degrees of freedom; better left to the Fit study type.
+
+**Recommended first step:** burn-in. Add `mode: "burnin"` with a configurable
+`burnin_days: int` (default 2). On the backend, extend `start` by `burnin_days`
+when fetching signals, run the solver over the extended window, slice the output
+back to the original range.
+
+Also: the current per-node T₀ form only exposes a single uniform temperature.
+Should show one input per mass node (labels from `rcModel`), pre-filled with the
+uniform value, so the user can override individual nodes.
+
 ### Other
 
 - **Material library extension** — `brique_creuse`, `stone_rubble`,
