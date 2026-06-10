@@ -10,7 +10,7 @@
       "a": 4,
       "b": 5,
       "c": 3,
-      "furniture_factor": 40.5,
+      "furniture_factor": 1.5,
       "obs_signal": "sonoff_thermometer/temperature?ieee_addr=0x00124b002919774f&name=sensors/thE"
     }
   ],
@@ -103,7 +103,7 @@
       "id": "3bbba969-6b59-4a10-860b-631f3e267d66",
       "label": "Chambre",
       "type": "fit",
-      "start": "2026-05-25",
+      "start": "2026-05-22",
       "end": "2026-06-02",
       "inputs": {
         "z_a1b2c3d4000100000000000000000002": "open_meteo_historic/temperature_2m?location=home",
@@ -115,32 +115,32 @@
       "solver": "zoh",
       "initial_state": {
         "mode": "uniform",
-        "T": 27
+        "T": 28
       },
       "run": {
-        "model_hash": "5af5744ce72d",
-        "timestamp": "20260609T124724",
+        "model_hash": "f3f0ead439c5",
+        "timestamp": "20260609T142626",
         "settings": {
           "solver": "zoh",
-          "start": "2026-05-25",
+          "start": "2026-05-22",
           "end": "2026-06-02",
           "dt_minutes": 15,
-          "y0_uniform": 27.0
+          "y0_uniform": 28.0
         }
       },
       "fit": {
-        "model_hash": "5af5744ce72d",
-        "timestamp": "20260609T124724",
+        "model_hash": "f3f0ead439c5",
+        "timestamp": "20260609T142626",
         "settings": {
           "method": "nls",
-          "start": "2026-05-25",
+          "start": "2026-05-22",
           "end": "2026-06-02",
           "dt_minutes": 15
         },
         "result_params": {
-          "z_a1b2c3d4000100000000000000000001.C": 4163490.4696943397,
-          "solar_e9428cf4fe524f4f96edee3ff844e675.gain": 4.496689669159939,
-          "R_de455dd6d0404d028895d8d6f3af6bff.R": 0.03843544641380327
+          "z_a1b2c3d4000100000000000000000001.C": 4266123.612508816,
+          "solar_e9428cf4fe524f4f96edee3ff844e675.gain": 7.309639386422638,
+          "R_de455dd6d0404d028895d8d6f3af6bff.R": 0.020388228457375295
         }
       }
     }

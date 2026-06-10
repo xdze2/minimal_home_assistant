@@ -1,0 +1,130 @@
+{
+  "label": "Toilet",
+  "schema_version": "0.3",
+  "rooms": [
+    {
+      "id": "b565a174-cdc0-4c3b-9d30-15bee5feda70",
+      "label": "Toilet",
+      "role": "mass",
+      "a": 1,
+      "b": 2,
+      "c": 2.5,
+      "furniture_factor": 10.5,
+      "obs_signal": "sonoff_thermometer/temperature?ieee_addr=0x00124b00291976e0&name=sensors/thB"
+    }
+  ],
+  "elements": [
+    {
+      "id": "e5d26c77-d87a-4071-a7d3-8bb87e4fa8ca",
+      "kind": "outdoor",
+      "label": "Outdoor",
+      "location": {
+        "lat": 48.85,
+        "lon": 2.35,
+        "label": "Paris"
+      },
+      "obs_signal": "open_meteo_historic/temperature_2m?location=home",
+      "solar_signal": "open_meteo_historic/shortwave_radiation?location=home"
+    },
+    {
+      "id": "83eb519d-00fe-496f-afae-73979d3e5259",
+      "kind": "opaque",
+      "label": "N",
+      "between": [
+        "b565a174-cdc0-4c3b-9d30-15bee5feda70",
+        "e5d26c77-d87a-4071-a7d3-8bb87e4fa8ca"
+      ],
+      "a": 1.5,
+      "b": 2,
+      "orientation": "N",
+      "tilt": 90,
+      "layers": [
+        {
+          "material": "brick_full",
+          "thickness": 0.12
+        },
+        {
+          "material": "glass_wool",
+          "thickness": 0.05
+        }
+      ]
+    },
+    {
+      "id": "d5fad5cb-c947-497e-b7cd-0ac0bb4ab8ff",
+      "kind": "opaque",
+      "label": "roof",
+      "between": [
+        "b565a174-cdc0-4c3b-9d30-15bee5feda70",
+        "e5d26c77-d87a-4071-a7d3-8bb87e4fa8ca"
+      ],
+      "a": 2,
+      "b": 2,
+      "orientation": "NW",
+      "tilt": 20,
+      "layers": [
+        {
+          "material": "glass_wool",
+          "thickness": 0.2
+        }
+      ],
+      "solar_absorptance": 0.1,
+      "no_mass": true
+    },
+    {
+      "id": "776038b3-36a9-4543-b3e6-edb515063ac8",
+      "kind": "ground",
+      "label": "Grd",
+      "T_fixed": 25
+    },
+    {
+      "id": "293d90e8-0998-46b9-aa2a-09bedef2ddd2",
+      "kind": "opaque",
+      "label": "Inner",
+      "between": [
+        "b565a174-cdc0-4c3b-9d30-15bee5feda70",
+        "776038b3-36a9-4543-b3e6-edb515063ac8"
+      ],
+      "a": 2,
+      "b": 3,
+      "orientation": "S",
+      "tilt": 90,
+      "layers": [
+        {
+          "material": "brick_full",
+          "thickness": 0.4
+        }
+      ]
+    }
+  ],
+  "studies": [
+    {
+      "id": "e8cb43c5-ec28-4536-8974-5dab44922e0b",
+      "label": "Toilet",
+      "type": "run",
+      "start": "2026-05-31",
+      "end": "2026-06-02",
+      "inputs": {
+        "z_e5d26c77d87a4071a7d38bb87e4fa8ca": "open_meteo_historic/temperature_2m?location=home"
+      },
+      "observations": {
+        "z_b565a174cdc04c3b9d3015bee5feda70": "sonoff_thermometer/temperature?ieee_addr=0x00124b00291976e0&name=sensors/thB"
+      },
+      "solver": "zoh",
+      "initial_state": {
+        "mode": "auto",
+        "T": 20
+      },
+      "run": {
+        "model_hash": "c52637d642bd",
+        "timestamp": "20260610T081553",
+        "settings": {
+          "solver": "zoh",
+          "start": "2026-05-31",
+          "end": "2026-06-02",
+          "dt_minutes": 15
+        }
+      }
+    }
+  ],
+  "name": "new_house"
+}

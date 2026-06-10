@@ -311,6 +311,21 @@ def post_simulate_run(req: SimulateRequest) -> dict:
             except Exception as e:
                 errors[src_id] = str(e)
 
+    # Auto-fill boundary nodes with a fixed numeric T_source (e.g. ground with T_fixed).
+    # simulate_zoh/ivp require an entry in inputs for every boundary_id.
+    import datetime as _dt
+    t0_sec = _dt.datetime.fromisoformat(req.start).timestamp()
+    t1_sec = _dt.datetime.fromisoformat(req.end).timestamp()
+    for b_id in system.boundary_ids:
+        if b_id in inputs:
+            continue
+        node = nodes_by_id.get(b_id, {})
+        t_src = node.get("T_source")
+        if isinstance(t_src, (int, float)):
+            t_arr = np.array([t0_sec, t1_sec])
+            v_arr = np.array([float(t_src), float(t_src)])
+            inputs[b_id] = (t_arr, v_arr)
+
     if errors:
         raise HTTPException(
             status_code=400,
@@ -435,6 +450,22 @@ def post_fit_run(req: FitRequest) -> dict:
             status_code=400,
             detail={"message": "Failed to fetch some signals", "errors": errors},
         )
+
+    # Auto-fill boundary nodes with a fixed numeric T_source (e.g. ground with T_fixed).
+    import datetime as _dt
+    _t0_sec = _dt.datetime.fromisoformat(req.start).timestamp()
+    _t1_sec = _dt.datetime.fromisoformat(req.end).timestamp()
+    _rc_nodes_by_id = {n["id"]: n for n in rc_model.get("nodes", [])}
+    _fit_system = assemble(rc_model)
+    for b_id in _fit_system.boundary_ids:
+        if b_id in inputs:
+            continue
+        node = _rc_nodes_by_id.get(b_id, {})
+        t_src = node.get("T_source")
+        if isinstance(t_src, (int, float)):
+            t_arr = np.array([_t0_sec, _t1_sec])
+            v_arr = np.array([float(t_src), float(t_src)])
+            inputs[b_id] = (t_arr, v_arr)
 
     fit_config = {
         "params":    req.params,
