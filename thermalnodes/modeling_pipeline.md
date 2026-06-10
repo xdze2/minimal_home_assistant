@@ -1,442 +1,459 @@
 # Modeling pipeline
 
-How a physical description of a house becomes a fittable RC model.
+How a noisy, partial physical description of a house becomes a fittable model
+— and how the fit feeds back to refine the description.
 
-This is a **design document** for the layered pipeline. Current code implements
-parts of it (notably layer 1 + a degenerate version of layers 2–3); the goal
-here is to spell out the target architecture, the data objects at each layer,
-and the function signatures that connect them.
+This is a **design document**. The current code implements early pieces of it
+(notably the layer-1 element list and a degenerate version of the atom/pseudo
+split); the goal here is to spell out the target architecture, the data
+objects, and the operations that connect them.
 
 For the high-level project overview see [project_description.md](project_description.md).
 
 ---
 
-## The four layers
+## Premise
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│ Layer 1 — Full physical model                                        │
-│   user-facing: rooms, walls, layers, materials, geometry             │
-│   data:        house JSON                                            │
-└──────────────────────────────────────────────────────────────────────┘
-                              │  expand()
-                              ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│ Layer 2a — Full RC graph                                             │
-│   internal:    every R, every C produced by expand()                 │
-│   data:        FullRCGraph (one R per wall layer, etc.)              │
-└──────────────────────────────────────────────────────────────────────┘
-                              │  reduce()        (lossless rewrites)
-                              ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│ Layer 2b — Reduced RC graph                                          │
-│   internal:    minimal equivalent graph (series/parallel merged,     │
-│                pure-resistor junctions eliminated)                   │
-│   data:        ReducedRCGraph, with provenance back to FullRCGraph   │
-└──────────────────────────────────────────────────────────────────────┘
-                              │  compile_mapping(reduction_spec)
-                              ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│ Layer 3 — Reduced physical model (φ-space)                           │
-│   user-facing: physical parameters with priors                       │
-│   data:        ReductionSpec + Mapping                               │
-│                e.g. (R_wall_SE, C_wall_SE) or one R_ext_chambre      │
-└──────────────────────────────────────────────────────────────────────┘
-                              │  forward (φ → values for ReducedRCGraph)
-                              ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│ Layer 4 — Solver (θ-space)                                           │
-│   internal:    AssembledSystem (A, B matrices), simulate, fit        │
-└──────────────────────────────────────────────────────────────────────┘
-```
+The user describes a house with limited and uncertain information: some
+geometry guessed, some materials approximated, some elements forgotten. The
+measurements (indoor temperature, heating power, weather) are partial.
 
-The crucial distinction: **layer 2b (reduced RC graph) and layer 3 (reduced
-physical model) are not the same object.**
+We do **not** want a rigid expand-reduce-fit pipeline. We want a loop:
 
-- Layer 2b is a *graph* — what the solver sees after lossless simplification.
-- Layer 3 is a *set of physical parameters with priors* — what the user
-  declares as "the things I want to fit." A heavy wall in layer 2b is one
-  R + one C; in layer 3 it might be 2 physical params `(R_wall, C_wall)`, or
-  1 effective param `R_ext_room` shared with other elements, or 0 (fixed).
+> Start with the coarsest model that can possibly explain the data. Fit it.
+> Look at the residuals and at how each parameter's posterior compares to
+> the user's prior. Decide whether to refine the model, whether to coarsen
+> it, and which user inputs the fit is telling us to revise. Iterate.
 
-Layer 3 is a **modeling choice** that sits on top of layer 2b. The same
-reduced graph can be parameterized many ways.
+The expert (or an LLM agent) drives that loop. The code provides the kernels
+the loop calls.
 
 ---
 
-## Layer 1 — Full physical model
+## Three layers of representation
 
-**Source of truth.** All other layers are derived.
-
-Already documented in [project_description.md](project_description.md). House JSON
-with `elements` (rooms, walls, windows, air exchanges) and material references.
-
-```python
-# Data: data/houses/<name>.json
-# Loaded as: dict (or future House dataclass)
 ```
+┌────────────────────────────────────────────────────────────────────┐
+│ DOMAIN layer  — what the user / agent reasons in                   │
+│                                                                     │
+│   envelope: opaque, glazing, infiltration, ground                  │
+│   internal: air, mass, air↔mass coupling                           │
+│   inter-zone: partition, opening                                   │
+│   sources: heating, solar, occupancy                               │
+│   boundaries: T_outdoor, T_ground, T_neighbor                      │
+│                                                                     │
+│   Domain elements describe ROLES, not quantities. They are not     │
+│   directly fittable — they are realized by pseudo elements.        │
+└────────────────────────────────────────────────────────────────────┘
+                              │
+                              │  a View picks pseudo elements
+                              │  that realize the domain
+                              ▼
+┌────────────────────────────────────────────────────────────────────┐
+│ PSEUDO layer  — the φ-space, what the fit operates on              │
+│                                                                     │
+│   Req            (lossless aggregation of series/parallel R)       │
+│   Ceq            (lossless aggregation of parallel C)              │
+│   RC_chain(n)    (parametric — n controls dynamics fidelity)       │
+│   T_boundary     (driven node, atom exposed directly)              │
+│   Q_source       (injected power, atom exposed directly)           │
+│                                                                     │
+│   Each pseudo carries:                                              │
+│     - a Belief (prior, composed from atom Beliefs)                  │
+│     - a mode: free / fixed / tied                                   │
+│     - an optional Modulator (gain(t), schedule(t))                  │
+│     - provenance: which atoms it covers, which domain it realizes  │
+└────────────────────────────────────────────────────────────────────┘
+                              │
+                              │  pseudos expand to atoms via combine rules
+                              ▼
+┌────────────────────────────────────────────────────────────────────┐
+│ ATOMIC layer  — what the solver assembles                          │
+│                                                                     │
+│   R, C, T(t), Q(t)                                                  │
+│   Pure math. No physics meaning, no priors.                        │
+│   Atoms may carry an optional modulator(t) attached at the         │
+│   pseudo level (e.g. shutter gain on a window R).                   │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+The crucial points:
+
+- **Atoms** are what the solver sees. Building A and B matrices, simulating,
+  computing residuals — all atom-level.
+- **Pseudos** are what the fit sees. The φ-vector, priors, posteriors,
+  correlations — all pseudo-level. This is the identifiability boundary.
+- **Domain elements** are what the user and the agent talk in terms of.
+  "Refine the south wall" is a domain-level statement; it produces a
+  pseudo-level change which the fit then sees.
+
+A **View** (defined below) is a choice of pseudos that, together, realize the
+domain model at a chosen abstraction level. The same domain description can
+be viewed many ways.
 
 ---
 
-## Layer 2a — Full RC graph
+## Beliefs: uncertainty is first-class
 
-Pure function from the full physical model. No I/O, no priors, no fit concerns.
-
-### Function
-
-```python
-def expand(house: dict, materials: MaterialLibrary) -> tuple[FullRCGraph, ExpansionMap]:
-    """
-    Translate physical elements into the full RC graph.
-
-    Each element produces a fixed set of nodes/edges with provenance
-    annotations so later layers can trace reduced quantities back to
-    their physical origin.
-    """
-```
-
-### Data
+Every declared quantity in the physical description is a `Belief`, not a
+number. A Belief carries a value, a confidence, and provenance.
 
 ```python
 @dataclass
-class FullRCEdge:
+class Belief:
+    value: float
+    confidence: Literal["known", "measured", "estimated", "guessed"]
+    sigma_log: float            # numeric backing; "known" ⇒ 0
+    source: str                 # "user" | "study:<id>" | "material_db" | ...
+    updated_at: datetime | None
+```
+
+- `known` (e.g. measured wall area) ⇒ tight prior, won't move.
+- `measured` ⇒ moderate prior.
+- `estimated` ⇒ wide prior.
+- `guessed` (e.g. "old brick, probably") ⇒ very wide prior, easily updated.
+
+Priors at the pseudo layer are **composed** from these Beliefs at view-build
+time. The user never writes a prior on `R_envelope` directly — they declare
+beliefs about thickness, λ, area, and the composition rules produce the
+aggregate prior with appropriately propagated uncertainty.
+
+---
+
+## Data objects
+
+### Layer 1 — Elements (with beliefs)
+
+```python
+@dataclass
+class Element:
     id: str
-    u: NodeId
-    v: NodeId
-    kind: Literal["R"]
-    value: float                      # initial / prior-mean value
-    source: ElementRef                # which house element produced this
-    role: Literal["surface", "layer", "glazing", "air_exchange"]
-    # for layer edges:
-    layer_index: int | None = None    # which layer of the wall
-    material: str | None = None
-
-@dataclass
-class FullRCNode:
-    id: NodeId
-    kind: Literal["mass", "boundary"]
-    C: float | None                   # mass nodes only
-    source: ElementRef
-    role: Literal["room_air", "wall_internal", "outdoor", "ground"]
-
-@dataclass
-class FullRCGraph:
-    nodes: list[FullRCNode]
-    edges: list[FullRCEdge]
-
-# ExpansionMap: house_element_id → list of (node_id | edge_id) it produced
-ExpansionMap = dict[str, list[str]]
+    kind: Literal["wall", "roof", "window", "ground", "infiltration",
+                  "shutter", "outdoor", "room", "partition", "heater", ...]
+    geometry: dict[str, Belief]      # area, thickness per layer, volume, ...
+    material: str | None
+    between: tuple[ElementId, ElementId] | None
+    beliefs: dict[str, Belief]       # any other declared quantity
+    modulator_ref: str | None        # link to a Modulator (e.g. shutter schedule)
+    notes: str | None
 ```
 
-### Example
+The house file is a list of Elements plus a material library and a
+modulators list. This is the source of truth.
 
-A 2-layer opaque wall with chain_n = 5 produces:
-- 2 boundary surface R's (R_se, R_si)
-- 5 internal layer R's (one per lump, value depends on which layer it falls in)
-- 5 internal C's (one per lump)
-- 4 internal mass nodes between adjacent R's (the two end nodes are room/outdoor)
-
-Each carries provenance: `source = ElementRef("mur_SE")`, layer index, material.
-
----
-
-## Layer 2b — Reduced RC graph
-
-Lossless graph rewrites. Output is the minimal equivalent network for the
-solver. Provenance is preserved so layer 3 knows how to recompute each reduced
-quantity from the originals.
-
-### Function
-
-```python
-def reduce_graph(full: FullRCGraph) -> ReducedRCGraph:
-    """
-    Apply lossless rewrites until no more rules fire:
-      1. series-R:        eliminate pure-junction node between two R's
-      2. parallel-R:      merge parallel R's between same node pair
-      3. mass-R-cluster:  collapse a chain of R's flanking a single C
-                          (heavy wall: N internal C's → 1 C, surrounding R's
-                          → 1 R) — only if all C's share the same φ scope
-
-    Returns a ReducedRCGraph where each edge/node carries the formula and
-    contributor list from the original FullRCGraph.
-    """
-```
-
-### Data
+### Atom
 
 ```python
 @dataclass
-class ReducedEdge:
+class Atom:
     id: str
-    u: NodeId
-    v: NodeId
-    kind: Literal["R"]
-    contributors: list[str]           # FullRCEdge ids
-    formula: ReductionFormula         # how to recompute value from contributors
-    value: float                      # current value (filled by Mapping)
+    kind: Literal["R", "C", "T_boundary", "Q_source"]
+    value: Belief                    # base value, before modulation
+    modulator: Modulator | None      # optional time-varying multiplier
+    source: ElementId                # which Element produced this atom
 
 @dataclass
-class ReducedNode:
-    id: NodeId
-    kind: Literal["mass", "boundary"]
-    contributors: list[str]           # FullRCNode ids (mass) or single boundary id
-    formula: ReductionFormula | None  # e.g. "sum(C_i)" for merged mass
-    C: float | None
-
-@dataclass
-class ReductionFormula:
-    op: Literal["series", "parallel", "sum", "identity"]
-    # The actual recompute is a small closure built at reduce time.
-    apply: Callable[[list[float]], float]
-
-@dataclass
-class ReducedRCGraph:
-    nodes: list[ReducedNode]
-    edges: list[ReducedEdge]
+class Modulator:
+    kind: Literal["constant", "schedule", "control_law", "signal"]
+    params: dict                     # gain value, schedule table, signal ref, ...
 ```
 
-### Algorithm (pseudo)
+Atoms are derived from Elements by a deterministic per-element function
+(`build_atoms`). One wall with N layers produces 2 surface R atoms + N layer
+R atoms + N internal C atoms (or 0 C atoms if `no_mass`).
+
+### Pseudo — the φ-space
 
 ```python
-def reduce_graph(full):
-    g = to_working_graph(full)        # mutable view; each edge/node = singleton contributor list
-    while True:
-        changed = False
-        changed |= apply_series_R(g)
-        changed |= apply_parallel_R(g)
-        changed |= apply_mass_chain_collapse(g)
-        if not changed:
-            break
-    return freeze(g)
+@dataclass
+class Pseudo:
+    id: str
+    kind: Literal["Req", "Ceq", "RC_chain", "T_boundary", "Q_source"]
+    # kind-specific structure:
+    n: int | None                    # only for RC_chain (chain length)
+    # Provenance:
+    atoms: list[AtomId]              # which atoms this pseudo aggregates
+    combine: CombineRule             # how atoms compose into the pseudo value(s)
+    realizes: DomainRef              # which domain element this realizes
+    # Fit-facing:
+    prior: Belief                    # composed from atom value Beliefs
+    mode: Literal["free", "fixed", "tied"]
+    tied_to: PseudoId | None
+    modulator: Modulator | None      # inherited from atoms or from domain
+    # Filled after fit:
+    posterior: Belief | None
+
+CombineRule = Literal[
+    "series_sum",        # Req from series R atoms
+    "parallel_sum",      # Ceq from parallel C atoms
+    "parallel_inv_sum",  # Req from parallel R atoms
+    "chain",             # RC_chain — distributes R_total, C_total across n lumps
+    "identity",          # T or Q exposed directly
+]
 ```
 
-Rewrites combine contributor lists and compose formulas:
+The `combine` rule answers: given the pseudo's posterior value(s), what are
+the atom values? For `RC_chain(n)`, the rule takes two parameters (R_total,
+C_total) and produces 2n+1 atoms (n+1 R's alternating with n C's).
+
+Note that `RC_chain(n)` is **one pseudo with two free quantities** (R_total
+and C_total). Increasing n changes dynamics fidelity without adding fit
+parameters.
+
+### Domain elements
 
 ```python
-# series-R between edges e1 (R_a) and e2 (R_b):
-new_edge.contributors = e1.contributors + e2.contributors
-new_edge.formula      = ReductionFormula("series", lambda vs: sum(vs))
-
-# parallel-R between edges e1, e2:
-new_edge.contributors = e1.contributors + e2.contributors
-new_edge.formula      = ReductionFormula("parallel", lambda vs: 1 / sum(1/v for v in vs))
+@dataclass
+class DomainElement:
+    id: str
+    role: DomainRole
+    zone: str | None                 # which room/zone, if applicable
+    composed_of: list[ElementId]     # which layer-1 elements participate
 ```
 
-A 5-lump heavy wall with uniform material reduces to **one R edge + one C
-node** between the two zone nodes, with the R edge carrying all 6 original R
-ids as contributors and a series-sum formula.
+```python
+DomainRole = Literal[
+    # Envelope (zone ↔ outside)
+    "opaque_path", "glazing_path", "infiltration_path", "ground_path",
+    # Internal (within zone)
+    "air_node", "mass_node", "air_mass_coupling",
+    # Inter-zone
+    "partition", "opening",
+    # Sources / sinks
+    "heating", "solar_gain", "internal_gain",
+    # Boundaries (driven)
+    "T_outdoor", "T_ground", "T_neighbor",
+]
+```
+
+Domain elements are derived from the house. The user does not write them
+directly — they emerge from element kinds and `between` relations. They are
+the level the agent reasons in.
+
+### View — the φ-space at a chosen abstraction
+
+```python
+@dataclass
+class View:
+    id: str
+    scope: list[ElementId]           # which elements participate
+    pseudos: list[Pseudo]            # the φ-space — what fit() sees
+    # Derived indexes:
+    by_domain: dict[DomainRef, list[PseudoId]]
+    by_atom:   dict[AtomId, PseudoId]
+```
+
+A View is a choice of pseudos that **covers every active atom exactly once**.
+Coarse view: few pseudos, each covering many atoms (e.g. one `Req` for the
+whole envelope). Fine view: many pseudos, each covering few atoms (one
+`Req` + `Ceq` per wall, possibly an `RC_chain` for heavy walls).
+
+The View is what gets persisted with a Study. The atoms and the underlying
+Elements are not persisted in the View — they are recomputed.
+
+### Study
+
+```python
+@dataclass
+class Study:
+    id: str
+    house_ref: str
+    view: View
+    window: TimeRange
+    inputs: dict[str, SignalRef]     # T_outdoor(t), Q_heating(t), ...
+    observations: dict[str, SignalRef]  # T_indoor(t), ...
+    fit_config: FitConfig
+    result: FitResult | None
+    insights: list[Insight]          # what each fit told us about Elements
+```
+
+### Insight — the loop back
+
+```python
+@dataclass
+class Insight:
+    study_id: str
+    timestamp: datetime
+    updates: list[BeliefUpdate]
+
+@dataclass
+class BeliefUpdate:
+    element_id: ElementId
+    quantity: str                    # "thickness", "lambda", "R_total", ...
+    prior: Belief
+    posterior: Belief
+    via: PseudoId                    # which φ produced this
+    accepted: bool | None            # None = pending user review
+```
+
+An Insight is a *proposal*. Each `BeliefUpdate` is reviewed (by user or
+agent) and accepted/rejected. Accepted updates rewrite the Element's
+beliefs and carry the study id as `source`.
 
 ---
 
-## Layer 3 — Reduced physical model
+## Operations
 
-The user-facing layer. Declares the physical parameters φ to fit, their
-priors, and how each φ relates to the underlying full physical quantities.
+Four deterministic kernels and two agent-level operations.
 
-### Concepts
-
-A **physical parameter** φ_i has:
-- A **name** (e.g. `mur_SE.R`, `R_ext_chambre`, `lambda_brick`).
-- A **mode**:
-  - `"derived"` — value computed from layer-1 quantities by a known formula
-    (e.g. `R_wall = R_se + Σ d_i/(λ_i·A) + R_si`). The user may fit it or fix it.
-  - `"effective"` — declared as a single number standing in for an aggregate
-    (e.g. one R for a whole room envelope). Layer 1 provides only a prior.
-  - `"fixed"` — held constant during fit.
-- A **scope**: which full-graph edges/nodes it controls.
-- A **prior** (required if free): log-normal, uniform, or improper-flat.
-- A **target**: which reduced-graph edge/node values it contributes to.
-
-### Data
+### Deterministic kernels
 
 ```python
-@dataclass(frozen=True)
-class Prior:
-    kind: Literal["fixed", "lognormal", "uniform", "flat"]
-    value: float | None = None
-    mu: float | None = None        # lognormal: log-space mean
-    sigma: float | None = None
-    low: float | None = None
-    high: float | None = None
+def build_atoms(element: Element, materials: MaterialLibrary) -> list[Atom]:
+    """One element → its atoms. Pure, per-element, no graph context."""
 
-@dataclass(frozen=True)
-class PhiSpec:
-    name: str
-    mode: Literal["derived", "effective", "fixed"]
-    scope: list[str]               # FullRC edge/node ids covered by this φ
-    target: list[str]              # ReducedRC edge/node ids it contributes to
-    prior: Prior | None
-    derive: str | None             # formula reference, e.g. "wall_R_from_layers"
+def build_domain(house: House) -> list[DomainElement]:
+    """Element list + 'between' relations → domain element list.
+    Deterministic; groups elements by their physical role."""
 
-@dataclass(frozen=True)
-class ReductionSpec:
-    phis: tuple[PhiSpec, ...]
+def fit(view: View, study: Study) -> FitResult:
+    """φ-space fit. Reads pseudo priors, runs solver via atom expansion,
+    returns posteriors on the free pseudos plus residuals and diagnostics
+    (AIC, correlation matrix, Jacobian)."""
 
-    @property
-    def free(self) -> tuple[PhiSpec, ...]:
-        return tuple(p for p in self.phis if p.mode != "fixed")
+def attribute(result: FitResult, view: View) -> Insight:
+    """Posterior on pseudos → proposed BeliefUpdates on Elements.
+
+    For each pseudo, distribute the posterior across its atoms (via the
+    combine rule's inverse) and onward across the atoms' source-element
+    beliefs, weighted by each Belief's prior confidence ('known' Beliefs
+    absorb nothing; 'guessed' Beliefs absorb most of the update)."""
 ```
 
-`ReductionSpec` is persisted in the study (it can vary per fit). The full
-physical model lives in the house and does not change with the spec.
-
-### Default reduction (no user customization)
-
-When a study is first created, the system proposes a "fully detailed"
-reduction:
+### Agent-level operations
 
 ```python
-def default_reduction_spec(full: FullRCGraph, house: dict) -> ReductionSpec:
-    """
-    - one φ per opaque element:   (R, C),  derived, free, prior from layer 1
-    - one φ per glazing:           U·A,    derived, free
-    - one φ per air_exchange:      R,      derived, free
-    - one φ per room:              C,      derived, fixed (volume known)
-    - surface resistances R_se, R_si: fixed at standard values
+def propose_view(domain: list[DomainElement], depth: ViewDepth) -> View:
+    """Pick pseudos to realize the domain at a chosen coarseness.
+    depth='coarse' → one Req per zone envelope, one Ceq per zone.
+    depth='fine'   → one Req+Ceq per element, RC_chain on heavy walls.
+    Intermediate depths possible."""
+
+def transform_view(view: View, op: ViewOp) -> View:
+    """Apply one structural change. ViewOps:
+      - refine(pseudo_id):  split one pseudo into several finer ones
+      - coarsen(group):      merge several pseudos into one
+      - resolve(pseudo_id):  for RC_chain, increase n (more dynamics fidelity,
+                             no new φ's)
+      - fix(pseudo_id):      change mode to fixed at prior value
+      - free(pseudo_id):     change mode to free
+      - tie(a, b):           tie two pseudos to share one φ
     """
 ```
 
-Identifiability analysis then suggests **transforms** on the spec (lump
-correlated φ's into one effective param, fix uninformative ones).
-
-### Function: compile mapping
-
-```python
-def compile_mapping(
-    full: FullRCGraph,
-    reduced: ReducedRCGraph,
-    spec: ReductionSpec,
-    materials: MaterialLibrary,
-) -> Mapping:
-    """
-    Build the φ → reduced-graph-values function.
-
-    For each reduced edge/node:
-      1. Look at its contributors (full-graph ids).
-      2. Group contributors by which φ in spec covers them.
-      3. Compose:  reduced_value = formula(   [phi_to_full(c) for c in contributors]  )
-         where phi_to_full(c) substitutes the relevant φ via the mode-specific rule:
-           - derived:    full_value = derive_fn(φ, layer-1 quantities)
-           - effective:  full_value = φ / share   (the φ is split across its scope)
-           - fixed:      full_value = layer-1 default
-
-    Result: an array of closures, one per reduced edge/node, taking a φ vector
-    and returning the reduced value.
-    """
-```
-
-```python
-@dataclass
-class Mapping:
-    phi_names: tuple[str, ...]                           # canonical order
-    phi_priors: tuple[Prior, ...]
-    target_names: tuple[str, ...]                        # reduced edge/node ids
-    forward: Callable[[np.ndarray], dict[str, float]]    # φ_vec → reduced values
-    inverse: Callable[[dict[str, float]], np.ndarray]    # best-effort
-    jacobian: Callable[[np.ndarray], np.ndarray] | None  # optional, analytical
-```
-
-### Pseudo: forward
-
-```python
-def forward(phi_vec):
-    # 1. Update each full-graph value from its controlling φ
-    full_values = {}
-    for full_id, (phi_name, rule) in phi_to_full_index.items():
-        phi_val = phi_vec[phi_index[phi_name]]
-        full_values[full_id] = rule(phi_val)
-
-    # 2. Apply each reduced edge/node's formula over its contributors
-    reduced_values = {}
-    for r in reduced.edges + reduced.nodes:
-        vals = [full_values[c] for c in r.contributors]
-        reduced_values[r.id] = r.formula.apply(vals)
-
-    return reduced_values
-```
-
-### Pseudo: identifiability-driven suggestion
-
-```python
-def suggest_reductions(spec: ReductionSpec, mapping: Mapping,
-                       sample_residuals: Callable) -> list[SpecTransform]:
-    """
-    Compute Jacobian of residuals w.r.t. φ (FD or analytical).
-    Group correlated φ's (SVD or correlation matrix).
-    For each group, propose a SpecTransform: merge into one effective φ
-    with a combined prior, or fix one and free the others.
-    """
-```
-
-The user accepts or rejects each transform; the spec is rewritten.
+`refine` and `coarsen` change the φ count. `resolve` is unique to
+`RC_chain`: it changes dynamics fidelity without changing the φ count.
+`fix`/`free`/`tie` change which φ's are active.
 
 ---
 
-## Layer 4 — Solver (θ-space)
+## The loop
 
-Numerical layer. `AssembledSystem` is built from the **reduced** graph (small
-matrices). The fit loop only ever sees φ and residuals.
-
-### Functions
-
-```python
-def assemble(reduced: ReducedRCGraph) -> AssembledSystem:
-    """
-    reduced graph + current values → (A, B_boundary, B_source) matrices.
-    Topology is fixed; only edge/node values change between iterations.
-    """
-
-def patch_values(sys: AssembledSystem, reduced_values: dict[str, float]) -> AssembledSystem:
-    """
-    Cheap update: fill A and B entries by precomputed (i, j) indices.
-    Avoids rebuilding the node/edge index on every fit iteration.
-    """
-
-def simulate_zoh(sys: AssembledSystem, inputs, y0) -> np.ndarray:
-    """Pure numerics — unchanged from current implementation."""
+```
+   ┌─────────────────────────────────────────────────────────┐
+   │ House (Elements + Beliefs)                              │◄────────┐
+   └────────────────────────┬────────────────────────────────┘         │
+                            │ build_atoms, build_domain                 │
+                            ▼                                          │
+   ┌─────────────────────────────────────────────────────────┐         │
+   │ Atoms  +  Domain elements                                │         │
+   └────────────────────────┬────────────────────────────────┘         │
+                            │ propose_view(depth=coarse)                │
+                            ▼                                          │
+   ┌─────────────────────────────────────────────────────────┐         │
+   │ View (pseudos, priors, mode)                             │◄──┐    │
+   └────────────────────────┬────────────────────────────────┘   │    │
+                            │ fit                                 │    │
+                            ▼                                     │    │
+   ┌─────────────────────────────────────────────────────────┐   │    │
+   │ FitResult: posterior on pseudos, residuals, diagnostics  │   │    │
+   └────────────────────────┬────────────────────────────────┘   │    │
+                            │                                     │    │
+              ┌─────────────┴─────────────┐                       │    │
+              ▼                           ▼                       │    │
+   ┌─────────────────────┐   ┌─────────────────────────┐         │    │
+   │ attribute → Insight │   │ inspect residuals + φ   │         │    │
+   │ (proposed Belief    │   │ correlations → decide:   │         │    │
+   │  updates on house)  │   │ refine? coarsen?         │         │    │
+   └──────────┬──────────┘   │ resolve? tie?            │         │    │
+              │              └─────────────┬───────────┘         │    │
+              │ user / agent               │ transform_view       │    │
+              │ accepts                    └──────────────────────┘    │
+              │                                                        │
+              └────────────────────────────────────────────────────────┘
+                          (Beliefs updated on Elements)
 ```
 
-### The fit loop
+Two arrows out of every FitResult:
+
+- **Down** to the Elements, via `attribute`: a posterior on `Req_envelope`
+  becomes proposed updates to the underlying λ, thickness, area Beliefs,
+  weighted by their confidence.
+- **Up** to the View, via `transform_view`: the residual structure and
+  posterior correlations tell us how to change the abstraction level.
+
+Both arrows can be taken at every iteration. The agent's job is to decide
+which, and when to stop.
+
+---
+
+## What the agent does
+
+The agent is the loop driver. It does not do physics. It calls
+deterministic tools and decides what to do next based on their output.
+
+Tool surface:
 
 ```python
-def build_forward(house, study, spec):
-    full      = expand(house, materials)
-    reduced   = reduce_graph(full)
-    mapping   = compile_mapping(full, reduced, spec, materials)
-    sys_proto = assemble(reduced)         # topology only
-
-    def residuals(phi_log):
-        phi   = np.exp(phi_log)
-        vals  = mapping.forward(phi)
-        sys   = patch_values(sys_proto, vals)
-        y     = simulate_zoh(sys, study.inputs, study.y0)
-        r_obs = (y - study.obs).ravel()
-        r_pr  = prior_residuals(phi, mapping.phi_priors)
-        return np.concatenate([r_obs, r_pr])
-
-    return residuals, mapping
+build_atoms(element)            # rarely called directly; usually batch
+build_domain(house)
+propose_view(domain, depth)
+fit(view, study)
+attribute(fit_result, view)
+transform_view(view, op)
+apply_insight(house, insight, accepted_indices)
+flag_input(element_id, quantity, reason)   # for user review, no auto-apply
 ```
 
-Log-space is a fit-layer concern (keeps φ > 0), not a mapping concern. The
-mapping speaks in physical units.
+The agent's decisions are recorded as a **trace** attached to the study,
+along with each tool call's result. The trace is replayable: re-running an
+agent on the same house+study should produce the same final view (modulo
+LLM nondeterminism, which the trace exposes).
+
+What the agent *should* do, in spirit:
+
+1. Start with `propose_view(domain, depth='coarse')`. Fit.
+2. Look at residuals. If they fit cleanly, attribute and stop.
+3. Look at φ correlations. If two φ's are highly correlated, propose `tie`
+   or `coarsen`.
+4. Look at posterior vs. prior. If a φ is pegged at a bound or has very
+   wide posterior, propose `fix` or `coarsen` (uninformative).
+5. Look at residual *structure* (lags, periodicities). If structure remains,
+   propose `refine` or `resolve` in the relevant subtree.
+6. Iterate until residuals are unstructured and every φ is identifiable.
+7. Call `attribute` to produce proposed Belief updates. Present to user.
+
+The agent narrates each decision. Every quantitative claim it makes is
+backed by a tool result, citable in the trace.
 
 ---
 
 ## What gets persisted
 
-| Object | Where | Recomputed when |
+| Object          | Where                       | Recomputed when                |
 |---|---|---|
-| House JSON | `data/houses/<name>.json` | user-edited |
-| FullRCGraph | not stored | every run/fit |
-| ReducedRCGraph | not stored | every run/fit |
-| ReductionSpec | embedded in study | user-edited; suggestions on demand |
-| Mapping | not stored | every run/fit |
-| AssembledSystem | not stored (held in fit closure) | every run/fit |
-| Fit result (φ values, std, cov) | embedded in study | each fit completes |
+| Elements + Beliefs | `data/houses/<name>.json` | user-edited, insight-applied   |
+| MaterialLibrary | `data/materials.json`       | rarely                          |
+| Atoms           | not stored                   | every fit                       |
+| Domain elements | not stored                   | every fit                       |
+| View            | embedded in Study            | edited via transform_view       |
+| FitResult       | embedded in Study            | each fit                        |
+| Insight         | embedded in Study            | after each attribute            |
+| Agent trace     | embedded in Study            | as the agent runs               |
 
-Nothing derived is persisted. The house JSON + study (with `ReductionSpec`)
-fully determine the model.
+Nothing derived (atoms, domain, A/B matrices) is persisted. The house file
++ study (with its view, fit result, insights, and trace) is fully
+determining.
 
 ---
 
@@ -444,34 +461,60 @@ fully determine the model.
 
 ```
 solver/
-  physics.py          # layer 1 → 2a:  expand(house) → FullRCGraph
-  reduce.py           # layer 2a → 2b: reduce_graph(full) → ReducedRCGraph    [NEW]
-  reduction_spec.py   # layer 3 spec:  data model + default builder            [NEW]
-  mapping.py          # layer 3 fn:    compile_mapping(...) → Mapping          [NEW]
-  assemble.py         # layer 4:       reduced → AssembledSystem (topology)
-  simulate.py         # layer 4:       simulate_ivp + simulate_zoh
-  fit.py              # layer 4:       build_forward + fit_nls + fit_mcmc
-  identifiability.py  # layer 3 tool:  suggest_reductions(spec, mapping, ...)
+  beliefs.py          # Belief, composition, prior propagation
+  elements.py         # Element schema, house loader
+  atoms.py            # build_atoms — per-element atom expansion
+  domain.py           # build_domain — element list → domain elements
+  pseudos.py          # Pseudo, combine rules, RC_chain math
+  view.py             # View, propose_view, transform_view
+  assemble.py         # atoms → AssembledSystem (A, B matrices)
+  simulate.py         # solver — simulate_ivp, simulate_zoh
+  fit.py              # fit(view, study) — wraps scipy + prior residuals
+  attribute.py        # attribute — posterior → BeliefUpdates
+agent/
+  tools.py            # deterministic tool wrappers exposed to the LLM
+  loop.py             # the agent loop, trace recording
 ```
 
-Three new modules: `reduce.py`, `reduction_spec.py`, `mapping.py`. The
-existing `physics.py` shrinks to just expand (no implicit reduction).
-`assemble.py` simplifies (input is already reduced; no internal Schur).
-`fit.py` becomes a thin wrapper around `Mapping`.
+Four new modules (`beliefs.py`, `atoms.py`, `domain.py`, `pseudos.py`,
+`view.py`, `attribute.py`) and an `agent/` subpackage. The existing
+`physics.py` is replaced by the explicit atom/pseudo/view split.
 
 ---
 
 ## UI consequences
 
-A new pane is needed between the house editor and the study tab: the
-**Reduced physical model** view. Shows the `ReductionSpec` as:
+Three panes, mapped to the three layers:
 
-- a table of φ (name, mode, prior, current value, free/fixed badge)
-- the reduced-graph topology drawn underneath, with edges/nodes labeled
-  by the φ(s) that control them
-- a "suggest reductions" button → calls `identifiability` → presents
-  transforms the user can accept
+- **House editor** (domain + elements): the user edits Elements and their
+  Beliefs. Confidence is set via a four-way control per declared quantity.
+- **View editor** (pseudo): the φ-space table — name, kind, prior,
+  posterior, mode, modulator. Refine/coarsen/resolve/tie buttons on each
+  row. Underneath, the reduced graph drawn with edges labeled by their
+  controlling pseudo.
+- **Study runner** (fit + insight): launch fits, inspect residuals, review
+  proposed BeliefUpdates, accept/reject each one, see the agent trace.
 
-The existing "RC Graph" tab continues to show the **reduced** RC graph
-(layer 2b) for solver-level inspection. The new view is layer 3 and is the
-primary place the user adjusts what to fit.
+The atoms layer has no UI — it's an implementation detail of the solver.
+
+---
+
+## Open questions
+
+1. **Chain depth `n` per study, or per element?** Likely per study: a
+   daily-resolution study needs n=1; a 15-minute study may need n=5. The
+   View carries `n` per `RC_chain` pseudo.
+2. **Attribution weighting.** How exactly does a posterior on `R_envelope`
+   distribute across its atoms' source beliefs? Naive: by relative prior
+   variance. Better: by partial-derivative-weighted variance. This is the
+   genuinely subtle step and probably needs the agent's judgment as well
+   as a default rule.
+3. **Cross-study learning.** A posterior on brick λ from one study should
+   inform the next study's prior on brick λ in another room. The
+   `Belief.source` field supports this; the policy for when to auto-merge
+   vs. require user confirmation is undecided.
+4. **Modulators on aggregated pseudos.** A `Req` covering five wall layers
+   that all share a shutter modulator inherits cleanly. A `Req` covering
+   mixed-modulator atoms (some shuttered, some not) doesn't — likely the
+   view should refuse to form such a pseudo, forcing the user/agent to
+   keep them split.
